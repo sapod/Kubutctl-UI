@@ -210,7 +210,7 @@ const execute = async (command: string, notifyOnError: boolean = true): Promise<
     try {
         const response = await fetch('http://localhost:3001/api/kubectl', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command }),
-            signal: AbortSignal.timeout(10000)
+            signal: AbortSignal.timeout(30000)
         });
         if (!response.ok) {
              const err = await response.json().catch(() => ({ error: "Backend execution failed" }));

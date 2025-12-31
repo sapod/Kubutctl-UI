@@ -127,11 +127,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             let data: Partial<AppState> = {}; const ns = state.selectedNamespace; const notify = !isBackground;
             const merge = (pods: Pod[], metrics: any) => pods.map(p => metrics[p.name] ? { ...p, cpuUsage: metrics[p.name].cpu, memoryUsage: metrics[p.name].memory } : p);
             if (isClusterSwitch) {
-                const [nodes, namespaces, pods, deployments, services, events] = await Promise.all([kubectl.getNodes(notify), kubectl.getNamespaces(notify), kubectl.getPods(ns, notify), kubectl.getDeployments(ns, notify), kubectl.getServices(ns, notify), kubectl.getEvents(ns, notify)]);
-                data = { nodes, namespaces, pods, deployments, services, events };
+                data.namespaces = await kubectl.getNamespaces(notify);
+                dispatch({ type: 'SET_DATA', payload: data });
+                const [nodes, pods, deployments, services, events] =
+                    await Promise.all([kubectl.getNodes(notify), kubectl.getPods(ns, notify), kubectl.getDeployments(ns, notify), kubectl.getServices(ns, notify), kubectl.getEvents(ns, notify)]);
+                data = { nodes, pods, deployments, services, events };
             } else {
-                const [namespaces, events] = await Promise.all([kubectl.getNamespaces(notify), kubectl.getEvents(ns, notify)]);
-                data.namespaces = namespaces; data.events = events;
+                data.namespaces = await kubectl.getNamespaces(notify);
+                dispatch({ type: 'SET_DATA', payload: data });
+                data.events = await kubectl.getEvents(ns, notify);
+                dispatch({ type: 'SET_DATA', payload: data });
+
                 switch (state.view) {
                     case 'overview': { const [nodes, pods, deps] = await Promise.all([kubectl.getNodes(notify), kubectl.getPods(ns, notify), kubectl.getDeployments(ns, notify)]); data = { ...data, nodes, pods, deployments: deps }; break; }
                     case 'nodes': data.nodes = await kubectl.getNodes(notify); break;
