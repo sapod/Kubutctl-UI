@@ -2,9 +2,9 @@ name: Check kubectl.ts Changes
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
-    paths:
-      - 'src/services/kubectl.ts'
+#    types: [opened, synchronize, reopened]
+#    paths:
+#      - 'src/services/kubectl.ts'
 
 jobs:
   check-kubectl-changes:
