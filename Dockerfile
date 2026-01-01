@@ -6,7 +6,12 @@ WORKDIR /srv
 RUN echo "http://dl-cdn.alpinelinux.org/alpine/v3.23/main" > /etc/apk/repositories && \
     echo "http://dl-cdn.alpinelinux.org/alpine/v3.23/community" >> /etc/apk/repositories && \
     apk update && \
-    apk add --no-cache kubectl aws-cli
+    apk add --no-cache kubectl aws-cli ca-certificates
+
+# Handle self-signed certificates
+ENV AWS_CA_BUNDLE=""
+ENV PYTHONHTTPSVERIFY=0
+ENV NODE_TLS_REJECT_UNAUTHORIZED=0
 
 COPY package*.json  ./
 
