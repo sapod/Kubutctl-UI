@@ -1,3 +1,11 @@
+## Features
+
+- Light/Dark Theme Toggle
+- Multi-cluster management with visual hotbar
+- Real-time resource monitoring
+- Built-in terminal access
+- Port forwarding management + saved routines
+
 ## Run Locally
 
 **Prerequisites:**  Node.js
