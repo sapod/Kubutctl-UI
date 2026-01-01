@@ -18,7 +18,7 @@
    2. In Docker desktop go to Settings -> Resources -> Network \
    3. check "Enable host networking"
 2. Run the docker image:
-`docker run -d --restart always --network host -v ~/.kube:/root/.kube -v ~/.kube:/Users/<username>/.kube -v ~/.aws:/root/.aws:ro \
+`docker run -d --restart always --network host -v ~/.kube:/root/.kube -v ~/.kube:/Users/<username>/.kube -v ~/.aws:/root/.aws \
   -e AWS_PROFILE=$AWS_PROFILE -e KUBECONFIG=/root/.kube/config  --add-host kubernetes.docker.internal:host-gateway --name kubectl-ui  kubectl-ui:1.0.0`
 
 ## Ready docker image repository
