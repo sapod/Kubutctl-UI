@@ -24,13 +24,205 @@
       }
     </script>
     <style>
+      /* Theme CSS Variables */
+      :root[data-theme='dark'] {
+        --bg-primary: #0d1117;
+        --bg-secondary: #161b22;
+        --bg-tertiary: #1a202c;
+        --bg-card: #0d1117;
+        --bg-hover: #1f2937;
+        --text-primary: #f3f4f6;
+        --text-secondary: #9ca3af;
+        --text-tertiary: #6b7280;
+        --border-color: #374151;
+        --accent-color: #3b82f6;
+        --accent-hover: #2563eb;
+      }
+
+      :root[data-theme='light'] {
+        --bg-primary: #ffffff;
+        --bg-secondary: #f9fafb;
+        --bg-tertiary: #f3f4f6;
+        --bg-card: #ffffff;
+        --bg-hover: #f3f4f6;
+        --text-primary: #111827;
+        --text-secondary: #4b5563;
+        --text-tertiary: #6b7280;
+        --border-color: #e5e7eb;
+        --accent-color: #2563eb;
+        --accent-hover: #1d4ed8;
+      }
+
+      /* Apply theme variables to Tailwind classes */
+      [data-theme='light'] .bg-gray-950 {
+        background-color: var(--bg-primary) !important;
+      }
+      [data-theme='light'] .bg-gray-900 {
+        background-color: var(--bg-secondary) !important;
+      }
+      [data-theme='light'] .bg-gray-800 {
+        background-color: var(--bg-tertiary) !important;
+      }
+      [data-theme='light'] .text-gray-100 {
+        color: var(--text-primary) !important;
+      }
+      [data-theme='light'] .text-gray-200 {
+        color: var(--text-primary) !important;
+      }
+      [data-theme='light'] .text-gray-300 {
+        color: var(--text-secondary) !important;
+      }
+      [data-theme='light'] .text-gray-400 {
+        color: var(--text-tertiary) !important;
+      }
+      [data-theme='light'] .text-gray-500 {
+        color: var(--text-tertiary) !important;
+      }
+      [data-theme='light'] .border-gray-700 {
+        border-color: var(--border-color) !important;
+      }
+      [data-theme='light'] .border-gray-800 {
+        border-color: var(--border-color) !important;
+      }
+      [data-theme='light'] .border-gray-900 {
+        border-color: var(--border-color) !important;
+      }
+
+      /* Yellow color overrides for light theme */
+      [data-theme='light'] .text-yellow-100 {
+        color: #92400e !important; /* Dark brown/orange for better visibility */
+      }
+      [data-theme='light'] .text-yellow-200 {
+        color: #78350f !important;
+      }
+      [data-theme='light'] .text-yellow-400 {
+        color: #d97706 !important; /* Darker amber */
+      }
+      [data-theme='light'] .text-yellow-500 {
+        color: #b45309 !important;
+      }
+      [data-theme='light'] .bg-yellow-900\/20 {
+        background-color: rgba(254, 243, 199, 0.5) !important;
+      }
+      [data-theme='light'] .bg-yellow-900\/30 {
+        background-color: rgba(254, 243, 199, 0.6) !important;
+      }
+      [data-theme='light'] .bg-yellow-900\/40 {
+        background-color: rgba(254, 243, 199, 0.7) !important;
+      }
+      [data-theme='light'] .border-yellow-800 {
+        border-color: #d97706 !important;
+      }
+
+      /* Green color overrides for light theme - make them darker and more visible */
+      [data-theme='light'] .text-green-300 {
+        color: #15803d !important; /* Dark green instead of light green */
+      }
+      [data-theme='light'] .text-green-400 {
+        color: #16a34a !important; /* Darker, more visible green */
+      }
+      [data-theme='light'] .text-green-500 {
+        color: #15803d !important;
+      }
+      [data-theme='light'] .bg-green-900\/20 {
+        background-color: rgba(220, 252, 231, 0.7) !important;
+      }
+      [data-theme='light'] .bg-green-900\/30 {
+        background-color: rgba(220, 252, 231, 0.8) !important;
+      }
+      [data-theme='light'] .bg-green-900\/40 {
+        background-color: rgba(220, 252, 231, 0.9) !important;
+      }
+      [data-theme='light'] .bg-green-900\/50 {
+        background-color: rgba(187, 247, 208, 1) !important;
+      }
+      [data-theme='light'] .border-green-800 {
+        border-color: #16a34a !important;
+      }
+
+      /* Red color overrides for light theme */
+      [data-theme='light'] .text-red-100 {
+        color: #7f1d1d !important;
+      }
+      [data-theme='light'] .text-red-200 {
+        color: #991b1b !important;
+      }
+      [data-theme='light'] .text-red-300 {
+        color: #dc2626 !important;
+      }
+      [data-theme='light'] .text-red-400 {
+        color: #dc2626 !important;
+      }
+      [data-theme='light'] .text-red-500 {
+        color: #b91c1c !important;
+      }
+      [data-theme='light'] .bg-red-900\/20 {
+        background-color: rgba(254, 226, 226, 0.6) !important;
+      }
+      [data-theme='light'] .bg-red-900\/30 {
+        background-color: rgba(254, 226, 226, 0.8) !important;
+      }
+      [data-theme='light'] .bg-red-900\/40 {
+        background-color: rgba(254, 226, 226, 0.9) !important;
+      }
+      [data-theme='light'] .bg-red-900\/50 {
+        background-color: rgba(254, 202, 202, 1) !important;
+      }
+      [data-theme='light'] .bg-red-950 {
+        background-color: #fef2f2 !important;
+      }
+      [data-theme='light'] .border-red-500 {
+        border-color: #dc2626 !important;
+      }
+      [data-theme='light'] .border-red-800 {
+        border-color: #dc2626 !important;
+      }
+
+      /* Blue color overrides for light theme */
+      [data-theme='light'] .text-blue-300 {
+        color: #1d4ed8 !important; /* Darker blue for better visibility */
+      }
+      [data-theme='light'] .text-blue-400 {
+        color: #2563eb !important;
+      }
+      [data-theme='light'] .text-blue-500 {
+        color: #1d4ed8 !important;
+      }
+      [data-theme='light'] .bg-blue-900\/10 {
+        background-color: rgba(219, 234, 254, 0.5) !important;
+      }
+      [data-theme='light'] .bg-blue-900\/20 {
+        background-color: rgba(219, 234, 254, 0.7) !important;
+      }
+      [data-theme='light'] .bg-blue-900\/30 {
+        background-color: rgba(191, 219, 254, 0.8) !important;
+      }
+      [data-theme='light'] .bg-blue-900\/40 {
+        background-color: rgba(191, 219, 254, 0.9) !important;
+      }
+      [data-theme='light'] .bg-blue-900\/50 {
+        background-color: rgba(147, 197, 253, 1) !important;
+      }
+      [data-theme='light'] .bg-blue-600\/20 {
+        background-color: rgba(191, 219, 254, 0.4) !important;
+      }
+      [data-theme='light'] .border-blue-500 {
+        border-color: #2563eb !important;
+      }
+      [data-theme='light'] .border-blue-800 {
+        border-color: #1d4ed8 !important;
+      }
+      [data-theme='light'] .bg-blue-800 {
+        background-color: #1d4ed8 !important;
+      }
+
       /* Custom scrollbar for terminal look */
       ::-webkit-scrollbar {
         width: 8px;
         height: 8px;
       }
       ::-webkit-scrollbar-track {
-        background: #1a202c;
+        background: var(--bg-tertiary);
       }
       ::-webkit-scrollbar-thumb {
         background: #4a5568;
@@ -38,6 +230,16 @@
       }
       ::-webkit-scrollbar-thumb:hover {
         background: #718096;
+      }
+
+      [data-theme='light'] ::-webkit-scrollbar-track {
+        background: #e5e7eb;
+      }
+      [data-theme='light'] ::-webkit-scrollbar-thumb {
+        background: #9ca3af;
+      }
+      [data-theme='light'] ::-webkit-scrollbar-thumb:hover {
+        background: #6b7280;
       }
     </style>
   <script type="importmap">

@@ -1,4 +1,6 @@
 import { StoreProvider, useStore } from './store';
+import { ThemeProvider } from './contexts/ThemeContext';
+import { ThemeToggle } from './components/ThemeToggle';
 import {
     Sidebar, TerminalPanel, ResourceDrawer, ClusterHotbar, AddClusterModal,
     NamespaceSelector, ClusterCatalogModal, PortForwardModal, ShellModal, ConfirmationModal,
@@ -53,6 +55,7 @@ const MainLayout = () => {
                             <Loader2 className="animate-spin mr-2" size={14}/> Updating...
                         </div>
                     )}
+                    <ThemeToggle />
                     <button
                         onClick={() => dispatch({ type: 'TOGGLE_ADD_CLUSTER_MODAL', payload: true })}
                         className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded text-xs font-bold transition-all shadow-lg shadow-blue-900/20 flex items-center"
@@ -133,9 +136,11 @@ const MainLayout = () => {
 
 const App = () => {
   return (
-    <StoreProvider>
-      <MainLayout />
-    </StoreProvider>
+    <ThemeProvider>
+      <StoreProvider>
+        <MainLayout />
+      </StoreProvider>
+    </ThemeProvider>
   );
 };
 
