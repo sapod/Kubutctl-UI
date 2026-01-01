@@ -127,7 +127,7 @@ export const ClusterCatalogModal: React.FC = () => {
           initials: ctxName.substring(0, 2).toUpperCase(),
           color: '#10b981', // green for auto-detected
           textColor: '#ffffff',
-          isFavorite: false
+          isFavorite: true
         };
         dispatch({ type: 'ADD_CLUSTER', payload: newCluster });
     };
