@@ -3,8 +3,6 @@ import {
   ConfigMap, Namespace, K8sEvent, ResourceQuota, ResourceStatus, PortForward, ResourceStats
 } from '../types';
 
-export const IS_PREVIEW = false;
-
 let logToTerminal: ((cmd: string) => void) | null = null;
 let globalErrorHandler: ((err: string) => void) | null = null;
 let storeDispatch: ((action: any) => void) | null = null;
@@ -206,7 +204,6 @@ const transformResourceQuota = (raw: any): ResourceQuota => ({
 const execute = async (command: string, notifyOnError: boolean = true): Promise<any> => {
     const isSpam = (command.includes('get ') || command.includes('top ')) && !command.includes(' --watch') && !command.includes('logs');
     if (logToTerminal && !isSpam) logToTerminal(`> ${command}`);
-    if (IS_PREVIEW) return { items: [] };
     try {
         const response = await fetch('http://localhost:3001/api/kubectl', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command }),

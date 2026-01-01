@@ -1,0 +1,106 @@
+name: Version Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - master
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+      statuses: write
+
+    steps:
+      - name: Checkout PR code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Fetch base branch
+        run: |
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+
+      - name: Check if package.json version was updated
+        id: version-check
+        run: |
+          # Get the version from the base branch
+          BASE_VERSION=$(git show origin/${{ github.event.pull_request.base.ref }}:package.json | grep -m 1 '"version"' | sed 's/.*"version": "\(.*\)".*/\1/')
+          
+          # Get the version from the PR branch
+          PR_VERSION=$(grep -m 1 '"version"' package.json | sed 's/.*"version": "\(.*\)".*/\1/')
+          
+          echo "Base version: $BASE_VERSION"
+          echo "PR version: $PR_VERSION"
+          echo "base_version=$BASE_VERSION" >> $GITHUB_OUTPUT
+          echo "pr_version=$PR_VERSION" >> $GITHUB_OUTPUT
+          
+          if [ "$BASE_VERSION" = "$PR_VERSION" ]; then
+            echo "version_updated=false" >> $GITHUB_OUTPUT
+            echo "❌ Version was not updated"
+            exit 0
+          else
+            echo "version_updated=true" >> $GITHUB_OUTPUT
+            echo "✅ Version was updated from $BASE_VERSION to $PR_VERSION"
+            exit 0
+          fi
+
+      - name: Comment on PR if version not updated
+        if: steps.version-check.outputs.version_updated == 'false'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const comment = `❌ **Version Check Failed**
+            
+            The \`package.json\` version has not been updated in this pull request.
+            
+            **Current version:** \`${{ steps.version-check.outputs.base_version }}\`
+            
+            Please update the version in \`package.json\` before merging. You can use:
+            - Patch version for bug fixes: \`npm version patch\`
+            - Minor version for new features: \`npm version minor\`
+            - Major version for breaking changes: \`npm version major\`
+            
+            Or manually update the version field in package.json.`;
+            
+            // Check if we already commented
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const botComment = comments.find(comment => 
+              comment.user.type === 'Bot' && 
+              comment.body.includes('Version Check Failed')
+            );
+            
+            if (botComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: comment
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: comment
+              });
+            }
+
+      - name: Fail if version not updated
+        if: steps.version-check.outputs.version_updated == 'false'
+        run: |
+          echo "::error::package.json version must be updated before merging to main"
+          exit 1
+
