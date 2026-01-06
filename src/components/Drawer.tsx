@@ -6,6 +6,7 @@ import { Box, X, Globe, ArrowRightCircle, Container as ContainerIcon, Network, F
 import { StatusBadge, getAge, isMatch, resolvePortName, parseCpu, parseMemory } from './Shared';
 import PodTerminal from './PodTerminal';
 import yaml from 'js-yaml';
+import { BACKEND_WS_BASE_URL } from '../consts';
 
 // --- Drawer Table Component ---
 export const DrawerTable = ({ columns, data, onRowClick, storageKey }: {
@@ -991,7 +992,7 @@ export const ResourceDrawer: React.FC = () => {
                 <div className="flex-1 relative overflow-hidden">
                   {logTarget && logTarget.containers.length > 0 && (
                     <PodTerminal
-                      wsUrl={`ws://localhost:3001/exec?ns=${resource.namespace}&pod=${resource.name}&container=${logContainer}&shell=/bin/sh`}
+                      wsUrl={`${BACKEND_WS_BASE_URL}/exec?ns=${resource.namespace}&pod=${resource.name}&container=${logContainer}&shell=/bin/sh`}
                     />
                   )}
                 </div>

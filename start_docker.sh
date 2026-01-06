@@ -5,7 +5,7 @@ BACKEND_LOG="$LOGS_DIR/backend.log"
 
 # Set default BACKEND_PORT if not set
 if [ -z "$BACKEND_PORT" ]; then
-  BACKEND_PORT=3001
+  BACKEND_PORT=5174
 fi
 
 # Set default FRONTEND_PORT if not set
@@ -24,4 +24,4 @@ nohup env PORT=$BACKEND_PORT npm run server > "$BACKEND_LOG" 2>&1 &
 
 # Start frontend in foreground (keeps container alive)
 echo "Starting frontend..."
-exec npm run prod -- --port $FRONTEND_PORT
+exec env VITE_BE_PORT=$BACKEND_PORT npm run prod -- --port $FRONTEND_PORT

@@ -2,6 +2,7 @@ import {
   Node, Pod, Deployment, ReplicaSet, Job, CronJob, Service, Ingress,
   ConfigMap, Namespace, K8sEvent, ResourceQuota, ResourceStatus, PortForward, ResourceStats
 } from '../types';
+import { BACKEND_BASE_URL, BACKEND_PORT } from '../consts';
 
 let logToTerminal: ((cmd: string) => void) | null = null;
 let globalErrorHandler: ((err: string) => void) | null = null;
@@ -205,7 +206,7 @@ const execute = async (command: string, notifyOnError: boolean = true): Promise<
     const isSpam = (command.includes('get ') || command.includes('top ')) && !command.includes(' --watch') && !command.includes('logs');
     if (logToTerminal && !isSpam) logToTerminal(`> ${command}`);
     try {
-        const response = await fetch('http://localhost:3001/api/kubectl', {
+        const response = await fetch(`${BACKEND_BASE_URL}/api/kubectl`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command }),
             signal: AbortSignal.timeout(30000)
         });
@@ -227,7 +228,7 @@ const execute = async (command: string, notifyOnError: boolean = true): Promise<
     } catch (e: any) {
         if (notifyOnError && globalErrorHandler) {
             const isConnectionError = e.message?.includes('Failed to fetch') || e.message?.includes('NetworkError') || e.message?.includes('refused');
-            const msg = e.name === 'TimeoutError' ? 'Kubectl operation timed out' : (isConnectionError ? 'Cannot reach local backend (port 3001)' : e.message);
+            const msg = e.name === 'TimeoutError' ? 'Kubectl operation timed out' : (isConnectionError ? `Cannot reach local backend (port ${BACKEND_PORT})` : e.message);
             globalErrorHandler(msg || String(e));
         }
         throw e;
@@ -305,7 +306,7 @@ export const kubectl = {
   applyYaml: async (yaml: string, namespace: string): Promise<void> => {
       if (logToTerminal) logToTerminal(`> kubectl apply -f -`);
       try {
-          const response = await fetch('http://localhost:3001/api/kubectl/apply', {
+          const response = await fetch(`${BACKEND_BASE_URL}/api/kubectl/apply`, {
               method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ yaml, namespace })
           });
           if (!response.ok) {
@@ -329,15 +330,15 @@ export const kubectl = {
       try { const data = await executeWithVerification(KUBECTL_COMMANDS.logs, [name, ns, container], false); return typeof data === 'string' ? data.split('\n') : []; } catch (e) { return [(e as any).message || "Failed to fetch logs"]; }
   },
   openShell: async (podName: string, namespace: string, container: string): Promise<void> => {
-      try { await fetch('http://localhost:3001/api/kubectl/shell', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pod: podName, namespace, container }) }); } catch (e) {}
+      try { await fetch(`${BACKEND_BASE_URL}/api/kubectl/shell`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pod: podName, namespace, container }) }); } catch (e) {}
   },
   startPortForward: async (id: string, type: string, name: string, namespace: string, localPort: number, remotePort: number): Promise<number> => {
-      const response = await fetch('http://localhost:3001/api/port-forward/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ commandArgs: ['port-forward', '-n', namespace, `${type}/${name}`, `${localPort}:${remotePort}`], metadata: { id, resourceName: name, resourceType: type, namespace, localPort, remotePort } }) });
+      const response = await fetch(`${BACKEND_BASE_URL}/api/port-forward/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ commandArgs: ['port-forward', '-n', namespace, `${type}/${name}`, `${localPort}:${remotePort}`], metadata: { id, resourceName: name, resourceType: type, namespace, localPort, remotePort } }) });
       if (!response.ok) throw new Error("PF start failed");
       const data = await response.json(); return data.pid;
   },
   stopPortForward: async (pid: number): Promise<void> => {
-      await fetch('http://localhost:3001/api/port-forward/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pid }) });
+      await fetch(`${BACKEND_BASE_URL}/api/port-forward/stop`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pid }) });
   },
   getNodes: async (notify = true) => (await executeWithVerification(KUBECTL_COMMANDS.getNodes, [], notify)).items?.map(transformNode) || [],
   getNamespaces: async (notify = true) => (await executeWithVerification({ command: () => 'kubectl get namespaces -o json', shouldVerify: false }, [], notify)).items?.map(transformNamespace) || [],
@@ -353,7 +354,7 @@ export const kubectl = {
   getEvents: async (ns = 'All Namespaces', notify = true) => (await executeWithVerification(KUBECTL_COMMANDS.getEvents, [ns], notify)).items?.map(transformEvent) || [],
   getResourceQuotas: async (ns = 'All Namespaces', notify = true) => (await executeWithVerification(KUBECTL_COMMANDS.getResourceQuotas, [ns], notify)).items?.map(transformResourceQuota) || [],
   getPortForwards: async(_notify = true): Promise<PortForward[]> => {
-      try { const res = await fetch('http://localhost:3001/api/port-forward/list'); const data = await res.json(); return data.items || []; } catch (e) { return []; }
+      try { const res = await fetch(`${BACKEND_BASE_URL}/api/port-forward/list`); const data = await res.json(); return data.items || []; } catch (e) { return []; }
   },
   getResource: async (type: string, name: string, ns: string, notify = true): Promise<any> => {
       try {

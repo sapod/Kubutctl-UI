@@ -28,6 +28,6 @@ COPY ./start_docker.sh ./start_docker.sh
 RUN chmod +x start_docker.sh
 
 # Expose backend and frontend ports
-EXPOSE 3001 5173
+EXPOSE 5174 5173
 
 CMD ["./start_docker.sh"]

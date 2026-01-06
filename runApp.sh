@@ -11,7 +11,7 @@ if [[ "$1" == "--help" ]]; then
   echo "\nDescription:"
   echo "  Attempts to start the kubectl-ui Docker container with host networking."
   echo "  If host networking fails, falls back to explicit port mappings:"
-  echo "    -p 5173:5173 -p 3001:3001 -p 9229:9229 -p 9000-9010:9000-9010 plus any extra ports you specify."
+  echo "    -p 5173:5173 -p 5174:5174 -p 9229:9229 -p 9000-9010:9000-9010 plus any extra ports you specify."
   echo "  Example:"
   echo "    $0 --version 1.2.3 --extra-ports \"8081:8081,8888:8888\" --backend-port 12345 --frontend-port 5174"
   exit 0
@@ -76,7 +76,7 @@ fi
 # Add -e BACKEND_PORT and FRONTEND_PORT if specified
 BACKEND_PORT_ARG=""
 FRONTEND_PORT_ARG=""
-BACKEND_PORT_MAPPING="-p 3001:3001"
+BACKEND_PORT_MAPPING="-p 5174:5174"
 FRONTEND_PORT_MAPPING="-p 5173:5173"
 if [ -n "$BACKEND_PORT" ]; then
   BACKEND_PORT_ARG=" -e BACKEND_PORT=$BACKEND_PORT"

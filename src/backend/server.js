@@ -10,7 +10,7 @@ import { KubeConfig, Exec } from '@kubernetes/client-node';
 import { PassThrough } from 'stream';
 
 const app = express();
-const port = process.env.PORT || 3001;
+const port = process.env.PORT || 5174;
 const DEBUG = false; // Toggle this to enable/disable debug logging
 
 const server = http.createServer(app);

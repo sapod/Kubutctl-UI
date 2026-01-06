@@ -5,7 +5,7 @@ LOGS_DIR="logs"
 BACKEND_LOG="$LOGS_DIR/backend.log"
 FRONTEND_LOG="$LOGS_DIR/frontend.log"
 
-BACKEND_PORT=3001
+BACKEND_PORT=5174
 FRONTEND_PORT=5173
 
 # -----------------------------

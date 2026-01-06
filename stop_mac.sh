@@ -30,7 +30,7 @@ if [ -f "$PID_FILE" ]; then
   echo "PID file removed."
 else
   echo "PID file not found. Falling back to port-based cleanup..."
-  kill_port 3001
+  kill_port 5174
   kill_port 5173
 fi
 
