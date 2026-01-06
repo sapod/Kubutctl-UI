@@ -9,7 +9,7 @@ if [ -z "$BACKEND_PORT" ]; then
 fi
 
 # Set default FRONTEND_PORT if not set
-if [ -z "FRONTEND_PORT" ]; then
+if [ -z "$FRONTEND_PORT" ]; then
   FRONTEND_PORT=5173
 fi
 
