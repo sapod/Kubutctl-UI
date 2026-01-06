@@ -87,11 +87,6 @@ if [ -n "$FRONTEND_PORT" ]; then
   FRONTEND_PORT_MAPPING="-p $FRONTEND_PORT:$FRONTEND_PORT"
 fi
 
-echo "Using BACKEND_PORT: ${BACKEND_PORT:-3001}"
-echo "Using FRONTEND_PORT: ${FRONTEND_PORT:-5173}"
-echo $BACKEND_PORT_MAPPING
-echo $FRONTEND_PORT_MAPPING
-
 HOST_NET_CMD="docker run -d --restart always --network host \
   -v ~/.kube:/root/.kube \
   -v ~/.kube:/Users/${USERNAME}/.kube \
