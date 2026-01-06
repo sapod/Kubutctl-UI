@@ -24,4 +24,4 @@ nohup env PORT=$BACKEND_PORT npm run server > "$BACKEND_LOG" 2>&1 &
 
 # Start frontend in foreground (keeps container alive)
 echo "Starting frontend..."
-exec npm run prod -- --port $FRONTEND_PORT
+exec env VITE_BE_PORT=$BACKEND_PORT npm run prod -- --port $FRONTEND_PORT
