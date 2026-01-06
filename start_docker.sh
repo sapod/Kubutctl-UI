@@ -3,6 +3,16 @@
 LOGS_DIR="logs"
 BACKEND_LOG="$LOGS_DIR/backend.log"
 
+# Set default BACKEND_PORT if not set
+if [ -z "$BACKEND_PORT" ]; then
+  BACKEND_PORT=3001
+fi
+
+# Set default FRONTEND_PORT if not set
+if [ -z "FRONTEND_PORT" ]; then
+  FRONTEND_PORT=5173
+fi
+
 echo "Starting Kubectl-UI app services in Docker..."
 
 # Create logs directory if not exists
@@ -10,8 +20,8 @@ mkdir -p "$LOGS_DIR"
 
 # Start backend in background
 echo "Starting backend..."
-nohup npm run server > "$BACKEND_LOG" 2>&1 &
+nohup env PORT=$BACKEND_PORT npm run server > "$BACKEND_LOG" 2>&1 &
 
 # Start frontend in foreground (keeps container alive)
 echo "Starting frontend..."
-exec npm run dev
+exec npm run prod -- --port $FRONTEND_PORT

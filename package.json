@@ -1,10 +1,11 @@
 {
   "name": "kubectl-ui",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.2.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --port 5173",
+    "prod": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "server": "node src/backend/server.js"
