@@ -27,7 +27,36 @@
    3. check "Enable host networking"
 2. Run the docker image:
 `docker run -d --restart always --network host -v ~/.kube:/root/.kube -v ~/.kube:/Users/<username>/.kube -v ~/.aws:/root/.aws \
-  -e AWS_PROFILE=$AWS_PROFILE -e KUBECONFIG=/root/.kube/config  --add-host kubernetes.docker.internal:host-gateway --name kubectl-ui  kubectl-ui:1.0.0`
+  -e KUBECONFIG=/root/.kube/config  --add-host kubernetes.docker.internal:host-gateway --name kubectl-ui  kubectl-ui:latest`
+3. If host network is not possible, map ports instead:
+`docker run -d --restart always -p 5173:5173 -p 3001:3001 -p 9229:9229 -p 9000-9010:9000-9010 -v ~/.kube:/root/.kube -v ~/.kube:/Users/<username>/.kube -v ~/.aws:/root/.aws \
+  -e KUBECONFIG=/root/.kube/config  --add-host kubernetes.docker.internal:host-gateway --name kubectl-ui  sapod/kubectl-ui:latest`
+
+## Run docker image with script
+You can run the `runApp.sh` script to start the docker image automatically. \
+Make sure to give execution permissions to the script: \
+`chmod +x ./runApp.sh` \
+Then run the script: \
+`sh ./runApp.sh`
+
+### Script Options
+- `--version <tag>`: Specify the Docker image tag to use (default: latest)
+- `--extra-ports "PORT1:PORT1,PORT2:PORT2,..."`: Comma-separated list of additional ports to map (non host network mode)
+- `--backend-port <PORT>`: Set BACKEND_PORT environment variable in the container and map the port (replaces 3001:3001)
+- `--frontend-port <PORT>`: Set FRONTEND_PORT environment variable in the container and map the port (replaces 5173:5173)
+
+### Usage Examples
+Run with default options:
+`sh ./runApp.sh`
+
+Run with extra ports:
+`sh ./runApp.sh --extra-ports "8000:8000,8081:8081"`
+
+Run with custom backend and frontend ports:
+`sh ./runApp.sh --backend-port 12345 --frontend-port 5174`
+
+Run with a specific image version:
+`sh ./runApp.sh --version 1.2.3 --backend-port 12345 --frontend-port 5174 --extra-ports "8000:8000"`
 
 ## Ready docker image repository
 You can pull the ready image from the following repository: \
