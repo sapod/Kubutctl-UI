@@ -2,7 +2,7 @@ import {
   Node, Pod, Deployment, ReplicaSet, Job, CronJob, Service, Ingress,
   ConfigMap, Namespace, K8sEvent, ResourceQuota, ResourceStatus, PortForward, ResourceStats
 } from '../types';
-import { BACKEND_BASE_URL } from '../consts';
+import { BACKEND_BASE_URL, BACKEND_PORT } from '../consts';
 
 let logToTerminal: ((cmd: string) => void) | null = null;
 let globalErrorHandler: ((err: string) => void) | null = null;
@@ -228,7 +228,7 @@ const execute = async (command: string, notifyOnError: boolean = true): Promise<
     } catch (e: any) {
         if (notifyOnError && globalErrorHandler) {
             const isConnectionError = e.message?.includes('Failed to fetch') || e.message?.includes('NetworkError') || e.message?.includes('refused');
-            const msg = e.name === 'TimeoutError' ? 'Kubectl operation timed out' : (isConnectionError ? 'Cannot reach local backend (port 3001)' : e.message);
+            const msg = e.name === 'TimeoutError' ? 'Kubectl operation timed out' : (isConnectionError ? `Cannot reach local backend (port ${BACKEND_PORT})` : e.message);
             globalErrorHandler(msg || String(e));
         }
         throw e;

@@ -5,7 +5,7 @@ BACKEND_LOG="$LOGS_DIR/backend.log"
 
 # Set default BACKEND_PORT if not set
 if [ -z "$BACKEND_PORT" ]; then
-  BACKEND_PORT=3001
+  BACKEND_PORT=5174
 fi
 
 # Set default FRONTEND_PORT if not set
