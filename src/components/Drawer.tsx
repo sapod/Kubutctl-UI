@@ -265,6 +265,10 @@ export const ResourceDrawer: React.FC = () => {
           const p = state.pods.find(pod => pod.ownerReferences?.some(o => o.uid === resource.id));
           if (p && p.containers) return { pod: p, containers: p.containers.map(c => c.name) };
       }
+      if (state.selectedResourceType === 'deployment') {
+          // For deployments, we return a dummy pod with no containers (we'll fetch by label)
+          return { pod: resource as any, containers: [] };
+      }
       return null;
   };
 
@@ -279,10 +283,19 @@ export const ResourceDrawer: React.FC = () => {
   }, [activeTab, logTarget, logContainer]);
 
   const fetchLogs = async () => {
-      if (!logTarget || !logContainer) return;
+      if (!logTarget) return;
       setLoadingLogs(true);
       try {
-          const lines = await kubectl.getLogs(logTarget.pod.name, logTarget.pod.namespace, logContainer);
+          let lines: string[];
+          if (state.selectedResourceType === 'deployment') {
+              // Fetch deployment logs by label selector
+              lines = await kubectl.getDeploymentLogs(resource.name, resource.namespace);
+          } else if (logContainer) {
+              // Fetch pod/job logs
+              lines = await kubectl.getLogs(logTarget.pod.name, logTarget.pod.namespace, logContainer);
+          } else {
+              lines = ["No container selected."];
+          }
           setLogLogs(lines);
       } catch (e) {
           setLogLogs(["Failed to fetch logs."]);
@@ -292,10 +305,12 @@ export const ResourceDrawer: React.FC = () => {
   };
 
   useEffect(() => {
-      if (activeTab === 'logs' && logContainer) {
-          fetchLogs();
+      if (activeTab === 'logs') {
+          if (state.selectedResourceType === 'deployment' || logContainer) {
+              fetchLogs();
+          }
       }
-  }, [activeTab, logContainer]);
+  }, [activeTab, logContainer, state.selectedResourceType]);
 
   if (!state.drawerOpen || !resource) return null;
 
@@ -837,7 +852,7 @@ export const ResourceDrawer: React.FC = () => {
     );
   };
 
-  const showLogsTab = ['pod', 'job'].includes(state.selectedResourceType || '');
+  const showLogsTab = ['pod', 'job', 'deployment'].includes(state.selectedResourceType || '');
   const showEventsTab = state.selectedResourceType !== 'event';
   const showTerminalTab = state.selectedResourceType === 'pod';
 
@@ -1008,12 +1023,22 @@ export const ResourceDrawer: React.FC = () => {
         )}
         {activeTab === 'logs' && (
           <div className="h-full flex flex-col">
-              <div className="flex items-center gap-2 mb-4">
-                  <select className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-blue-500" value={logContainer} onChange={(e) => setLogContainer(e.target.value)}>
-                      {logTarget?.containers.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                  <button onClick={fetchLogs} className="p-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-gray-400 hover:text-white"><RefreshCw size={16} className={loadingLogs ? "animate-spin" : ""} /></button>
-              </div>
+              {state.selectedResourceType !== 'deployment' && logTarget && logTarget.containers.length > 0 && (
+                  <div className="flex items-center gap-2 mb-4">
+                      <select className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-blue-500" value={logContainer} onChange={(e) => setLogContainer(e.target.value)}>
+                          {logTarget.containers.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                      <button onClick={fetchLogs} className="p-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-gray-400 hover:text-white"><RefreshCw size={16} className={loadingLogs ? "animate-spin" : ""} /></button>
+                  </div>
+              )}
+              {state.selectedResourceType === 'deployment' && (
+                  <div className="flex items-center gap-2 mb-4">
+                      <div className="text-xs text-gray-400 bg-gray-800/50 px-3 py-1.5 rounded border border-gray-700">
+                          Showing aggregated logs from all pods with label: <span className="font-mono text-blue-400">release={resource.name}</span>
+                      </div>
+                      <button onClick={fetchLogs} className="p-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-gray-400 hover:text-white"><RefreshCw size={16} className={loadingLogs ? "animate-spin" : ""} /></button>
+                  </div>
+              )}
               <div className="flex-1 bg-gray-950 border border-gray-800 rounded p-4 overflow-y-auto font-mono text-xs text-gray-300 whitespace-pre-wrap">
                   {loadingLogs ? (<div className="text-gray-500 italic">Loading logs...</div>) : logLogs.length > 0 ? (logLogs.map((line, i) => <div key={i}>{line}</div>)) : (<div className="text-gray-500 italic">No logs available or container not running.</div>)}
               </div>

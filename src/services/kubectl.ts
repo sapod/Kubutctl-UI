@@ -58,6 +58,7 @@ export const KUBECTL_COMMANDS: Record<string, CommandDefinition> = {
   },
   portForward: { command: (type: string, name: string, ns: string, local: number, remote: number) => `kubectl port-forward ${type}/${name} ${local}:${remote} -n ${ns}`, shouldVerify: false },
   logs: { command: (name: string, ns: string, container?: string) => `kubectl logs ${name} -n ${ns} ${container ? `-c ${container}` : ''} --tail=100`, shouldVerify: false },
+  logsWithSelector: { command: (selector: string, ns: string) => `kubectl logs -l ${selector} -n ${ns} --all-containers=true --prefix=true --tail=100`, shouldVerify: false },
   exec: { command: (name: string, ns: string, container: string, cmd: string) => `kubectl exec ${name} -n ${ns} -c ${container} -- ${cmd}`, shouldVerify: false },
   configView: { command: () => `kubectl config view -o json`, shouldVerify: false },
   useContext: { command: (context: string) => `kubectl config use-context ${context}`, shouldVerify: false },
@@ -335,6 +336,14 @@ export const kubectl = {
   },
   getLogs: async (name: string, ns: string, container?: string): Promise<string[]> => {
       try { const data = await executeWithVerification(KUBECTL_COMMANDS.logs, [name, ns, container], false); return typeof data === 'string' ? data.split('\n') : []; } catch (e) { return [(e as any).message || "Failed to fetch logs"]; }
+  },
+  getDeploymentLogs: async (deploymentName: string, ns: string): Promise<string[]> => {
+      try { 
+        const data = await executeWithVerification(KUBECTL_COMMANDS.logsWithSelector, [`release=${deploymentName}`, ns], false); 
+        return typeof data === 'string' ? data.split('\n') : []; 
+      } catch (e) { 
+        return [(e as any).message || "Failed to fetch deployment logs"]; 
+      }
   },
   openShell: async (podName: string, namespace: string, container: string): Promise<void> => {
       try { await fetch(`${BACKEND_BASE_URL}/api/kubectl/shell`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pod: podName, namespace, container }) }); } catch (e) {}
