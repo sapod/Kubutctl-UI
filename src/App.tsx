@@ -70,6 +70,16 @@ const MainLayout = () => {
                 className="flex-1 overflow-y-auto bg-gray-950 relative custom-scrollbar"
                 onClick={() => state.drawerOpen && dispatch({ type: 'CLOSE_DRAWER' })}
             >
+               {/* Context Switching Lock - Only covers main content area */}
+               {state.isContextSwitching && (
+                   <div className="absolute inset-0 bg-gray-950/95 backdrop-blur-md z-40 flex items-center justify-center">
+                       <div className="text-center">
+                           <Loader2 className="animate-spin mx-auto mb-4 text-blue-400" size={48} />
+                           <h3 className="text-xl font-bold text-gray-100 mb-2">Switching Context...</h3>
+                           <p className="text-sm text-gray-400">Loading data from new cluster</p>
+                       </div>
+                   </div>
+               )}
                {renderView()}
             </div>
 

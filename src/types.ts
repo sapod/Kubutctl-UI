@@ -228,6 +228,7 @@ export type View =
 export interface AppState {
   view: View;
   isLoading: boolean;
+  isContextSwitching: boolean; // Lock UI during context switch
   error: string | null; // Added global error state
   currentClusterId: string;
   selectedNamespace: string; // 'All Namespaces' or specific name
@@ -270,6 +271,7 @@ export interface AppState {
 export type Action =
   | { type: 'SET_VIEW'; payload: View }
   | { type: 'SET_LOADING'; payload: boolean }
+  | { type: 'SET_CONTEXT_SWITCHING'; payload: boolean }
   | { type: 'SET_ERROR'; payload: string | null }
   | { type: 'SET_DATA'; payload: Partial<AppState> }
   | { type: 'SELECT_CLUSTER'; payload: string }
