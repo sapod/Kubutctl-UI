@@ -4,13 +4,17 @@ import { ThemeToggle } from './components/ThemeToggle';
 import {
     Sidebar, TerminalPanel, ResourceDrawer, ClusterHotbar, AddClusterModal,
     NamespaceSelector, ClusterCatalogModal, PortForwardModal, ShellModal, ConfirmationModal,
-    RoutineModal, ErrorBanner,
+    RoutineModal, ErrorBanner, VersionCheckPopup,
     OverviewPage, NodesPage, PodsPage, DeploymentsPage, ReplicaSetsPage,
     JobsPage, CronJobsPage, ServicesPage, IngressesPage, ConfigMapsPage,
     NamespacesPage, ResourceQuotasPage, PortForwardingPage
 } from './components/UI';
 import { Loader2, Plus } from 'lucide-react';
 import { kubectl } from './services/kubectl';
+import packageJson from '../package.json';
+
+// Get current version from package.json
+const CURRENT_VERSION = packageJson.version;
 
 const MainLayout = () => {
   const { state, dispatch } = useStore();
@@ -88,6 +92,7 @@ const MainLayout = () => {
         </div>
 
         {/* Overlays */}
+        <VersionCheckPopup currentVersion={CURRENT_VERSION} />
         <AddClusterModal />
         <ClusterCatalogModal />
         <ResourceDrawer />
