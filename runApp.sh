@@ -106,16 +106,20 @@ PORTS_CMD="docker run -d --restart always \
   --name ${CONTAINER_NAME} \
   ${IMAGE_NAME}"
 
+# clean previous runs
+echo "Cleaning up any existing container named ${CONTAINER_NAME}..."
+docker rm -f ${CONTAINER_NAME} >/dev/null 2>&1 && echo "Removed existing container ${CONTAINER_NAME}."
+
 # Try host network first
-if eval "$HOST_NET_CMD"; then
-  echo "Container started with host networking."
+if eval "$HOST_NET_CMD" >/dev/null 2>&1; then
+  echo "✔ Container started with host networking."
 else
-  echo "Host network failed. Removing any existing container and retrying with explicit port mappings."
-  docker rm -f ${CONTAINER_NAME}
-  if eval "$PORTS_CMD"; then
-    echo "Container started with port mappings."
+  echo "Container starting with host network failed. Removing any existing container and retrying with explicit port mappings."
+  docker rm -f ${CONTAINER_NAME} >/dev/null 2>&1 && echo "Removed existing container ${CONTAINER_NAME}."
+  if eval "$PORTS_CMD" >/dev/null 2>&1; then
+    echo "✔ Container started with port mappings."
     echo "WARNING: Host network mode failed. Port forwarding available in ports 9000-9010 and 9229 (inspect port) only, plus any extra ports you specified."
-    echo "EXTRA_PORTS: $EXTRA_PORTS"
+    [ -n "$EXTRA_PORTS" ] && echo "EXTRA_PORTS: $EXTRA_PORTS"
   else
     echo "Failed to start container with port mappings. Please check Docker logs."
     exit 1
