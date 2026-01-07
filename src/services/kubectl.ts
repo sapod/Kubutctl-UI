@@ -132,7 +132,14 @@ const transformPod = (raw: any): Pod => {
       ownerReferences: raw.metadata.ownerReferences, status: status as ResourceStatus, isReady,
       restarts: raw.status.containerStatuses?.reduce((acc: number, c: any) => acc + c.restartCount, 0) || 0,
       node: raw.spec.nodeName, cpuUsage: '0m', memoryUsage: '0Mi', logs: [],
-      containers: raw.spec.containers.map((c: any) => ({ name: c.name, image: c.image, ports: c.ports || [], resources: c.resources, volumeMounts: c.volumeMounts || [] })),
+      containers: raw.spec.containers.map((c: any) => ({ 
+        name: c.name, 
+        image: c.image, 
+        ports: c.ports || [], 
+        env: c.env || [],
+        resources: c.resources, 
+        volumeMounts: c.volumeMounts || [] 
+      })),
       volumes: raw.spec.volumes || [], resourceStats: aggregateResources(raw.spec.containers), relatedConfigMaps: [],
       raw
     };

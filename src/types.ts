@@ -28,10 +28,22 @@ export interface ContainerPort {
   protocol: string;
 }
 
+export interface ContainerEnvVar {
+  name: string;
+  value?: string;
+  valueFrom?: {
+    configMapKeyRef?: { name: string; key: string };
+    secretKeyRef?: { name: string; key: string };
+    fieldRef?: { fieldPath: string };
+    resourceFieldRef?: { resource: string };
+  };
+}
+
 export interface Container {
   name: string;
   image: string;
   ports: ContainerPort[];
+  env?: ContainerEnvVar[];
   resources?: {
       requests?: { cpu: string; memory: string };
       limits?: { cpu: string; memory: string };

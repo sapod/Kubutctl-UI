@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useStore } from '../store';
 import { AppState, Pod, Ingress, Service, ResourceStatus, Deployment, Job } from '../types';
 import { kubectl } from '../services/kubectl';
-import { Box, X, Globe, ArrowRightCircle, Container as ContainerIcon, Network, FileText, RotateCw, Trash2, ChevronDown, RefreshCw, AlertTriangle, Maximize2, Minimize2, HardDrive, ExternalLink, ArrowLeft, StopCircle, Play, History, Edit2, Save } from 'lucide-react';
+import { Box, X, Globe, ArrowRightCircle, Container as ContainerIcon, Network, FileText, RotateCw, Trash2, ChevronDown, RefreshCw, AlertTriangle, Maximize2, Minimize2, HardDrive, ExternalLink, ArrowLeft, StopCircle, Play, History, Edit2, Save, Key } from 'lucide-react';
 import { StatusBadge, getAge, isMatch, resolvePortName, parseCpu, parseMemory } from './Shared';
 import PodTerminal from './PodTerminal';
 import yaml from 'js-yaml';
@@ -708,6 +708,68 @@ export const ResourceDrawer: React.FC = () => {
                                                        <HardDrive size={12} className="flex-shrink-0" />
                                                        <span className="truncate">{vm.name}</span>
                                                    </span>
+                                               )}
+                                           </div>
+                                       </div>
+                                   </div>
+                               );
+                           })}
+                       </div>
+                   </div>
+               )}
+               {c.env && c.env.length > 0 && (
+                   <div className="ml-5 mt-2">
+                       <span className="text-xs text-gray-500 uppercase tracking-wider font-bold block mb-1">Environment:</span>
+                       <div className="space-y-1.5">
+                           {c.env.map((envVar, idx) => {
+                               let valueDisplay: JSX.Element | string = '-';
+
+                               if (envVar.value !== undefined) {
+                                   valueDisplay = envVar.value;
+                               } else if (envVar.valueFrom) {
+                                   if (envVar.valueFrom.configMapKeyRef) {
+                                       valueDisplay = (
+                                           <span
+                                               className="text-yellow-400 hover:text-yellow-300 hover:underline cursor-pointer flex items-center gap-1.5 font-medium transition-colors"
+                                               onClick={() => handleConfigMapClick(envVar.valueFrom!.configMapKeyRef!.name, pod.namespace)}>
+                                               <FileText size={12} className="flex-shrink-0"/>
+                                               <span>{envVar.valueFrom.configMapKeyRef.name}:{envVar.valueFrom.configMapKeyRef.key}</span>
+                                               <ExternalLink size={10} className="flex-shrink-0 opacity-50"/>
+                                           </span>
+                                       );
+                                   } else if (envVar.valueFrom.secretKeyRef) {
+                                       valueDisplay = (
+                                           <span className="text-purple-400 flex items-center gap-1.5">
+                                               <Key size={12} className="flex-shrink-0"/>
+                                               <span>{envVar.valueFrom.secretKeyRef.name}:{envVar.valueFrom.secretKeyRef.key}</span>
+                                           </span>
+                                       );
+                                   } else if (envVar.valueFrom.fieldRef) {
+                                       valueDisplay = (
+                                           <span className="text-cyan-400 flex items-center gap-1.5">
+                                               <span className="font-mono">{envVar.valueFrom.fieldRef.fieldPath}</span>
+                                           </span>
+                                       );
+                                   } else if (envVar.valueFrom.resourceFieldRef) {
+                                       valueDisplay = (
+                                           <span className="text-green-400 flex items-center gap-1.5">
+                                               <span className="font-mono">{envVar.valueFrom.resourceFieldRef.resource}</span>
+                                           </span>
+                                       );
+                                   }
+                               }
+
+                               return (
+                                   <div key={idx} className="flex flex-col text-xs bg-gray-900/50 p-2 rounded border border-gray-700/30">
+                                       <div className="grid grid-cols-[80px_1fr] gap-1">
+                                           <span className="text-gray-500">Name:</span>
+                                           <span className="font-mono text-gray-300 break-all">{envVar.name}</span>
+                                           <span className="text-gray-500">Value:</span>
+                                           <div className="min-w-0 break-all">
+                                               {typeof valueDisplay === 'string' ? (
+                                                   <span className="font-mono text-gray-300">{valueDisplay}</span>
+                                               ) : (
+                                                   valueDisplay
                                                )}
                                            </div>
                                        </div>
