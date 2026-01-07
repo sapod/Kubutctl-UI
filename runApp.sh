@@ -125,3 +125,5 @@ else
     exit 1
   fi
 fi
+
+echo "Kubectl-UI is running at: http://localhost:${FRONTEND_PORT:-5173}"
