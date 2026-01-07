@@ -387,10 +387,6 @@ app.post('/api/kubectl/shell', (req, res) => {
 // Load kube config:
 // - Out-of-cluster (Docker backend): mounts ~/.kube/config and uses it.
 // - In-cluster (k8s backend): loads service account automatically.
-const kc = new KubeConfig();
-kc.loadFromDefault();
-const k8sExec = new Exec(kc);
-
 wss.on('connection', async (ws, req) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const namespace = url.searchParams.get('ns') || 'default';
@@ -402,6 +398,17 @@ wss.on('connection', async (ws, req) => {
     ws.close(1011, 'pod is required');
     return;
   }
+
+  // Reload KubeConfig for each connection to pick up context changes
+  const kc = new KubeConfig();
+  try {
+    kc.loadFromDefault();
+  } catch (err) {
+    ws.send(`\r\n[Error loading kubeconfig: ${err.message}]\r\n`);
+    ws.close(1011, 'Failed to load kubeconfig');
+    return;
+  }
+  const k8sExec = new Exec(kc);
 
   // Streams to bridge Kubernetes exec <-> WebSocket
   const inStream = new PassThrough();   // client -> pod stdin
