@@ -65,6 +65,22 @@ export const ClusterCatalogModal: React.FC = () => {
       }
     }, [state.isCatalogOpen]);
 
+    // Save changes when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (editingId) {
+                const target = event.target as HTMLElement;
+                // Check if click is outside any edit form
+                if (!target.closest('.cluster-edit-card')) {
+                    saveCurrentEdit();
+                }
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [editingId, editName, editInitials, editColor, editTextColor]);
+
     const loadContexts = async () => {
         setIsLoadingContexts(true);
         try {
@@ -76,7 +92,29 @@ export const ClusterCatalogModal: React.FC = () => {
 
     if (!state.isCatalogOpen) return null;
 
+    const saveCurrentEdit = () => {
+      if (editingId) {
+        const cluster = state.clusters.find((c: Cluster) => c.id === editingId);
+        if (cluster) {
+          const updated: Cluster = {
+            ...cluster,
+            name: editName,
+            initials: editInitials,
+            color: editColor,
+            textColor: editTextColor
+          };
+          dispatch({ type: 'UPDATE_CLUSTER', payload: updated });
+        }
+        setEditingId(null);
+      }
+    };
+
     const startEditing = (cluster: Cluster) => {
+      // Save current edit before starting a new one
+      if (editingId && editingId !== cluster.id) {
+        saveCurrentEdit();
+      }
+
       setEditingId(cluster.id);
       setEditName(cluster.name);
       setEditInitials(cluster.initials);
@@ -151,7 +189,7 @@ export const ClusterCatalogModal: React.FC = () => {
                   <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wide mb-4">Saved Clusters</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {state.clusters.map((cluster: Cluster) => (
-                      <div key={cluster.id} className="bg-gray-800 border border-gray-700 rounded-lg p-4 flex flex-col shadow-sm">
+                      <div key={cluster.id} className={`bg-gray-800 border border-gray-700 rounded-lg p-4 flex flex-col shadow-sm ${editingId === cluster.id ? 'cluster-edit-card' : ''}`}>
                           <div className="flex items-center justify-between mb-4">
                               <div className="flex items-center gap-3">
                               <div
@@ -162,7 +200,7 @@ export const ClusterCatalogModal: React.FC = () => {
                               </div>
                               {editingId === cluster.id ? (
                                   <input
-                                  className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-blue-500 w-40"
+                                  className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-blue-500 w-64"
                                   value={editName}
                                   onChange={e => setEditName(e.target.value)}
                                   />
@@ -262,7 +300,7 @@ export const ClusterCatalogModal: React.FC = () => {
                               const isAdded = state.clusters.some((c: { name: string; }) => c.name === ctx.name);
                               return (
                                   <div key={ctx.name} className={`border rounded p-3 flex justify-between items-center transition-colors ${isAdded ? 'bg-gray-800/50 border-gray-700 opacity-60' : 'bg-gray-800 border-gray-700 hover:border-blue-500'}`}>
-                                      <span className="font-medium text-gray-200 truncate pr-2 text-sm" title={ctx.name}>{ctx.name}</span>
+                                      <span className="font-medium text-gray-200 break-words pr-2 text-sm" title={ctx.name}>{ctx.name}</span>
                                       {isAdded ? (
                                           <span className="text-xs text-green-500 flex items-center gap-1"><CheckCircle size={12}/> Added</span>
                                       ) : (

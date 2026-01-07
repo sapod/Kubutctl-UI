@@ -4,13 +4,17 @@ import { ThemeToggle } from './components/ThemeToggle';
 import {
     Sidebar, TerminalPanel, ResourceDrawer, ClusterHotbar, AddClusterModal,
     NamespaceSelector, ClusterCatalogModal, PortForwardModal, ShellModal, ConfirmationModal,
-    RoutineModal, ErrorBanner,
+    RoutineModal, ErrorBanner, VersionCheckPopup,
     OverviewPage, NodesPage, PodsPage, DeploymentsPage, ReplicaSetsPage,
     JobsPage, CronJobsPage, ServicesPage, IngressesPage, ConfigMapsPage,
     NamespacesPage, ResourceQuotasPage, PortForwardingPage
 } from './components/UI';
 import { Loader2, Plus } from 'lucide-react';
 import { kubectl } from './services/kubectl';
+import packageJson from '../package.json';
+
+// Get current version from package.json
+const CURRENT_VERSION = packageJson.version;
 
 const MainLayout = () => {
   const { state, dispatch } = useStore();
@@ -70,6 +74,16 @@ const MainLayout = () => {
                 className="flex-1 overflow-y-auto bg-gray-950 relative custom-scrollbar"
                 onClick={() => state.drawerOpen && dispatch({ type: 'CLOSE_DRAWER' })}
             >
+               {/* Context Switching Lock - Only covers main content area */}
+               {state.isContextSwitching && (
+                   <div className="absolute inset-0 bg-gray-950/95 backdrop-blur-md z-40 flex items-center justify-center">
+                       <div className="text-center">
+                           <Loader2 className="animate-spin mx-auto mb-4 text-blue-400" size={48} />
+                           <h3 className="text-xl font-bold text-gray-100 mb-2">Switching Context...</h3>
+                           <p className="text-sm text-gray-400">Loading data from new cluster</p>
+                       </div>
+                   </div>
+               )}
                {renderView()}
             </div>
 
@@ -78,6 +92,7 @@ const MainLayout = () => {
         </div>
 
         {/* Overlays */}
+        <VersionCheckPopup currentVersion={CURRENT_VERSION} />
         <AddClusterModal />
         <ClusterCatalogModal />
         <ResourceDrawer />

@@ -8,6 +8,7 @@ import http from 'http';
 import WebSocket from 'ws';
 import { KubeConfig, Exec } from '@kubernetes/client-node';
 import { PassThrough } from 'stream';
+const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8'));
 
 const app = express();
 const port = process.env.PORT || 5174;
@@ -384,13 +385,44 @@ app.post('/api/kubectl/shell', (req, res) => {
     }
 });
 
+// Version check endpoint
+app.get('/api/version/check', async (req, res) => {
+  try {
+    const response = await fetch('https://hub.docker.com/v2/repositories/sapod/kubectl-ui/tags?page_size=100');
+    const data = await response.json();
+
+    if (data.results && data.results.length > 0) {
+      // Filter out 'latest' tag and find the most recent semantic version
+      const versionTags = data.results
+        .map(tag => tag.name)
+        .filter(name => name !== 'latest' && /^\d+\.\d+\.\d+$/.test(name))
+        .sort((a, b) => {
+          const [aMajor, aMinor, aPatch] = a.split('.').map(Number);
+          const [bMajor, bMinor, bPatch] = b.split('.').map(Number);
+          if (aMajor !== bMajor) return bMajor - aMajor;
+          if (aMinor !== bMinor) return bMinor - aMinor;
+          return bPatch - aPatch;
+        });
+
+      const latestVersion = versionTags[0] || null;
+
+      res.json({
+        latestVersion,
+        currentVersion: packageJson.version,
+        allTags: data.results.map(t => t.name).slice(0, 10) // First 10 tags for debugging
+      });
+    } else {
+      res.json({ latestVersion: null, error: 'No tags found' });
+    }
+  } catch (error) {
+    console.error('Error checking Docker Hub version:', error);
+    res.status(500).json({ error: 'Failed to check version', message: error.message });
+  }
+});
+
 // Load kube config:
 // - Out-of-cluster (Docker backend): mounts ~/.kube/config and uses it.
 // - In-cluster (k8s backend): loads service account automatically.
-const kc = new KubeConfig();
-kc.loadFromDefault();
-const k8sExec = new Exec(kc);
-
 wss.on('connection', async (ws, req) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const namespace = url.searchParams.get('ns') || 'default';
@@ -402,6 +434,17 @@ wss.on('connection', async (ws, req) => {
     ws.close(1011, 'pod is required');
     return;
   }
+
+  // Reload KubeConfig for each connection to pick up context changes
+  const kc = new KubeConfig();
+  try {
+    kc.loadFromDefault();
+  } catch (err) {
+    ws.send(`\r\n[Error loading kubeconfig: ${err.message}]\r\n`);
+    ws.close(1011, 'Failed to load kubeconfig');
+    return;
+  }
+  const k8sExec = new Exec(kc);
 
   // Streams to bridge Kubernetes exec <-> WebSocket
   const inStream = new PassThrough();   // client -> pod stdin

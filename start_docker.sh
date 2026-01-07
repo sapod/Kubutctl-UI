@@ -18,9 +18,15 @@ echo "Starting Kubectl-UI app services in Docker..."
 # Create logs directory if not exists
 mkdir -p "$LOGS_DIR"
 
-# Start backend in background
+# Start backend with auto-restart
 echo "Starting backend..."
-nohup env PORT=$BACKEND_PORT npm run server > "$BACKEND_LOG" 2>&1 &
+(
+  while true; do
+    env PORT=$BACKEND_PORT npm run server >> "$BACKEND_LOG" 2>&1
+    echo "$(date): Backend died! Restarting in 5 seconds..." >> "$BACKEND_LOG"
+    sleep 5
+  done
+) &
 
 # Start frontend in foreground (keeps container alive)
 echo "Starting frontend..."

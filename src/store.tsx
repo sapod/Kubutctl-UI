@@ -20,7 +20,7 @@ const initialClusterId = getStoredCurrentClusterId(storedClusters);
 const initialClusterState = loadClusterState(initialClusterId);
 
 const initialState: AppState = {
-  view: initialClusterState.view, isLoading: false, error: null, currentClusterId: initialClusterId, selectedNamespace: getStoredNamespace(initialClusterId), clusters: storedClusters, nodes: [], pods: [], deployments: [], replicaSets: [], jobs: [], cronJobs: [], services: [], ingresses: [], configMaps: [], namespaces: [], events: [], resourceQuotas: [], portForwards: [], routines: getStoredRoutines(), terminalOutput: ['Welcome to Kubectl-UI', 'Initializing application...'], selectedResourceId: initialClusterState.selectedResourceId, selectedResourceType: initialClusterState.selectedResourceType, resourceHistory: initialClusterState.resourceHistory || [], drawerOpen: initialClusterState.drawerOpen, isAddClusterModalOpen: false, isCatalogOpen: false, isPortForwardModalOpen: false, portForwardModalData: null, isRoutineModalOpen: false, routineModalData: null, isShellModalOpen: false, shellModalData: null, isConfirmationModalOpen: false, confirmationModalData: null,
+  view: initialClusterState.view, isLoading: false, isContextSwitching: false, error: null, currentClusterId: initialClusterId, selectedNamespace: getStoredNamespace(initialClusterId), clusters: storedClusters, nodes: [], pods: [], deployments: [], replicaSets: [], jobs: [], cronJobs: [], services: [], ingresses: [], configMaps: [], namespaces: [], events: [], resourceQuotas: [], portForwards: [], routines: getStoredRoutines(), terminalOutput: ['Welcome to Kubectl-UI', 'Initializing application...'], selectedResourceId: initialClusterState.selectedResourceId, selectedResourceType: initialClusterState.selectedResourceType, resourceHistory: initialClusterState.resourceHistory || [], drawerOpen: initialClusterState.drawerOpen, isAddClusterModalOpen: false, isCatalogOpen: false, isPortForwardModalOpen: false, portForwardModalData: null, isRoutineModalOpen: false, routineModalData: null, isShellModalOpen: false, shellModalData: null, isConfirmationModalOpen: false, confirmationModalData: null,
 };
 
 // Simplified reducer signature using updated Action type
@@ -29,6 +29,7 @@ function reducer(state: AppState, action: Action): AppState {
     case 'SET_DATA': return { ...state, ...action.payload };
     case 'SET_VIEW': { const newState = { ...state, view: action.payload, drawerOpen: false, selectedResourceId: null, selectedResourceType: null, resourceHistory: [], error: null }; saveClusterState(state.currentClusterId, { view: newState.view, drawerOpen: false, selectedResourceId: null, selectedResourceType: null, resourceHistory: [] }); return newState; }
     case 'SET_LOADING': return { ...state, isLoading: action.payload };
+    case 'SET_CONTEXT_SWITCHING': return { ...state, isContextSwitching: action.payload };
     case 'SET_ERROR': return { ...state, error: action.payload, isLoading: false };
     case 'SELECT_CLUSTER': { try { localStorage.setItem('kube_current_cluster_id', action.payload); } catch {} const nextNs = getStoredNamespace(action.payload); const nextState = loadClusterState(action.payload); return { ...state, currentClusterId: action.payload, selectedNamespace: nextNs, view: nextState.view, drawerOpen: nextState.drawerOpen, selectedResourceId: nextState.selectedResourceId, selectedResourceType: nextState.selectedResourceType, resourceHistory: nextState.resourceHistory || [], terminalOutput: [...state.terminalOutput, `Context switch: ${state.clusters.find(c => c.id === action.payload)?.name}`], error: null }; }
     case 'DISCONNECT_CLUSTER': { const updated = state.clusters.map(c => c.id === action.payload ? { ...c, status: 'Disconnected' } : c); localStorage.setItem('kube_clusters', JSON.stringify(updated)); return { ...state, clusters: updated as Cluster[] }; }
@@ -73,9 +74,9 @@ const StoreContext = createContext<{ state: AppState; dispatch: React.Dispatch<a
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, dispatch] = useReducer(reducer, initialState);
   const isFetchingRef = useRef(false);
-  const previousClusterRef = useRef<string | null>(null);
-  const lastActivityRef = useRef(Date.now());
   const isOfflineRef = useRef(false);
+  const previousClusterRef = useRef<string | null>(initialClusterId);
+  const lastActivityRef = useRef(Date.now());
 
   useEffect(() => {
     kubectl.setLogger((cmd: string) => dispatch({ type: 'ADD_LOG', payload: cmd }));
@@ -124,9 +125,14 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (isFetchingRef.current) return;
         isFetchingRef.current = true;
         const isClusterSwitch = previousClusterRef.current !== state.currentClusterId;
+        const wasContextSwitching = state.isContextSwitching; // Track if we were already switching
         previousClusterRef.current = state.currentClusterId;
         if (!isBackground) dispatch({ type: 'SET_LOADING', payload: true });
-        if (isClusterSwitch) { const cur = state.clusters.find(c => c.id === state.currentClusterId); if (cur) { try { await kubectl.setContext(cur.name); } catch (e) {} } }
+        if (isClusterSwitch && !isBackground) { 
+            dispatch({ type: 'SET_CONTEXT_SWITCHING', payload: true });
+            const cur = state.clusters.find(c => c.id === state.currentClusterId); 
+            if (cur) { try { await kubectl.setContext(cur.name); } catch (e) {} } 
+        }
         try {
             let data: Partial<AppState> = {}; const ns = state.selectedNamespace; const notify = !isBackground;
             const merge = (pods: Pod[], metrics: any) => pods.map(p => metrics[p.name] ? { ...p, cpuUsage: metrics[p.name].cpu, memoryUsage: metrics[p.name].memory } : p);
@@ -159,12 +165,19 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             }
             if (isMounted) {
                 dispatch({ type: 'SET_DATA', payload: data });
+                // Clear context switching if it was set (either by this fetch or previous)
+                if (wasContextSwitching || isClusterSwitch) {
+                    dispatch({ type: 'SET_CONTEXT_SWITCHING', payload: false });
+                }
                 isOfflineRef.current = false;
             }
         } catch (error: any) {
             // Silent error logging to prevent UI spam if offline
             if (!isOfflineRef.current) {
                 console.error("Fetch error:", error);
+            }
+            if (isMounted && (wasContextSwitching || isClusterSwitch)) {
+                dispatch({ type: 'SET_CONTEXT_SWITCHING', payload: false });
             }
         } finally {
             if (isMounted) {
