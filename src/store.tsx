@@ -86,7 +86,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 dispatch({ type: 'SET_ERROR', payload: err });
                 isOfflineRef.current = true;
             }
-        } else {
+        }
+        if (err.includes('SSO session associated with this profile has expired')) {
+            dispatch({ type: 'SET_ERROR', payload: 'SSO session expired. Please run <aws sso login> on your machine' })
+        }
+        else {
             dispatch({ type: 'SET_ERROR', payload: err });
         }
     });
