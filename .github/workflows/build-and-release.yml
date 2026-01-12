@@ -37,6 +37,8 @@ jobs:
         run: npm run build
 
       - name: Build Electron app
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ "$RUNNER_OS" == "macOS" ]; then
             npm run electron:build:mac
