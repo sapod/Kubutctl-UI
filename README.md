@@ -32,12 +32,22 @@ Download the latest release for your platform from the [Releases page](https://g
 1. Download the DMG file for your architecture
 2. Open the DMG file
 3. Drag "Kubectl UI" to the Applications folder
-4. Launch from Applications (right-click → Open on first launch)
+4. **Important**: The app is not code-signed, so macOS will show a warning
 
-If you get a security warning:
+**To open the app for the first time:**
+
+Option 1 - Right-click method:
+- Right-click on "Kubectl UI" in Applications
+- Select "Open"
+- Click "Open" in the dialog
+
+Option 2 - Command line (if you get "damaged" error):
 ```bash
 xattr -cr "/Applications/Kubectl UI.app"
 ```
+Then open normally from Applications.
+
+> **Note**: This warning appears because the app is not signed with an Apple Developer certificate. The app is safe to use.
 
 #### Windows
 1. Download the `.exe` installer

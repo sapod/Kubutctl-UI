@@ -141,6 +141,10 @@ jobs:
             
             **macOS:** Download and open the DMG file, drag the app to Applications
             
+            ⚠️ **macOS Security Note:** The app is not code-signed. On first launch:
+            - Right-click "Kubectl UI" in Applications → Open → Open
+            - Or if you get a "damaged" error, run: `xattr -cr "/Applications/Kubectl UI.app"`
+            
             **Windows:** Download and run the EXE installer
             
             **Linux:** Download AppImage and make it executable:
