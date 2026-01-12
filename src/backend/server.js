@@ -8,47 +8,122 @@ import http from 'http';
 import WebSocket from 'ws';
 import { KubeConfig, Exec } from '@kubernetes/client-node';
 import { PassThrough } from 'stream';
-const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8'));
+import { fileURLToPath } from 'url';
+import os from 'os';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Try to find package.json - handle both dev and production paths
+let packageJson;
+try {
+    // Try current directory first
+    packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8'));
+} catch (e) {
+    try {
+        // Try relative to this file (production)
+        packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, '../../package.json'), 'utf8'));
+    } catch (e2) {
+        // Fallback to default version
+        console.warn('Could not find package.json, using default version');
+        packageJson = { version: '1.3.0' };
+    }
+}
 
 const app = express();
 const port = process.env.PORT || 5174;
-const DEBUG = false; // Toggle this to enable/disable debug logging
+const DEBUG = false;
 
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server, path: '/exec' });
 
-// Global unhandled error handlers
-process.on('uncaughtException', (error) => {
-    console.error('❌ [UNCAUGHT EXCEPTION]', error);
-    console.error('Stack:', error.stack);
+
+// Find kubectl executable path
+let kubectlPath = 'kubectl';
+try {
+    const { execSync } = await import('child_process');
+    const possiblePaths = [
+        '/usr/local/bin/kubectl',
+        '/opt/homebrew/bin/kubectl',
+        '/usr/bin/kubectl',
+        process.env.HOME + '/.local/bin/kubectl'
+    ];
+
+    try {
+        kubectlPath = execSync('which kubectl', { encoding: 'utf8' }).trim();
+    } catch (e) {
+        for (const possiblePath of possiblePaths) {
+            if (fs.existsSync(possiblePath)) {
+                kubectlPath = possiblePath;
+                break;
+            }
+        }
+    }
+} catch (e) {
+    // Use default
+}
+
+// Find AWS CLI executable path (needed for EKS authentication)
+let awsPath = 'aws';
+try {
+    const { execSync } = await import('child_process');
+    const possibleAwsPaths = [
+        '/usr/local/bin/aws',
+        '/opt/homebrew/bin/aws',
+        '/usr/bin/aws',
+        process.env.HOME + '/.local/bin/aws',
+        '/opt/aws-cli/bin/aws'
+    ];
+
+    try {
+        awsPath = execSync('which aws', { encoding: 'utf8' }).trim();
+    } catch (e) {
+        for (const possiblePath of possibleAwsPaths) {
+            if (fs.existsSync(possiblePath)) {
+                awsPath = possiblePath;
+                break;
+            }
+        }
+    }
+} catch (e) {
+    // Use default
+}
+
+// Add kubectl and aws directories to PATH for EKS authentication
+const kubectlDir = path.dirname(kubectlPath);
+const awsDir = path.dirname(awsPath);
+[kubectlDir, awsDir].forEach(dir => {
+    if (process.env.PATH && !process.env.PATH.includes(dir)) {
+        process.env.PATH = `${dir}:${process.env.PATH}`;
+    }
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('❌ [UNHANDLED REJECTION] at:', promise);
-    console.error('Reason:', reason);
+// Global error handlers
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught exception:', error);
+});
+
+process.on('unhandledRejection', (reason) => {
+    console.error('Unhandled rejection:', reason);
 });
 
 process.on('SIGTERM', () => {
-    console.log('🛑 SIGTERM received, cleaning up...');
     Object.keys(activeChildHandles).forEach(pid => {
         try {
             activeChildHandles[pid].kill();
-            console.log(`Killed process ${pid}`);
         } catch (e) {
-            console.error(`Failed to kill process ${pid}:`, e.message);
+            // Ignore
         }
     });
     process.exit(0);
 });
 
 process.on('SIGINT', () => {
-    console.log('🛑 SIGINT received, cleaning up...');
     Object.keys(activeChildHandles).forEach(pid => {
         try {
             activeChildHandles[pid].kill();
-            console.log(`Killed process ${pid}`);
         } catch (e) {
-            console.error(`Failed to kill process ${pid}:`, e.message);
+            // Ignore
         }
     });
     process.exit(0);
@@ -57,7 +132,8 @@ process.on('SIGINT', () => {
 app.use(cors());
 app.use(bodyParser.json());
 
-const DB_FILE = path.join(process.cwd(), 'port-forwards.json');
+// Use home directory for persistent storage (works in packaged apps)
+const DB_FILE = path.join(os.homedir(), '.kubectl-ui-port-forwards.json');
 
 // Load persistent state
 let persistentForwards = {};
@@ -68,9 +144,8 @@ try {
         Object.keys(persistentForwards).forEach(pidKey => {
             const pid = parseInt(pidKey);
             try {
-                process.kill(pid, 0); // Check if running
+                process.kill(pid, 0);
             } catch (e) {
-                console.log(`[Cleanup] Removing dead process ${pid} from registry`);
                 delete persistentForwards[pidKey];
             }
         });
@@ -78,7 +153,7 @@ try {
     }
 } catch (e) {
     console.error("Failed to load persistence file:", e);
-    persistentForwards = {}; // Start with empty state
+    persistentForwards = {};
 }
 
 // In-memory map for ChildProcess objects (only for processes spawned in this session)
@@ -87,7 +162,6 @@ const activeChildHandles = {};
 function savePersistence() {
     try {
         fs.writeFileSync(DB_FILE, JSON.stringify(persistentForwards, null, 2));
-        if (DEBUG) console.log(`[DEBUG] 💾 Persistence saved: ${Object.keys(persistentForwards).length} entries`);
     } catch (e) {
         console.error("Failed to save persistence:", e);
     }
@@ -102,12 +176,16 @@ app.post('/api/kubectl', (req, res) => {
         return res.status(400).json({ error: 'Only kubectl commands are allowed.' });
     }
 
+    // Replace 'kubectl' with the full path
+    const fullCommand = command.replace(/^kubectl/, kubectlPath);
+
     if (DEBUG) {
         console.log(`[DEBUG] 📥 Received: ${command}`);
+        console.log(`[DEBUG] 🔧 Executing: ${fullCommand}`);
     }
 
     // Increase buffer size to handle large JSON outputs (e.g. get all)
-    exec(command, { maxBuffer: 1024 * 1024 * 500 }, (error, stdout, stderr) => {
+    exec(fullCommand, { maxBuffer: 1024 * 1024 * 500 }, (error, stdout, stderr) => {
         if (error) {
             if (DEBUG) {
                 console.error(`[DEBUG] ❌ Error executing: ${command}`);
@@ -145,7 +223,7 @@ app.post('/api/kubectl/apply', (req, res) => {
 
     let child;
     try {
-        child = spawn('kubectl', args);
+        child = spawn(kubectlPath, args);
     } catch (e) {
         console.error("❌ [/api/kubectl/apply] Failed to spawn kubectl:", e.message);
         console.error("Stack:", e.stack);
@@ -219,7 +297,7 @@ app.post('/api/port-forward/start', (req, res) => {
 
     let child;
     try {
-        child = spawn('kubectl', commandArgs);
+        child = spawn(kubectlPath, commandArgs);
     } catch (e) {
         console.error("❌ [/api/port-forward/start] Failed to spawn kubectl:", e.message);
         console.error("Stack:", e.stack);
@@ -347,7 +425,7 @@ app.post('/api/kubectl/shell', (req, res) => {
         return res.status(400).json({ error: 'Missing pod or namespace' });
     }
 
-    const k8sCmd = `kubectl exec -it ${pod} -n ${namespace} ${container ? `-c ${container}` : ''} -- /bin/sh`;
+    const k8sCmd = `${kubectlPath} exec -it ${pod} -n ${namespace} ${container ? `-c ${container}` : ''} -- /bin/sh`;
 
     let spawnCmd = '';
     let spawnArgs = [];
@@ -501,16 +579,11 @@ wss.on('connection', async (ws, req) => {
 });
 
 server.listen(port, () => {
-    console.log(`
-  🚀 Kubectl-UI Backend Server running on http://localhost:${port}
-  ready to execute kubectl commands from the frontend.
-  DEBUG Mode: ${DEBUG}
-  `);
+    console.log(`🚀 Kubectl-UI Backend Server running on http://localhost:${port}`);
 }).on('error', (err) => {
-    console.error('❌ [SERVER] Failed to start server:', err.message);
-    console.error('Stack:', err.stack);
+    console.error('Failed to start server:', err.message);
     if (err.code === 'EADDRINUSE') {
-        console.error(`Port ${port} is already in use. Please free the port or change the PORT environment variable.`);
+        console.error(`Port ${port} is already in use.`);
     }
     process.exit(1);
 });
