@@ -98,6 +98,18 @@ const awsDir = path.dirname(awsPath);
     }
 });
 
+// Set environment variables to handle SSL certificate issues with custom SSO endpoints
+// This helps users who have self-signed certificates in their corporate environment
+if (!process.env.AWS_CA_BUNDLE) {
+    process.env.AWS_CA_BUNDLE = '';
+}
+if (!process.env.REQUESTS_CA_BUNDLE) {
+    process.env.REQUESTS_CA_BUNDLE = '';
+}
+if (!process.env.NODE_TLS_REJECT_UNAUTHORIZED) {
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+}
+
 // Global error handlers
 process.on('uncaughtException', (error) => {
     console.error('Uncaught exception:', error);
