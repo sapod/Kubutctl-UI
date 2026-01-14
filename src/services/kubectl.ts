@@ -57,7 +57,7 @@ export const KUBECTL_COMMANDS: Record<string, CommandDefinition> = {
     verification: (name: string) => ({ title: 'Trigger CronJob', message: `Are you sure you want to trigger a manual run for "${name}"?` })
   },
   portForward: { command: (type: string, name: string, ns: string, local: number, remote: number) => `kubectl port-forward ${type}/${name} ${local}:${remote} -n ${ns}`, shouldVerify: false },
-  logs: { command: (name: string, ns: string, container?: string) => `kubectl logs ${name} -n ${ns} ${container ? `-c ${container}` : ''} --tail=100`, shouldVerify: false },
+  logs: { command: (name: string, ns: string, container?: string, previous?: boolean) => `kubectl logs ${name} -n ${ns} ${container ? `-c ${container}` : ''} ${previous ? '--previous' : ''} --tail=100`, shouldVerify: false },
   logsWithSelector: { command: (selector: string, ns: string) => `kubectl logs -l ${selector} -n ${ns} --all-containers=true --prefix=true --tail=100`, shouldVerify: false },
   exec: { command: (name: string, ns: string, container: string, cmd: string) => `kubectl exec ${name} -n ${ns} -c ${container} -- ${cmd}`, shouldVerify: false },
   configView: { command: () => `kubectl config view -o json`, shouldVerify: false },
@@ -334,8 +334,8 @@ export const kubectl = {
   exec: async (podName: string, namespace: string, container: string, cmd: string): Promise<string> => {
       try { return await executeWithVerification(KUBECTL_COMMANDS.exec, [podName, namespace, container, cmd], true); } catch(e) { return ""; }
   },
-  getLogs: async (name: string, ns: string, container?: string): Promise<string[]> => {
-      try { const data = await executeWithVerification(KUBECTL_COMMANDS.logs, [name, ns, container], false); return typeof data === 'string' ? data.split('\n') : []; } catch (e) { return [(e as any).message || "Failed to fetch logs"]; }
+  getLogs: async (name: string, ns: string, container?: string, previous?: boolean): Promise<string[]> => {
+      try { const data = await executeWithVerification(KUBECTL_COMMANDS.logs, [name, ns, container, previous], false); return typeof data === 'string' ? data.split('\n') : []; } catch (e) { return [(e as any).message || "Failed to fetch logs"]; }
   },
   getDeploymentLogs: async (deploymentName: string, ns: string): Promise<string[]> => {
       try { 
