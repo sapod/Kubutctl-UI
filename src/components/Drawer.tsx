@@ -881,18 +881,14 @@ export const ResourceDrawer: React.FC = () => {
                                }
 
                                return (
-                                   <div key={idx} className="flex flex-col text-xs bg-gray-900/50 p-2 rounded border border-gray-700/30">
-                                       <div className="grid grid-cols-[80px_1fr] gap-1">
-                                           <span className="text-gray-500">Name:</span>
-                                           <span className="font-mono text-gray-300 break-all">{envVar.name}</span>
-                                           <span className="text-gray-500">Value:</span>
-                                           <div className="min-w-0 break-all">
-                                               {typeof valueDisplay === 'string' ? (
-                                                   <span className="font-mono text-gray-300">{valueDisplay}</span>
-                                               ) : (
-                                                   valueDisplay
-                                               )}
-                                           </div>
+                                   <div key={idx} className="flex items-start gap-2 text-xs bg-gray-900/50 p-2 rounded border border-gray-700/30">
+                                       <span className="font-mono text-gray-400 flex-shrink-0">{envVar.name}:</span>
+                                       <div className="min-w-0 break-all flex-1">
+                                           {typeof valueDisplay === 'string' ? (
+                                               <span className="font-mono text-gray-300">{valueDisplay}</span>
+                                           ) : (
+                                               valueDisplay
+                                           )}
                                        </div>
                                    </div>
                                );
