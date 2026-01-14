@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useStore } from '../store';
 import { AppState, Pod, Ingress, Service, ResourceStatus, Deployment, Job } from '../types';
 import { kubectl } from '../services/kubectl';
-import { Box, X, Globe, ArrowRightCircle, Container as ContainerIcon, Network, FileText, RotateCw, Trash2, ChevronDown, RefreshCw, AlertTriangle, Maximize2, Minimize2, HardDrive, ExternalLink, ArrowLeft, StopCircle, Play, History, Edit2, Save, Key } from 'lucide-react';
+import { Box, X, Globe, ArrowRightCircle, Container as ContainerIcon, Network, FileText, RotateCw, Trash2, ChevronDown, AlertTriangle, Maximize2, Minimize2, HardDrive, ExternalLink, ArrowLeft, StopCircle, Play, History, Edit2, Save, Key } from 'lucide-react';
 import { StatusBadge, getAge, isMatch, resolvePortName, parseCpu, parseMemory } from './Shared';
 import PodTerminal from './PodTerminal';
 import yaml from 'js-yaml';
@@ -113,15 +113,31 @@ const formatCreationTime = (timestamp: string) => {
 // --- Drawer (Resource Details) ---
 export const ResourceDrawer: React.FC = () => {
   const { state, dispatch } = useStore();
-  const [activeTab, setActiveTab] = useState<'details' | 'yaml' | 'logs' | 'events' | 'terminal'>('details');
-  const [logLogs, setLogLogs] = useState<string[]>([]);
-  const [logContainer, setLogContainer] = useState<string>('');
-  const [loadingLogs, setLoadingLogs] = useState(false);
+  const [activeTab, setActiveTab] = useState<'details' | 'yaml' | 'events' | 'terminal'>('details');
   const [expandedCmKey, setExpandedCmKey] = useState<string | null>(null);
+  const [expandedContainers, setExpandedContainers] = useState<Set<number>>(new Set());
+  
+  // Terminal container selection
+  const [terminalContainer, setTerminalContainer] = useState<string>('');
 
   // YAML Edit State
   const [isEditingYaml, setIsEditingYaml] = useState(false);
   const [editedYaml, setEditedYaml] = useState('');
+
+  // Drawer resizing
+  const [drawerWidth, setDrawerWidth] = useState(() => {
+    const saved = localStorage.getItem('drawerWidth');
+    if (saved) {
+      const savedWidth = parseInt(saved);
+      // Ensure saved width is within bounds
+      const minWidth = Math.max(400, window.innerWidth * 0.25);
+      const maxWidth = window.innerWidth * 0.8;
+      return Math.max(minWidth, Math.min(maxWidth, savedWidth));
+    }
+    return window.innerWidth * 0.4; // Default to 40% of window width
+  });
+  const [isResizing, setIsResizing] = useState(false);
+  const resizingRef = React.useRef(false);
 
   // Helper to find selected resource
   let resource: any = null;
@@ -141,11 +157,122 @@ export const ResourceDrawer: React.FC = () => {
 
   useEffect(() => {
     setActiveTab('details');
-    setLogLogs([]);
-    setLogContainer('');
     setExpandedCmKey(null);
     setIsEditingYaml(false);
+    setExpandedContainers(new Set()); // Reset expanded containers when resource changes
+    setTerminalContainer(''); // Reset terminal container selection
   }, [state.selectedResourceId, state.selectedResourceType]);
+
+  // Helper to get terminal target (for terminal tab)
+  const getTerminalTarget = (): { pod: Pod, containers: string[] } | null => {
+      if (!resource) return null;
+      if (state.selectedResourceType === 'pod') {
+          const p = resource as Pod;
+          if (!p.containers) return null;
+          return { pod: p, containers: p.containers.map(c => c.name) };
+      }
+      return null;
+  };
+
+  const terminalTarget = getTerminalTarget();
+
+  // Auto-select first container for terminal when tab is opened
+  useEffect(() => {
+      if (activeTab === 'terminal' && terminalTarget && terminalTarget.containers.length > 0) {
+          if (!terminalContainer || !terminalTarget.containers.includes(terminalContainer)) {
+              setTerminalContainer(terminalTarget.containers[0]);
+          }
+      }
+  }, [activeTab, terminalTarget, terminalContainer]);
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const dropdowns = document.querySelectorAll('.absolute.top-full');
+      dropdowns.forEach(dropdown => {
+        const parent = dropdown.parentElement;
+        if (parent && !parent.contains(e.target as Node)) {
+          dropdown.classList.add('hidden');
+        }
+      });
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const toggleContainer = (index: number) => {
+    setExpandedContainers(prev => {
+      const next = new Set(prev);
+      if (next.has(index)) {
+        next.delete(index);
+      } else {
+        next.add(index);
+      }
+      return next;
+    });
+  };
+
+  // Drawer resizing handlers
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    resizingRef.current = true;
+    setIsResizing(true);
+    document.body.style.cursor = 'ew-resize';
+    document.body.style.userSelect = 'none';
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!resizingRef.current) return;
+      const newWidth = window.innerWidth - e.clientX;
+      const minWidth = Math.max(400, window.innerWidth * 0.25); // Min 25% of window or 400px
+      const maxWidth = window.innerWidth * 0.8; // Max 80% of window
+      const constrainedWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
+      setDrawerWidth(constrainedWidth);
+    };
+
+    const handleMouseUp = () => {
+      if (resizingRef.current) {
+        resizingRef.current = false;
+        setIsResizing(false);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        localStorage.setItem('drawerWidth', drawerWidth.toString());
+      }
+    };
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isResizing, drawerWidth]);
+
+  // Handle window resize to ensure drawer stays within bounds
+  useEffect(() => {
+    const handleWindowResize = () => {
+      const minWidth = Math.max(400, window.innerWidth * 0.25);
+      const maxWidth = window.innerWidth * 0.8;
+      
+      let newWidth = drawerWidth;
+      if (drawerWidth > maxWidth) {
+        newWidth = maxWidth;
+      } else if (drawerWidth < minWidth) {
+        newWidth = minWidth;
+      }
+      
+      if (newWidth !== drawerWidth) {
+        setDrawerWidth(newWidth);
+        localStorage.setItem('drawerWidth', newWidth.toString());
+      }
+    };
+
+    window.addEventListener('resize', handleWindowResize);
+    return () => window.removeEventListener('resize', handleWindowResize);
+  }, [drawerWidth]);
 
   useEffect(() => {
     if (activeTab === 'yaml' && resource && !isEditingYaml) {
@@ -254,63 +381,6 @@ export const ResourceDrawer: React.FC = () => {
     });
   };
 
-  const getLogTarget = (): { pod: Pod, containers: string[] } | null => {
-      if (!resource) return null;
-      if (state.selectedResourceType === 'pod') {
-          const p = resource as Pod;
-          if (!p.containers) return null;
-          return { pod: p, containers: p.containers.map(c => c.name) };
-      }
-      if (state.selectedResourceType === 'job') {
-          const p = state.pods.find(pod => pod.ownerReferences?.some(o => o.uid === resource.id));
-          if (p && p.containers) return { pod: p, containers: p.containers.map(c => c.name) };
-      }
-      if (state.selectedResourceType === 'deployment') {
-          // For deployments, we return a dummy pod with no containers (we'll fetch by label)
-          return { pod: resource as any, containers: [] };
-      }
-      return null;
-  };
-
-  const logTarget = getLogTarget();
-
-  useEffect(() => {
-      if (activeTab === 'logs' && logTarget && logTarget.containers.length > 0) {
-          if (!logContainer || !logTarget.containers.includes(logContainer)) {
-              setLogContainer(logTarget.containers[0]);
-          }
-      }
-  }, [activeTab, logTarget, logContainer]);
-
-  const fetchLogs = async () => {
-      if (!logTarget) return;
-      setLoadingLogs(true);
-      try {
-          let lines: string[];
-          if (state.selectedResourceType === 'deployment') {
-              // Fetch deployment logs by label selector
-              lines = await kubectl.getDeploymentLogs(resource.name, resource.namespace);
-          } else if (logContainer) {
-              // Fetch pod/job logs
-              lines = await kubectl.getLogs(logTarget.pod.name, logTarget.pod.namespace, logContainer);
-          } else {
-              lines = ["No container selected."];
-          }
-          setLogLogs(lines);
-      } catch (e) {
-          setLogLogs(["Failed to fetch logs."]);
-      } finally {
-          setLoadingLogs(false);
-      }
-  };
-
-  useEffect(() => {
-      if (activeTab === 'logs') {
-          if (state.selectedResourceType === 'deployment' || logContainer) {
-              fetchLogs();
-          }
-      }
-  }, [activeTab, logContainer, state.selectedResourceType]);
 
   if (!state.drawerOpen || !resource) return null;
 
@@ -422,7 +492,7 @@ export const ResourceDrawer: React.FC = () => {
                                      <ArrowRightCircle size={10} />
                                      {targetSvc ? (
                                         <div className="flex items-center gap-2">
-                                            <span className="text-green-300 hover:underline cursor-pointer" onClick={() => handleLinkClick(targetSvc.id, 'service')}>
+                                            <span className="text-green-300 hover:underline cursor-pointer" onClick={() => handleLinkClick(targetSvc.id, 'service')} title="View service details">
                                                 {p.service}:{resolvedPortName || p.port || '???'}
                                             </span>
                                         </div>
@@ -543,7 +613,7 @@ export const ResourceDrawer: React.FC = () => {
             <div key="cm" className="mt-4">
               <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Related Config</h4>
               {relatedCm.map(cm => (
-                <div key={cm.id} onClick={() => handleLinkClick(cm.id, 'configmap')} className="cursor-pointer bg-gray-800 p-2 rounded mb-1 hover:bg-gray-700 flex justify-between items-center group">
+                <div key={cm.id} onClick={() => handleLinkClick(cm.id, 'configmap')} className="cursor-pointer bg-gray-800 p-2 rounded mb-1 hover:bg-gray-700 flex justify-between items-center group" title="View ConfigMap details">
                   <span className="text-sm text-yellow-200 group-hover:text-yellow-100 transition-colors">{cm.name}</span>
                   <span className="text-xs text-gray-600 group-hover:text-gray-400">ConfigMap</span>
                 </div>
@@ -560,7 +630,7 @@ export const ResourceDrawer: React.FC = () => {
             <div key="deps" className="mt-4">
               <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Target Workloads</h4>
               {relatedDeps.map(d => (
-                <div key={d.id} onClick={() => handleLinkClick(d.id, 'deployment')} className="cursor-pointer bg-gray-800 p-2 rounded mb-1 hover:bg-gray-700 flex justify-between">
+                <div key={d.id} onClick={() => handleLinkClick(d.id, 'deployment')} className="cursor-pointer bg-gray-800 p-2 rounded mb-1 hover:bg-gray-700 flex justify-between" title="View deployment details">
                    <span className="text-sm text-purple-300">{d.name}</span>
                    <span className="text-xs text-gray-500">Deployment</span>
                 </div>
@@ -598,6 +668,7 @@ export const ResourceDrawer: React.FC = () => {
                                     ? 'bg-green-900/40 text-green-300 border-green-800 hover:bg-red-900/40 hover:text-red-300 hover:border-red-800' 
                                     : 'bg-blue-900/40 text-blue-300 border-blue-800 hover:bg-blue-800 hover:text-white'
                                 }`}
+                                title={activePf ? 'Stop port forwarding' : 'Start port forwarding'}
                             >
                                 {activePf ? <><StopCircle size={12}/> Stop Forward</> : <><Network size={12}/> Forward</>}
                             </button>
@@ -616,15 +687,29 @@ export const ResourceDrawer: React.FC = () => {
       <div className="mt-2">
         <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Containers</h4>
         <div className="space-y-3">
-          {pod.containers.map((c, i) => (
-            <div key={i} className="bg-gray-800/50 p-3 rounded border border-gray-700/50">
-               <div className="flex items-center gap-2 mb-1">
-                 <ContainerIcon size={14} className="text-blue-400"/>
-                 <span className="font-semibold text-sm text-gray-200">{c.name}</span>
+          {pod.containers.map((c, i) => {
+            const isExpanded = expandedContainers.has(i);
+            return (
+            <div key={i} className="bg-gray-800/50 rounded border border-gray-700/50">
+               <div
+                 className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-700/30 transition-colors"
+                 onClick={() => toggleContainer(i)}
+               >
+                 <div className="flex items-center gap-2">
+                   <ContainerIcon size={14} className="text-blue-400"/>
+                   <span className="font-semibold text-sm text-gray-200">{c.name}</span>
+                   <span className="text-xs text-gray-500 font-mono">({c.image.split(':')[0].split('/').pop()})</span>
+                 </div>
+                 <ChevronDown
+                   size={16}
+                   className={`text-gray-400 transition-transform ${isExpanded ? 'transform rotate-180' : ''}`}
+                 />
                </div>
-               <div className="text-xs text-gray-400 font-mono mb-2 ml-5">Image: <span className="text-blue-300">{c.image}</span></div>
+               {isExpanded && (
+               <div className="px-3 pb-3 pt-1">
+               <div className="text-xs text-gray-400 font-mono mb-2">Image: <span className="text-blue-300">{c.image}</span></div>
                {c.resources && (c.resources.requests || c.resources.limits) && (
-                 <div className="ml-5 mb-2 p-2 bg-gray-900/50 rounded border border-gray-700/30 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                 <div className="mb-2 p-2 bg-gray-900/50 rounded border border-gray-700/30 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
                      {c.resources.requests && (
                          <div className="col-span-1">
                              <span className="text-gray-500 font-bold uppercase text-[10px]">Requests</span>
@@ -646,7 +731,7 @@ export const ResourceDrawer: React.FC = () => {
                  </div>
                )}
                {c.ports.length > 0 && (
-                 <div className="ml-5">
+                 <div>
                     <span className="text-xs text-gray-500 uppercase tracking-wider font-bold">Ports:</span>
                     <div className="flex flex-wrap gap-1 mt-1">
                        {c.ports.map((p, idx) => {
@@ -676,7 +761,7 @@ export const ResourceDrawer: React.FC = () => {
                  </div>
                )}
                {c.volumeMounts && c.volumeMounts.length > 0 && (
-                   <div className="ml-5 mt-2">
+                   <div className="mt-2">
                        <span className="text-xs text-gray-500 uppercase tracking-wider font-bold block mb-1">Mounts:</span>
                        <div className="space-y-1.5">
                            {c.volumeMounts.map((vm, idx) => {
@@ -713,7 +798,7 @@ export const ResourceDrawer: React.FC = () => {
                                            <span className="text-gray-500">Source:</span>
                                            <div className="min-w-0">
                                                {isConfigMap ? (
-                                                   <span className="text-yellow-400 hover:text-yellow-300 hover:underline cursor-pointer flex items-center gap-1.5 font-medium transition-colors truncate" onClick={() => cmName && handleConfigMapClick(cmName, pod.namespace)}>
+                                                   <span className="text-yellow-400 hover:text-yellow-300 hover:underline cursor-pointer flex items-center gap-1.5 font-medium transition-colors truncate" onClick={() => cmName && handleConfigMapClick(cmName, pod.namespace)} title="View ConfigMap details">
                                                        <FileText size={12} className="flex-shrink-0" />
                                                        <span className="truncate">{cmName}</span>
                                                        <ExternalLink size={10} className="flex-shrink-0 opacity-50"/>
@@ -733,7 +818,7 @@ export const ResourceDrawer: React.FC = () => {
                    </div>
                )}
                {c.env && c.env.length > 0 && (
-                   <div className="ml-5 mt-2">
+                   <div className="mt-2">
                        <span className="text-xs text-gray-500 uppercase tracking-wider font-bold block mb-1">Environment:</span>
                        <div className="space-y-1.5">
                            {c.env.map((envVar, idx) => {
@@ -775,18 +860,14 @@ export const ResourceDrawer: React.FC = () => {
                                }
 
                                return (
-                                   <div key={idx} className="flex flex-col text-xs bg-gray-900/50 p-2 rounded border border-gray-700/30">
-                                       <div className="grid grid-cols-[80px_1fr] gap-1">
-                                           <span className="text-gray-500">Name:</span>
-                                           <span className="font-mono text-gray-300 break-all">{envVar.name}</span>
-                                           <span className="text-gray-500">Value:</span>
-                                           <div className="min-w-0 break-all">
-                                               {typeof valueDisplay === 'string' ? (
-                                                   <span className="font-mono text-gray-300">{valueDisplay}</span>
-                                               ) : (
-                                                   valueDisplay
-                                               )}
-                                           </div>
+                                   <div key={idx} className="flex items-start gap-2 text-xs bg-gray-900/50 p-2 rounded border border-gray-700/30">
+                                       <span className="font-mono text-gray-400 flex-shrink-0">{envVar.name}:</span>
+                                       <div className="min-w-0 break-all flex-1">
+                                           {typeof valueDisplay === 'string' ? (
+                                               <span className="font-mono text-gray-300">{valueDisplay}</span>
+                                           ) : (
+                                               valueDisplay
+                                           )}
                                        </div>
                                    </div>
                                );
@@ -794,8 +875,11 @@ export const ResourceDrawer: React.FC = () => {
                        </div>
                    </div>
                )}
+               </div>
+               )}
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     );
@@ -852,11 +936,11 @@ export const ResourceDrawer: React.FC = () => {
     );
   };
 
-  const showLogsTab = ['pod', 'job', 'deployment'].includes(state.selectedResourceType || '');
   const showEventsTab = state.selectedResourceType !== 'event';
   const showTerminalTab = state.selectedResourceType === 'pod';
 
   const getEventsToDisplay = () => {
+    if (!resource) return [];
     return state.events.filter(e => {
         if (e.involvedObject.uid === resource.id) return true;
         const kind = state.selectedResourceType ? (state.selectedResourceType.charAt(0).toUpperCase() + state.selectedResourceType.slice(1)) : '';
@@ -865,9 +949,22 @@ export const ResourceDrawer: React.FC = () => {
     });
   };
 
+  // Guard: Don't render if no resource is selected
+  if (!resource) return null;
+
   return (
     <>
-    <div className="fixed inset-y-0 right-0 w-[700px] bg-gray-900 border-l border-gray-800 shadow-2xl transform transition-transform duration-300 z-50 flex flex-col">
+    <div 
+      className="fixed inset-y-0 right-0 bg-gray-900 border-l border-gray-800 shadow-2xl transform transition-transform duration-300 z-50 flex flex-col"
+      style={{ width: `${drawerWidth}px` }}
+    >
+      {/* Resize handle */}
+      <div
+        onMouseDown={handleMouseDown}
+        className={`absolute left-0 top-0 bottom-0 w-0.5 cursor-ew-resize hover:bg-blue-500 transition-colors ${isResizing ? 'bg-blue-500' : 'bg-transparent'}`}
+        style={{ zIndex: 51 }}
+      />
+      
       <div className="h-14 flex items-center justify-between px-6 border-b border-gray-800 bg-gray-900">
         <div className="flex items-center gap-3 overflow-hidden">
             {state.resourceHistory.length > 0 && (
@@ -882,11 +979,11 @@ export const ResourceDrawer: React.FC = () => {
             </div>
         </div>
         <div className="flex items-center gap-3">
-             <button onClick={handleDelete} className="text-gray-500 hover:text-red-400 transition-colors p-1 rounded hover:bg-gray-800">
+             <button onClick={handleDelete} className="text-gray-500 hover:text-red-400 transition-colors p-1 rounded hover:bg-gray-800" title="Delete resource">
                 <Trash2 size={20} />
              </button>
              <div className="h-5 w-px bg-gray-800"></div>
-             <button onClick={() => dispatch({ type: 'CLOSE_DRAWER' })} className="text-gray-400 hover:text-white transition-colors flex-shrink-0">
+             <button onClick={() => dispatch({ type: 'CLOSE_DRAWER' })} className="text-gray-400 hover:text-white transition-colors flex-shrink-0" title="Close details panel">
                <X size={20} />
              </button>
         </div>
@@ -895,7 +992,6 @@ export const ResourceDrawer: React.FC = () => {
       <div className="flex border-b border-gray-800 px-6 bg-gray-900">
         <button onClick={() => setActiveTab('details')} className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide ${activeTab === 'details' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>Details</button>
         <button onClick={() => setActiveTab('yaml')} className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide ${activeTab === 'yaml' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>YAML</button>
-        {showLogsTab && (<button onClick={() => setActiveTab('logs')} className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide ${activeTab === 'logs' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>Logs</button>)}
         {showTerminalTab && (<button onClick={() => setActiveTab('terminal')} className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide ${activeTab === 'terminal' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>Terminal</button>)}
         {showEventsTab && (<button onClick={() => setActiveTab('events')} className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide ${activeTab === 'events' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>Events</button>)}
       </div>
@@ -905,12 +1001,91 @@ export const ResourceDrawer: React.FC = () => {
           <div className="space-y-6">
             {state.selectedResourceType === 'deployment' && (
               <div className="flex gap-2 mb-4">
-                 <button onClick={() => kubectl.rolloutRestart('deployment', resource.name, resource.namespace, resource.id)} className="flex-1 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-blue-300"><RotateCw size={14} className="mr-2" /> Rollout Restart</button>
+                 <button onClick={() => kubectl.rolloutRestart('deployment', resource.name, resource.namespace, resource.id)} className="flex-1 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-blue-300" title="Restart all pods in this deployment"><RotateCw size={14} className="mr-2" /> Rollout Restart</button>
+                 <button 
+                   onClick={() => {
+                     dispatch({ 
+                       type: 'SET_LOGS_TARGET', 
+                       payload: { 
+                         type: 'all-pods', 
+                         deploymentName: resource.name, 
+                         namespace: resource.namespace 
+                       } 
+                     });
+                   }}
+                   className="flex-1 bg-green-900/30 hover:bg-green-900/50 border border-green-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-green-300"
+                   title="View aggregated logs from all pods"
+                 >
+                   <FileText size={14} className="mr-2" /> LOGS
+                 </button>
               </div>
             )}
             {state.selectedResourceType === 'cronjob' && (
               <div className="flex gap-2 mb-4">
-                 <button onClick={handleTriggerCronJob} className="flex-1 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-blue-300"><Play size={14} className="mr-2" /> Trigger Now</button>
+                 <button onClick={handleTriggerCronJob} className="flex-1 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-blue-300" title="Manually trigger this cronjob now"><Play size={14} className="mr-2" /> Trigger Now</button>
+              </div>
+            )}
+            {state.selectedResourceType === 'pod' && (
+              <div className="flex gap-2 mb-4">
+                 {(resource as Pod).containers.length === 1 ? (
+                   // Single container: direct button
+                   <button 
+                     onClick={() => {
+                       dispatch({ 
+                         type: 'SET_LOGS_TARGET', 
+                         payload: { 
+                           type: 'pod', 
+                           podName: resource.name, 
+                           namespace: resource.namespace,
+                           container: (resource as Pod).containers[0].name
+                         } 
+                       });
+                     }}
+                     className="flex-1 bg-green-900/30 hover:bg-green-900/50 border border-green-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-green-300"
+                     title="View container logs"
+                   >
+                     <FileText size={14} className="mr-2" /> LOGS
+                   </button>
+                 ) : (
+                   // Multiple containers: dropdown
+                   <div className="relative flex-1">
+                     <button 
+                       onClick={(e) => {
+                         e.stopPropagation();
+                         const btn = e.currentTarget;
+                         const dropdown = btn.nextElementSibling as HTMLElement;
+                         if (dropdown) {
+                           dropdown.classList.toggle('hidden');
+                         }
+                       }}
+                       className="w-full bg-green-900/30 hover:bg-green-900/50 border border-green-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-green-300"
+                       title="View logs"
+                     >
+                       <FileText size={14} className="mr-2" /> LOGS ▾
+                     </button>
+                     <div className="hidden absolute top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-700 rounded shadow-lg z-50 max-h-48 overflow-y-auto">
+                       {(resource as Pod).containers.map(container => (
+                         <button
+                           key={container.name}
+                           onClick={() => {
+                             dispatch({ 
+                               type: 'SET_LOGS_TARGET', 
+                               payload: { 
+                                 type: 'pod', 
+                                 podName: resource.name, 
+                                 namespace: resource.namespace,
+                                 container: container.name
+                               } 
+                             });
+                           }}
+                           className="w-full px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-700 transition-colors"
+                         >
+                           {container.name}
+                         </button>
+                       ))}
+                     </div>
+                   </div>
+                 )}
               </div>
             )}
 
@@ -930,6 +1105,7 @@ export const ResourceDrawer: React.FC = () => {
                                       <button
                                           onClick={(e) => { e.stopPropagation(); handleLinkClick(nodeObj.id, 'node'); }}
                                           className="text-blue-400 hover:text-blue-300 hover:underline flex items-center gap-1 transition-colors text-left"
+                                          title="View node details"
                                       >
                                           {nodeName} <ExternalLink size={12} className="opacity-50 flex-shrink-0" />
                                       </button>
@@ -993,13 +1169,13 @@ export const ResourceDrawer: React.FC = () => {
                     <div className="flex gap-2">
                         {isEditingYaml ? (
                             <>
-                                <button onClick={() => setIsEditingYaml(false)} className="px-3 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs rounded border border-gray-700 transition-colors">Cancel</button>
-                                <button onClick={handleSaveYaml} className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white text-xs rounded border border-blue-500 font-bold shadow-lg shadow-blue-900/20 transition-colors flex items-center">
+                                <button onClick={() => setIsEditingYaml(false)} className="px-3 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs rounded border border-gray-700 transition-colors" title="Cancel editing and discard changes">Cancel</button>
+                                <button onClick={handleSaveYaml} className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white text-xs rounded border border-blue-500 font-bold shadow-lg shadow-blue-900/20 transition-colors flex items-center" title="Apply changes to the resource">
                                     <Save size={12} className="mr-1.5" /> Save Changes
                                 </button>
                             </>
                         ) : (
-                            <button onClick={() => setIsEditingYaml(true)} className="px-3 py-1 bg-blue-900/20 hover:bg-blue-900/40 text-blue-400 text-xs rounded border border-blue-900/50 transition-colors flex items-center font-bold">
+                            <button onClick={() => setIsEditingYaml(true)} className="px-3 py-1 bg-blue-900/20 hover:bg-blue-900/40 text-blue-400 text-xs rounded border border-blue-900/50 transition-colors flex items-center font-bold" title="Edit resource YAML configuration">
                                 <Edit2 size={12} className="mr-1.5" /> Edit YAML
                             </button>
                         )}
@@ -1020,29 +1196,6 @@ export const ResourceDrawer: React.FC = () => {
                     )}
                 </div>
             </div>
-        )}
-        {activeTab === 'logs' && (
-          <div className="h-full flex flex-col">
-              {state.selectedResourceType !== 'deployment' && logTarget && logTarget.containers.length > 0 && (
-                  <div className="flex items-center gap-2 mb-4">
-                      <select className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-blue-500" value={logContainer} onChange={(e) => setLogContainer(e.target.value)}>
-                          {logTarget.containers.map(c => <option key={c} value={c}>{c}</option>)}
-                      </select>
-                      <button onClick={fetchLogs} className="p-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-gray-400 hover:text-white"><RefreshCw size={16} className={loadingLogs ? "animate-spin" : ""} /></button>
-                  </div>
-              )}
-              {state.selectedResourceType === 'deployment' && (
-                  <div className="flex items-center gap-2 mb-4">
-                      <div className="text-xs text-gray-400 bg-gray-800/50 px-3 py-1.5 rounded border border-gray-700">
-                          Showing aggregated logs from all pods with label: <span className="font-mono text-blue-400">release={resource.name}</span>
-                      </div>
-                      <button onClick={fetchLogs} className="p-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-gray-400 hover:text-white"><RefreshCw size={16} className={loadingLogs ? "animate-spin" : ""} /></button>
-                  </div>
-              )}
-              <div className="flex-1 bg-gray-950 border border-gray-800 rounded p-4 overflow-y-auto font-mono text-xs text-gray-300 whitespace-pre-wrap">
-                  {loadingLogs ? (<div className="text-gray-500 italic">Loading logs...</div>) : logLogs.length > 0 ? (logLogs.map((line, i) => <div key={i}>{line}</div>)) : (<div className="text-gray-500 italic">No logs available or container not running.</div>)}
-              </div>
-          </div>
         )}
         {activeTab === 'events' && (
             <div className="space-y-3">
@@ -1066,20 +1219,20 @@ export const ResourceDrawer: React.FC = () => {
                     Interactive Shell - {resource.name}
                   </span>
                     <br/>
-                    {logTarget && logTarget.containers.length > 1 && (
+                    {terminalTarget && terminalTarget.containers.length > 1 && (
                     <select
                       className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-blue-500"
-                      value={logContainer}
-                      onChange={(e) => setLogContainer(e.target.value)}
+                      value={terminalContainer}
+                      onChange={(e) => setTerminalContainer(e.target.value)}
                     >
-                      {logTarget.containers.map(c => <option key={c} value={c}>{c}</option>)}
+                      {terminalTarget.containers.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                   )}
                 </div>
                 <div className="flex-1 relative overflow-hidden">
-                  {logTarget && logTarget.containers.length > 0 && (
+                  {terminalTarget && terminalTarget.containers.length > 0 && (
                     <PodTerminal
-                      wsUrl={`${BACKEND_WS_BASE_URL}/exec?ns=${resource.namespace}&pod=${resource.name}&container=${logContainer}&shell=/bin/sh`}
+                      wsUrl={`${BACKEND_WS_BASE_URL}/exec?ns=${resource.namespace}&pod=${resource.name}&container=${terminalContainer}&shell=/bin/sh`}
                     />
                   )}
                 </div>

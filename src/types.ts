@@ -266,6 +266,14 @@ export interface AppState {
   // Confirmation Modal State
   isConfirmationModalOpen: boolean;
   confirmationModalData: { title: string; message: string; onConfirm: () => void; onCancel?: () => void } | null;
+  // Logs Target State (for bottom panel)
+  logsTarget: { 
+    type: 'pod' | 'deployment' | 'all-pods'; 
+    podName?: string; 
+    deploymentName?: string;
+    namespace: string; 
+    container?: string;
+  } | null;
 }
 
 export type Action =
@@ -307,4 +315,5 @@ export type Action =
   | { type: 'CLOSE_SHELL_MODAL' }
   | { type: 'OPEN_CONFIRMATION_MODAL'; payload: { title: string; message: string; onConfirm: () => void; onCancel?: () => void } }
   | { type: 'CLOSE_CONFIRMATION_MODAL' }
+  | { type: 'SET_LOGS_TARGET'; payload: AppState['logsTarget'] }
   | { type: 'UPDATE_RESOURCE'; payload: { id: string; type: string; data: any } };
