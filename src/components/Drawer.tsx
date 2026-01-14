@@ -124,6 +124,21 @@ export const ResourceDrawer: React.FC = () => {
   const [isEditingYaml, setIsEditingYaml] = useState(false);
   const [editedYaml, setEditedYaml] = useState('');
 
+  // Drawer resizing
+  const [drawerWidth, setDrawerWidth] = useState(() => {
+    const saved = localStorage.getItem('drawerWidth');
+    if (saved) {
+      const savedWidth = parseInt(saved);
+      // Ensure saved width is within bounds
+      const minWidth = Math.max(400, window.innerWidth * 0.25);
+      const maxWidth = window.innerWidth * 0.8;
+      return Math.max(minWidth, Math.min(maxWidth, savedWidth));
+    }
+    return window.innerWidth * 0.4; // Default to 40% of window width
+  });
+  const [isResizing, setIsResizing] = useState(false);
+  const resizingRef = React.useRef(false);
+
   // Helper to find selected resource
   let resource: any = null;
   const rt = state.selectedResourceType;
@@ -160,6 +175,68 @@ export const ResourceDrawer: React.FC = () => {
       return next;
     });
   };
+
+  // Drawer resizing handlers
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    resizingRef.current = true;
+    setIsResizing(true);
+    document.body.style.cursor = 'ew-resize';
+    document.body.style.userSelect = 'none';
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!resizingRef.current) return;
+      const newWidth = window.innerWidth - e.clientX;
+      const minWidth = Math.max(400, window.innerWidth * 0.25); // Min 25% of window or 400px
+      const maxWidth = window.innerWidth * 0.8; // Max 80% of window
+      const constrainedWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
+      setDrawerWidth(constrainedWidth);
+    };
+
+    const handleMouseUp = () => {
+      if (resizingRef.current) {
+        resizingRef.current = false;
+        setIsResizing(false);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        localStorage.setItem('drawerWidth', drawerWidth.toString());
+      }
+    };
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isResizing, drawerWidth]);
+
+  // Handle window resize to ensure drawer stays within bounds
+  useEffect(() => {
+    const handleWindowResize = () => {
+      const minWidth = Math.max(400, window.innerWidth * 0.25);
+      const maxWidth = window.innerWidth * 0.8;
+      
+      let newWidth = drawerWidth;
+      if (drawerWidth > maxWidth) {
+        newWidth = maxWidth;
+      } else if (drawerWidth < minWidth) {
+        newWidth = minWidth;
+      }
+      
+      if (newWidth !== drawerWidth) {
+        setDrawerWidth(newWidth);
+        localStorage.setItem('drawerWidth', newWidth.toString());
+      }
+    };
+
+    window.addEventListener('resize', handleWindowResize);
+    return () => window.removeEventListener('resize', handleWindowResize);
+  }, [drawerWidth]);
 
   useEffect(() => {
     if (activeTab === 'yaml' && resource && !isEditingYaml) {
@@ -902,7 +979,17 @@ export const ResourceDrawer: React.FC = () => {
 
   return (
     <>
-    <div className="fixed inset-y-0 right-0 w-[700px] bg-gray-900 border-l border-gray-800 shadow-2xl transform transition-transform duration-300 z-50 flex flex-col">
+    <div 
+      className="fixed inset-y-0 right-0 bg-gray-900 border-l border-gray-800 shadow-2xl transform transition-transform duration-300 z-50 flex flex-col"
+      style={{ width: `${drawerWidth}px` }}
+    >
+      {/* Resize handle */}
+      <div
+        onMouseDown={handleMouseDown}
+        className={`absolute left-0 top-0 bottom-0 w-0.5 cursor-ew-resize hover:bg-blue-500 transition-colors ${isResizing ? 'bg-blue-500' : 'bg-transparent'}`}
+        style={{ zIndex: 51 }}
+      />
+      
       <div className="h-14 flex items-center justify-between px-6 border-b border-gray-800 bg-gray-900">
         <div className="flex items-center gap-3 overflow-hidden">
             {state.resourceHistory.length > 0 && (
