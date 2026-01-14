@@ -2,7 +2,7 @@
 // This script runs in the renderer process before web content loads
 // It has access to Node.js APIs and can expose selected APIs to the renderer
 
-import { contextBridge, ipcRenderer } from 'electron';
+const { contextBridge } = require('electron');
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object

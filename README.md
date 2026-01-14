@@ -130,27 +130,34 @@ npm run electron:build:all
 
 The built application will be in the `dist-electron/` folder.
 
-### Run as Web Application (Development Only)
+### Development Mode with Hot Reload
 
-For development purposes, you can also run the app as a web application:
+For rapid development with hot reload:
 
 1. Install dependencies:
    ```bash
    npm install
    ```
 
-2. Start the application:
+2. Start the backend server (in one terminal):
    ```bash
-   chmod +x ./start_mac.sh
-   ./start_mac.sh
+   npm run server
    ```
 
-3. Open your browser: `http://localhost:5173`
-
-4. Stop the application:
+3. Start the frontend dev server (in another terminal):
    ```bash
-   ./stop_mac.sh
+   npm run dev
    ```
+
+4. Open your browser: `http://localhost:5173`
+
+The frontend will automatically reload when you make changes. Press `Ctrl+C` in each terminal to stop the servers.
+
+**Or run everything in Electron:**
+```bash
+npm run electron
+```
+This runs the full app in Electron with DevTools open for debugging.
 
 ## Troubleshooting
 

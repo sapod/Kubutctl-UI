@@ -118,6 +118,7 @@ export const ResourceDrawer: React.FC = () => {
   const [logContainer, setLogContainer] = useState<string>('');
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [expandedCmKey, setExpandedCmKey] = useState<string | null>(null);
+  const [expandedContainers, setExpandedContainers] = useState<Set<number>>(new Set());
 
   // YAML Edit State
   const [isEditingYaml, setIsEditingYaml] = useState(false);
@@ -145,7 +146,20 @@ export const ResourceDrawer: React.FC = () => {
     setLogContainer('');
     setExpandedCmKey(null);
     setIsEditingYaml(false);
+    setExpandedContainers(new Set()); // Reset expanded containers when resource changes
   }, [state.selectedResourceId, state.selectedResourceType]);
+
+  const toggleContainer = (index: number) => {
+    setExpandedContainers(prev => {
+      const next = new Set(prev);
+      if (next.has(index)) {
+        next.delete(index);
+      } else {
+        next.add(index);
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (activeTab === 'yaml' && resource && !isEditingYaml) {
@@ -616,15 +630,29 @@ export const ResourceDrawer: React.FC = () => {
       <div className="mt-2">
         <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Containers</h4>
         <div className="space-y-3">
-          {pod.containers.map((c, i) => (
-            <div key={i} className="bg-gray-800/50 p-3 rounded border border-gray-700/50">
-               <div className="flex items-center gap-2 mb-1">
-                 <ContainerIcon size={14} className="text-blue-400"/>
-                 <span className="font-semibold text-sm text-gray-200">{c.name}</span>
+          {pod.containers.map((c, i) => {
+            const isExpanded = expandedContainers.has(i);
+            return (
+            <div key={i} className="bg-gray-800/50 rounded border border-gray-700/50">
+               <div
+                 className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-700/30 transition-colors"
+                 onClick={() => toggleContainer(i)}
+               >
+                 <div className="flex items-center gap-2">
+                   <ContainerIcon size={14} className="text-blue-400"/>
+                   <span className="font-semibold text-sm text-gray-200">{c.name}</span>
+                   <span className="text-xs text-gray-500 font-mono">({c.image.split(':')[0].split('/').pop()})</span>
+                 </div>
+                 <ChevronDown
+                   size={16}
+                   className={`text-gray-400 transition-transform ${isExpanded ? 'transform rotate-180' : ''}`}
+                 />
                </div>
-               <div className="text-xs text-gray-400 font-mono mb-2 ml-5">Image: <span className="text-blue-300">{c.image}</span></div>
+               {isExpanded && (
+               <div className="px-3 pb-3 pt-1">
+               <div className="text-xs text-gray-400 font-mono mb-2">Image: <span className="text-blue-300">{c.image}</span></div>
                {c.resources && (c.resources.requests || c.resources.limits) && (
-                 <div className="ml-5 mb-2 p-2 bg-gray-900/50 rounded border border-gray-700/30 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                 <div className="mb-2 p-2 bg-gray-900/50 rounded border border-gray-700/30 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
                      {c.resources.requests && (
                          <div className="col-span-1">
                              <span className="text-gray-500 font-bold uppercase text-[10px]">Requests</span>
@@ -646,7 +674,7 @@ export const ResourceDrawer: React.FC = () => {
                  </div>
                )}
                {c.ports.length > 0 && (
-                 <div className="ml-5">
+                 <div>
                     <span className="text-xs text-gray-500 uppercase tracking-wider font-bold">Ports:</span>
                     <div className="flex flex-wrap gap-1 mt-1">
                        {c.ports.map((p, idx) => {
@@ -676,7 +704,7 @@ export const ResourceDrawer: React.FC = () => {
                  </div>
                )}
                {c.volumeMounts && c.volumeMounts.length > 0 && (
-                   <div className="ml-5 mt-2">
+                   <div className="mt-2">
                        <span className="text-xs text-gray-500 uppercase tracking-wider font-bold block mb-1">Mounts:</span>
                        <div className="space-y-1.5">
                            {c.volumeMounts.map((vm, idx) => {
@@ -733,7 +761,7 @@ export const ResourceDrawer: React.FC = () => {
                    </div>
                )}
                {c.env && c.env.length > 0 && (
-                   <div className="ml-5 mt-2">
+                   <div className="mt-2">
                        <span className="text-xs text-gray-500 uppercase tracking-wider font-bold block mb-1">Environment:</span>
                        <div className="space-y-1.5">
                            {c.env.map((envVar, idx) => {
@@ -794,8 +822,11 @@ export const ResourceDrawer: React.FC = () => {
                        </div>
                    </div>
                )}
+               </div>
+               )}
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     );
@@ -857,6 +888,7 @@ export const ResourceDrawer: React.FC = () => {
   const showTerminalTab = state.selectedResourceType === 'pod';
 
   const getEventsToDisplay = () => {
+    if (!resource) return [];
     return state.events.filter(e => {
         if (e.involvedObject.uid === resource.id) return true;
         const kind = state.selectedResourceType ? (state.selectedResourceType.charAt(0).toUpperCase() + state.selectedResourceType.slice(1)) : '';
@@ -864,6 +896,9 @@ export const ResourceDrawer: React.FC = () => {
         return e.involvedObject.name === resource.name && e.involvedObject.namespace === resource.namespace && (e.involvedObject.kind === resourceKind || (resourceKind === 'Pod' && e.involvedObject.kind === 'Pod'));
     });
   };
+
+  // Guard: Don't render if no resource is selected
+  if (!resource) return null;
 
   return (
     <>
