@@ -513,7 +513,7 @@ export const ResourceDrawer: React.FC = () => {
                                      <ArrowRightCircle size={10} />
                                      {targetSvc ? (
                                         <div className="flex items-center gap-2">
-                                            <span className="text-green-300 hover:underline cursor-pointer" onClick={() => handleLinkClick(targetSvc.id, 'service')}>
+                                            <span className="text-green-300 hover:underline cursor-pointer" onClick={() => handleLinkClick(targetSvc.id, 'service')} title="View service details">
                                                 {p.service}:{resolvedPortName || p.port || '???'}
                                             </span>
                                         </div>
@@ -634,7 +634,7 @@ export const ResourceDrawer: React.FC = () => {
             <div key="cm" className="mt-4">
               <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Related Config</h4>
               {relatedCm.map(cm => (
-                <div key={cm.id} onClick={() => handleLinkClick(cm.id, 'configmap')} className="cursor-pointer bg-gray-800 p-2 rounded mb-1 hover:bg-gray-700 flex justify-between items-center group">
+                <div key={cm.id} onClick={() => handleLinkClick(cm.id, 'configmap')} className="cursor-pointer bg-gray-800 p-2 rounded mb-1 hover:bg-gray-700 flex justify-between items-center group" title="View ConfigMap details">
                   <span className="text-sm text-yellow-200 group-hover:text-yellow-100 transition-colors">{cm.name}</span>
                   <span className="text-xs text-gray-600 group-hover:text-gray-400">ConfigMap</span>
                 </div>
@@ -651,7 +651,7 @@ export const ResourceDrawer: React.FC = () => {
             <div key="deps" className="mt-4">
               <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Target Workloads</h4>
               {relatedDeps.map(d => (
-                <div key={d.id} onClick={() => handleLinkClick(d.id, 'deployment')} className="cursor-pointer bg-gray-800 p-2 rounded mb-1 hover:bg-gray-700 flex justify-between">
+                <div key={d.id} onClick={() => handleLinkClick(d.id, 'deployment')} className="cursor-pointer bg-gray-800 p-2 rounded mb-1 hover:bg-gray-700 flex justify-between" title="View deployment details">
                    <span className="text-sm text-purple-300">{d.name}</span>
                    <span className="text-xs text-gray-500">Deployment</span>
                 </div>
@@ -689,6 +689,7 @@ export const ResourceDrawer: React.FC = () => {
                                     ? 'bg-green-900/40 text-green-300 border-green-800 hover:bg-red-900/40 hover:text-red-300 hover:border-red-800' 
                                     : 'bg-blue-900/40 text-blue-300 border-blue-800 hover:bg-blue-800 hover:text-white'
                                 }`}
+                                title={activePf ? 'Stop port forwarding' : 'Start port forwarding'}
                             >
                                 {activePf ? <><StopCircle size={12}/> Stop Forward</> : <><Network size={12}/> Forward</>}
                             </button>
@@ -818,7 +819,7 @@ export const ResourceDrawer: React.FC = () => {
                                            <span className="text-gray-500">Source:</span>
                                            <div className="min-w-0">
                                                {isConfigMap ? (
-                                                   <span className="text-yellow-400 hover:text-yellow-300 hover:underline cursor-pointer flex items-center gap-1.5 font-medium transition-colors truncate" onClick={() => cmName && handleConfigMapClick(cmName, pod.namespace)}>
+                                                   <span className="text-yellow-400 hover:text-yellow-300 hover:underline cursor-pointer flex items-center gap-1.5 font-medium transition-colors truncate" onClick={() => cmName && handleConfigMapClick(cmName, pod.namespace)} title="View ConfigMap details">
                                                        <FileText size={12} className="flex-shrink-0" />
                                                        <span className="truncate">{cmName}</span>
                                                        <ExternalLink size={10} className="flex-shrink-0 opacity-50"/>
@@ -1004,11 +1005,11 @@ export const ResourceDrawer: React.FC = () => {
             </div>
         </div>
         <div className="flex items-center gap-3">
-             <button onClick={handleDelete} className="text-gray-500 hover:text-red-400 transition-colors p-1 rounded hover:bg-gray-800">
+             <button onClick={handleDelete} className="text-gray-500 hover:text-red-400 transition-colors p-1 rounded hover:bg-gray-800" title="Delete resource">
                 <Trash2 size={20} />
              </button>
              <div className="h-5 w-px bg-gray-800"></div>
-             <button onClick={() => dispatch({ type: 'CLOSE_DRAWER' })} className="text-gray-400 hover:text-white transition-colors flex-shrink-0">
+             <button onClick={() => dispatch({ type: 'CLOSE_DRAWER' })} className="text-gray-400 hover:text-white transition-colors flex-shrink-0" title="Close details panel">
                <X size={20} />
              </button>
         </div>
@@ -1027,12 +1028,12 @@ export const ResourceDrawer: React.FC = () => {
           <div className="space-y-6">
             {state.selectedResourceType === 'deployment' && (
               <div className="flex gap-2 mb-4">
-                 <button onClick={() => kubectl.rolloutRestart('deployment', resource.name, resource.namespace, resource.id)} className="flex-1 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-blue-300"><RotateCw size={14} className="mr-2" /> Rollout Restart</button>
+                 <button onClick={() => kubectl.rolloutRestart('deployment', resource.name, resource.namespace, resource.id)} className="flex-1 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-blue-300" title="Restart all pods in this deployment"><RotateCw size={14} className="mr-2" /> Rollout Restart</button>
               </div>
             )}
             {state.selectedResourceType === 'cronjob' && (
               <div className="flex gap-2 mb-4">
-                 <button onClick={handleTriggerCronJob} className="flex-1 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-blue-300"><Play size={14} className="mr-2" /> Trigger Now</button>
+                 <button onClick={handleTriggerCronJob} className="flex-1 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-blue-300" title="Manually trigger this cronjob now"><Play size={14} className="mr-2" /> Trigger Now</button>
               </div>
             )}
 
@@ -1052,6 +1053,7 @@ export const ResourceDrawer: React.FC = () => {
                                       <button
                                           onClick={(e) => { e.stopPropagation(); handleLinkClick(nodeObj.id, 'node'); }}
                                           className="text-blue-400 hover:text-blue-300 hover:underline flex items-center gap-1 transition-colors text-left"
+                                          title="View node details"
                                       >
                                           {nodeName} <ExternalLink size={12} className="opacity-50 flex-shrink-0" />
                                       </button>
@@ -1115,13 +1117,13 @@ export const ResourceDrawer: React.FC = () => {
                     <div className="flex gap-2">
                         {isEditingYaml ? (
                             <>
-                                <button onClick={() => setIsEditingYaml(false)} className="px-3 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs rounded border border-gray-700 transition-colors">Cancel</button>
-                                <button onClick={handleSaveYaml} className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white text-xs rounded border border-blue-500 font-bold shadow-lg shadow-blue-900/20 transition-colors flex items-center">
+                                <button onClick={() => setIsEditingYaml(false)} className="px-3 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs rounded border border-gray-700 transition-colors" title="Cancel editing and discard changes">Cancel</button>
+                                <button onClick={handleSaveYaml} className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white text-xs rounded border border-blue-500 font-bold shadow-lg shadow-blue-900/20 transition-colors flex items-center" title="Apply changes to the resource">
                                     <Save size={12} className="mr-1.5" /> Save Changes
                                 </button>
                             </>
                         ) : (
-                            <button onClick={() => setIsEditingYaml(true)} className="px-3 py-1 bg-blue-900/20 hover:bg-blue-900/40 text-blue-400 text-xs rounded border border-blue-900/50 transition-colors flex items-center font-bold">
+                            <button onClick={() => setIsEditingYaml(true)} className="px-3 py-1 bg-blue-900/20 hover:bg-blue-900/40 text-blue-400 text-xs rounded border border-blue-900/50 transition-colors flex items-center font-bold" title="Edit resource YAML configuration">
                                 <Edit2 size={12} className="mr-1.5" /> Edit YAML
                             </button>
                         )}
