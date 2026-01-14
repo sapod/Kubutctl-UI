@@ -1,10 +1,22 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useStore } from '../store';
-import { Terminal } from 'lucide-react';
+import { Terminal, FileText, RefreshCw } from 'lucide-react';
+import { kubectl } from '../services/kubectl';
 
 export const TerminalPanel: React.FC = () => {
-    const { state } = useStore();
+    const { state, dispatch } = useStore();
     const bottomRef = React.useRef<HTMLDivElement>(null);
+    
+    // Tab state
+    const [activeTab, setActiveTab] = useState<'terminal' | 'logs'>('terminal');
+    
+    // Logs state
+    const [logLines, setLogLines] = useState<string[]>([]);
+    const [loadingLogs, setLoadingLogs] = useState(false);
+    const [selectedDeployment, setSelectedDeployment] = useState<string>(''); // deployment namespace/name or empty
+    const [selectedPod, setSelectedPod] = useState<string>('all-pods'); // 'all-pods' or pod namespace/name
+    const [selectedContainer, setSelectedContainer] = useState<string>('');
+    const [availableDeployments, setAvailableDeployments] = useState<Array<{ name: string; namespace: string }>>([]);
     
     // Terminal resizing
     const [terminalHeight, setTerminalHeight] = useState(() => {
@@ -19,6 +31,160 @@ export const TerminalPanel: React.FC = () => {
     useEffect(() => {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [state.terminalOutput]);
+
+    // Update available deployments and pods when state changes
+    useEffect(() => {
+        const deployments = state.deployments.map(dep => ({
+            name: dep.name,
+            namespace: dep.namespace
+        }));
+        setAvailableDeployments(deployments);
+    }, [state.pods, state.deployments, state.replicaSets]);
+
+    // Auto-select first deployment when deployments become available
+    useEffect(() => {
+        if (availableDeployments.length > 0 && !selectedDeployment) {
+            setSelectedDeployment(`${availableDeployments[0].namespace}/${availableDeployments[0].name}`);
+            setSelectedPod('all-pods');
+        }
+    }, [availableDeployments, selectedDeployment]);
+
+    // Handle logs target from state (when LOGS button is clicked in drawer)
+    useEffect(() => {
+        if (state.logsTarget) {
+            setActiveTab('logs');
+            
+            // Close the drawer to give more space for viewing logs
+            if (state.drawerOpen) {
+                dispatch({ type: 'CLOSE_DRAWER' });
+            }
+            
+            if (state.logsTarget.type === 'pod') {
+                // For pod: find which deployment owns it using label matching
+                const pod = state.pods.find(p => p.name === state.logsTarget?.podName && p.namespace === state.logsTarget?.namespace);
+                
+                let deploymentFound = false;
+                if (pod && pod.labels) {
+                    // Find deployment that matches this pod's labels
+                    const matchingDeployment = state.deployments.find(dep => {
+                        if (dep.namespace !== pod.namespace) return false;
+                        if (!dep.selector || !pod.labels) return false;
+                        
+                        // Check if all deployment selector labels match the pod's labels
+                        return Object.entries(dep.selector).every(([key, value]) => pod.labels![key] === value);
+                    });
+                    
+                    if (matchingDeployment) {
+                        setSelectedDeployment(`${matchingDeployment.namespace}/${matchingDeployment.name}`);
+                        deploymentFound = true;
+                    }
+                }
+                
+                // If no deployment found, try old method with owner references as fallback
+                if (!deploymentFound && pod?.ownerReferences) {
+                    const owner = pod.ownerReferences.find(o => o.kind === 'ReplicaSet');
+                    if (owner) {
+                        const rs = state.replicaSets.find(r => r.name === owner.name && r.namespace === pod.namespace);
+                        if (rs?.ownerReferences) {
+                            const depOwner = rs.ownerReferences.find(o => o.kind === 'Deployment');
+                            if (depOwner) {
+                                setSelectedDeployment(`${pod.namespace}/${depOwner.name}`);
+                                deploymentFound = true;
+                            }
+                        }
+                    }
+                }
+                
+                // If still no deployment found, select first available deployment
+                if (!deploymentFound && availableDeployments.length > 0) {
+                    setSelectedDeployment(`${availableDeployments[0].namespace}/${availableDeployments[0].name}`);
+                }
+                
+                setSelectedPod(`${state.logsTarget.namespace}/${state.logsTarget.podName}`);
+                if (state.logsTarget.container) {
+                    setSelectedContainer(state.logsTarget.container);
+                }
+            } else if (state.logsTarget.type === 'all-pods' && state.logsTarget.deploymentName) {
+                // For deployment all-pods
+                setSelectedDeployment(`${state.logsTarget.namespace}/${state.logsTarget.deploymentName}`);
+                setSelectedPod('all-pods');
+                setSelectedContainer('');
+            }
+            
+            // Clear the logs target after handling it (longer delay to ensure state updates complete)
+            setTimeout(() => {
+                dispatch({ type: 'SET_LOGS_TARGET', payload: null });
+            }, 500);
+        }
+    }, [state.logsTarget, state.pods, state.deployments, state.replicaSets, availableDeployments]);
+
+    // Fetch logs function
+    const fetchLogs = async () => {
+        if (!selectedDeployment) return;
+        
+        const [namespace, depName] = selectedDeployment.split('/');
+        
+        // Check if we're fetching all pods logs
+        if (selectedPod === 'all-pods') {
+            setLoadingLogs(true);
+            try {
+                const lines = await kubectl.getDeploymentLogs(depName, namespace);
+                setLogLines(lines);
+            } catch (e) {
+                setLogLines(['Failed to fetch deployment logs: ' + (e as Error).message]);
+            } finally {
+                setLoadingLogs(false);
+            }
+            return;
+        }
+        
+        // Regular pod logs
+        if (!selectedPod || !selectedContainer) return;
+        
+        const [podNamespace, podName] = selectedPod.split('/');
+        setLoadingLogs(true);
+        try {
+            const lines = await kubectl.getLogs(podName, podNamespace, selectedContainer);
+            setLogLines(lines);
+        } catch (e) {
+            setLogLines(['Failed to fetch logs: ' + (e as Error).message]);
+        } finally {
+            setLoadingLogs(false);
+        }
+    };
+
+    // Fetch logs when tab is switched or selection changes
+    useEffect(() => {
+        if (activeTab === 'logs' && selectedDeployment) {
+            if (selectedPod === 'all-pods' || (selectedPod && selectedContainer)) {
+                fetchLogs();
+            }
+        }
+    }, [activeTab, selectedDeployment, selectedPod, selectedContainer]);
+
+    // Update pod selection when deployment changes (but not when logsTarget is being set)
+    useEffect(() => {
+        if (selectedDeployment && !state.logsTarget) {
+            // Only reset to all-pods when deployment changes manually (not from drawer)
+            setSelectedPod('all-pods');
+            setSelectedContainer('');
+        }
+    }, [selectedDeployment]);
+
+    // Update container when pod changes (but only if current container is not valid)
+    useEffect(() => {
+        if (selectedPod && selectedPod !== 'all-pods') {
+            const [namespace, podName] = selectedPod.split('/');
+            const pod = state.pods.find(p => p.namespace === namespace && p.name === podName);
+            if (pod && pod.containers.length > 0) {
+                // Only auto-select if current container is not in the list
+                const containerNames = pod.containers.map(c => c.name);
+                if (!containerNames.includes(selectedContainer)) {
+                    setSelectedContainer(containerNames[0]);
+                }
+            }
+        }
+    }, [selectedPod, state.pods]);
 
     // Terminal resize handlers
     const handleMouseDown = (e: React.MouseEvent) => {
@@ -92,9 +258,27 @@ export const TerminalPanel: React.FC = () => {
           }}
         />
         
+        {/* Header with tabs */}
         <div className="flex items-center justify-between px-4 py-1.5 bg-gray-900 border-b border-gray-800">
-          <div className="flex items-center text-gray-400 text-xs font-bold uppercase tracking-wider">
-             <Terminal size={12} className="mr-2" /> Terminal
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setActiveTab('terminal')}
+              className={`flex items-center text-xs font-bold uppercase tracking-wider transition-colors ${
+                activeTab === 'terminal' ? 'text-blue-400' : 'text-gray-400 hover:text-gray-300'
+              }`}
+              title="Terminal output"
+            >
+              <Terminal size={12} className="mr-2" /> Terminal
+            </button>
+            <button
+              onClick={() => setActiveTab('logs')}
+              className={`flex items-center text-xs font-bold uppercase tracking-wider transition-colors ${
+                activeTab === 'logs' ? 'text-blue-400' : 'text-gray-400 hover:text-gray-300'
+              }`}
+              title="Pod logs viewer"
+            >
+              <FileText size={12} className="mr-2" /> Logs
+            </button>
           </div>
           <div className="flex space-x-1.5">
             <div className="w-2.5 h-2.5 rounded-full bg-red-500/80"></div>
@@ -102,12 +286,118 @@ export const TerminalPanel: React.FC = () => {
             <div className="w-2.5 h-2.5 rounded-full bg-green-500/80"></div>
           </div>
         </div>
-        <div className="flex-1 overflow-auto p-3 text-gray-300 font-mono text-xs leading-relaxed">
-          {state.terminalOutput.map((line, i) => (
-            <div key={i} className="mb-1 whitespace-pre-wrap break-all">{line.startsWith('>') ? <span className="text-blue-400 font-bold mr-2">$</span> : ''}{line.startsWith('>') ? <span className="text-yellow-100">{line.substring(2)}</span> : line}</div>
-          ))}
-          <div ref={bottomRef} />
-        </div>
+
+        {/* Terminal content */}
+        {activeTab === 'terminal' && (
+          <div className="flex-1 overflow-auto p-3 text-gray-300 font-mono text-xs leading-relaxed custom-scrollbar">
+            {state.terminalOutput.map((line, i) => (
+              <div key={i} className="mb-1 whitespace-pre-wrap break-all">
+                {line.startsWith('>') ? <span className="text-blue-400 font-bold mr-2">$</span> : ''}
+                {line.startsWith('>') ? <span className="text-yellow-100">{line.substring(2)}</span> : line}
+              </div>
+            ))}
+            <div ref={bottomRef} />
+          </div>
+        )}
+
+        {/* Logs content */}
+        {activeTab === 'logs' && (
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {/* Logs controls */}
+            <div className="flex items-center gap-3 px-4 py-2 bg-gray-900/50 border-b border-gray-800">
+              <div className="flex items-center gap-2 flex-1">
+                <label className="text-xs text-gray-400 font-medium">Deployment:</label>
+                <select
+                  className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-blue-500 max-w-xs"
+                  value={selectedDeployment}
+                  onChange={(e) => setSelectedDeployment(e.target.value)}
+                >
+                  {availableDeployments.length === 0 && <option value="">No deployments available</option>}
+                  {availableDeployments.map(dep => (
+                    <option key={`${dep.namespace}/${dep.name}`} value={`${dep.namespace}/${dep.name}`}>
+                      {dep.namespace}/{dep.name}
+                    </option>
+                  ))}
+                </select>
+
+                <label className="text-xs text-gray-400 font-medium ml-2">Pod:</label>
+                <select
+                  className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-blue-500 max-w-xs"
+                  value={selectedPod}
+                  onChange={(e) => setSelectedPod(e.target.value)}
+                  disabled={!selectedDeployment}
+                >
+                  <option value="all-pods">All Pods (Aggregated)</option>
+                  {selectedDeployment && (() => {
+                    const [namespace, depName] = selectedDeployment.split('/');
+                    const deployment = state.deployments.find(d => d.name === depName && d.namespace === namespace);
+                    
+                    if (!deployment) return null;
+                    
+                    // Helper function to check if pod labels match deployment selector
+                    const matchesSelector = (podLabels: Record<string, string> | undefined, selector: Record<string, string> | undefined) => {
+                      if (!podLabels || !selector) return false;
+                      return Object.entries(selector).every(([key, value]) => podLabels[key] === value);
+                    };
+                    
+                    const filteredPods = state.pods.filter(statePod => {
+                        if (statePod.namespace !== namespace) return false;
+                        return matchesSelector(statePod.labels, deployment.selector);
+                    });
+                    
+                    return filteredPods.map(pod => (
+                        <option key={`${pod.namespace}/${pod.name}`} value={`${pod.namespace}/${pod.name}`}>
+                          {pod.name}
+                        </option>
+                    ));
+                  })()}
+                </select>
+
+                {selectedPod !== 'all-pods' && (
+                  <>
+                    <label className="text-xs text-gray-400 font-medium ml-2">Container:</label>
+                    <select
+                      className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-blue-500"
+                      value={selectedContainer}
+                      onChange={(e) => setSelectedContainer(e.target.value)}
+                      disabled={!selectedPod || selectedPod === 'all-pods'}
+                    >
+                      {selectedPod && selectedPod !== 'all-pods' && (() => {
+                        const [namespace, podName] = selectedPod.split('/');
+                        const pod = state.pods.find(p => p.namespace === namespace && p.name === podName);
+                        return pod?.containers.map(container => (
+                          <option key={container.name} value={container.name}>{container.name}</option>
+                        ));
+                      })()}
+                    </select>
+                  </>
+                )}
+
+                <button
+                  onClick={fetchLogs}
+                  className="p-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-gray-400 hover:text-white transition-colors ml-2"
+                  title="Refresh logs"
+                  disabled={loadingLogs || !selectedDeployment || (selectedPod !== 'all-pods' && !selectedContainer)}
+                >
+                  <RefreshCw size={14} className={loadingLogs ? "animate-spin" : ""} />
+                </button>
+              </div>
+            </div>
+
+            {/* Logs output */}
+            <div className="flex-1 overflow-auto p-3 text-gray-300 font-mono text-xs leading-relaxed bg-gray-950 custom-scrollbar">
+              {loadingLogs ? (
+                <div className="text-gray-500 italic">Loading logs...</div>
+              ) : logLines.length > 0 ? (
+                logLines.map((line, i) => (
+                  <div key={i} className="mb-0.5 whitespace-pre">{line}</div>
+                ))
+              ) : (
+                <div className="text-gray-500 italic">No logs available or container not running.</div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     );
 };

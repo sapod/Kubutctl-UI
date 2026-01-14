@@ -20,7 +20,7 @@ const initialClusterId = getStoredCurrentClusterId(storedClusters);
 const initialClusterState = loadClusterState(initialClusterId);
 
 const initialState: AppState = {
-  view: initialClusterState.view, isLoading: false, isContextSwitching: false, error: null, currentClusterId: initialClusterId, selectedNamespace: getStoredNamespace(initialClusterId), clusters: storedClusters, nodes: [], pods: [], deployments: [], replicaSets: [], jobs: [], cronJobs: [], services: [], ingresses: [], configMaps: [], namespaces: [], events: [], resourceQuotas: [], portForwards: [], routines: getStoredRoutines(), terminalOutput: ['Welcome to Kubectl-UI', 'Initializing application...'], selectedResourceId: initialClusterState.selectedResourceId, selectedResourceType: initialClusterState.selectedResourceType, resourceHistory: initialClusterState.resourceHistory || [], drawerOpen: initialClusterState.drawerOpen, isAddClusterModalOpen: false, isCatalogOpen: false, isPortForwardModalOpen: false, portForwardModalData: null, isRoutineModalOpen: false, routineModalData: null, isShellModalOpen: false, shellModalData: null, isConfirmationModalOpen: false, confirmationModalData: null,
+  view: initialClusterState.view, isLoading: false, isContextSwitching: false, error: null, currentClusterId: initialClusterId, selectedNamespace: getStoredNamespace(initialClusterId), clusters: storedClusters, nodes: [], pods: [], deployments: [], replicaSets: [], jobs: [], cronJobs: [], services: [], ingresses: [], configMaps: [], namespaces: [], events: [], resourceQuotas: [], portForwards: [], routines: getStoredRoutines(), terminalOutput: ['Welcome to Kubectl-UI', 'Initializing application...'], selectedResourceId: initialClusterState.selectedResourceId, selectedResourceType: initialClusterState.selectedResourceType, resourceHistory: initialClusterState.resourceHistory || [], drawerOpen: initialClusterState.drawerOpen, isAddClusterModalOpen: false, isCatalogOpen: false, isPortForwardModalOpen: false, portForwardModalData: null, isRoutineModalOpen: false, routineModalData: null, isShellModalOpen: false, shellModalData: null, isConfirmationModalOpen: false, confirmationModalData: null, logsTarget: null,
 };
 
 // Simplified reducer signature using updated Action type
@@ -64,6 +64,7 @@ function reducer(state: AppState, action: Action): AppState {
     case 'OPEN_CONFIRMATION_MODAL': return { ...state, isConfirmationModalOpen: true, confirmationModalData: action.payload };
     case 'CLOSE_DRAWER_SILENTLY': return { ...state, drawerOpen: false };
     case 'CLOSE_CONFIRMATION_MODAL': return { ...state, isConfirmationModalOpen: false, confirmationModalData: null };
+    case 'SET_LOGS_TARGET': return { ...state, logsTarget: action.payload };
     case 'UPDATE_RESOURCE': { const { id, type, data } = action.payload; if (!data) return state; const update = (list: any[]) => list.map(item => (item.id === id || item.name === data.name) ? (type === 'pod' ? { ...data, cpuUsage: item.cpuUsage, memoryUsage: item.memoryUsage } : data) : item); let k: keyof AppState | undefined; if (type === 'pod') k = 'pods'; else if (type === 'deployment') k = 'deployments'; else if (type === 'replicaset') k = 'replicaSets'; else if (type === 'job') k = 'jobs'; else if (type === 'cronjob') k = 'cronJobs'; else if (type === 'node') k = 'nodes'; else if (type === 'service') k = 'services'; else if (type === 'ingress') k = 'ingresses'; else if (type === 'configmap') k = 'configMaps'; else if (type === 'namespace') k = 'namespaces'; else if (type === 'resourcequota') k = 'resourceQuotas'; if (k) return { ...state, [k]: update((state as any)[k]) }; return state; }
     default: return state;
   }
@@ -147,6 +148,21 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 dispatch({ type: 'SET_DATA', payload: data });
                 data.events = await kubectl.getEvents(ns, notify);
                 dispatch({ type: 'SET_DATA', payload: data });
+
+                // Always fetch deployments, replicaSets, and pods in background for logs functionality
+                // Fetch these first so they're available, then view-specific data can override if needed
+                try {
+                    const [bgDeps, bgRs, bgPods] = await Promise.all([
+                        kubectl.getDeployments(ns, false),
+                        kubectl.getReplicaSets(ns, false),
+                        kubectl.getPods(ns, false)
+                    ]);
+                    data.deployments = bgDeps;
+                    data.replicaSets = bgRs;
+                    data.pods = bgPods;
+                } catch (e) {
+                    // Silently fail - this is background data for logs
+                }
 
                 switch (state.view) {
                     case 'overview': { const [nodes, pods, deps] = await Promise.all([kubectl.getNodes(notify), kubectl.getPods(ns, notify), kubectl.getDeployments(ns, notify)]); data = { ...data, nodes, pods, deployments: deps }; break; }

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useStore } from '../store';
 import { AppState, Pod, Ingress, Service, ResourceStatus, Deployment, Job } from '../types';
 import { kubectl } from '../services/kubectl';
-import { Box, X, Globe, ArrowRightCircle, Container as ContainerIcon, Network, FileText, RotateCw, Trash2, ChevronDown, RefreshCw, AlertTriangle, Maximize2, Minimize2, HardDrive, ExternalLink, ArrowLeft, StopCircle, Play, History, Edit2, Save, Key } from 'lucide-react';
+import { Box, X, Globe, ArrowRightCircle, Container as ContainerIcon, Network, FileText, RotateCw, Trash2, ChevronDown, AlertTriangle, Maximize2, Minimize2, HardDrive, ExternalLink, ArrowLeft, StopCircle, Play, History, Edit2, Save, Key } from 'lucide-react';
 import { StatusBadge, getAge, isMatch, resolvePortName, parseCpu, parseMemory } from './Shared';
 import PodTerminal from './PodTerminal';
 import yaml from 'js-yaml';
@@ -113,12 +113,12 @@ const formatCreationTime = (timestamp: string) => {
 // --- Drawer (Resource Details) ---
 export const ResourceDrawer: React.FC = () => {
   const { state, dispatch } = useStore();
-  const [activeTab, setActiveTab] = useState<'details' | 'yaml' | 'logs' | 'events' | 'terminal'>('details');
-  const [logLogs, setLogLogs] = useState<string[]>([]);
-  const [logContainer, setLogContainer] = useState<string>('');
-  const [loadingLogs, setLoadingLogs] = useState(false);
+  const [activeTab, setActiveTab] = useState<'details' | 'yaml' | 'events' | 'terminal'>('details');
   const [expandedCmKey, setExpandedCmKey] = useState<string | null>(null);
   const [expandedContainers, setExpandedContainers] = useState<Set<number>>(new Set());
+  
+  // Terminal container selection
+  const [terminalContainer, setTerminalContainer] = useState<string>('');
 
   // YAML Edit State
   const [isEditingYaml, setIsEditingYaml] = useState(false);
@@ -157,12 +157,48 @@ export const ResourceDrawer: React.FC = () => {
 
   useEffect(() => {
     setActiveTab('details');
-    setLogLogs([]);
-    setLogContainer('');
     setExpandedCmKey(null);
     setIsEditingYaml(false);
     setExpandedContainers(new Set()); // Reset expanded containers when resource changes
+    setTerminalContainer(''); // Reset terminal container selection
   }, [state.selectedResourceId, state.selectedResourceType]);
+
+  // Helper to get terminal target (for terminal tab)
+  const getTerminalTarget = (): { pod: Pod, containers: string[] } | null => {
+      if (!resource) return null;
+      if (state.selectedResourceType === 'pod') {
+          const p = resource as Pod;
+          if (!p.containers) return null;
+          return { pod: p, containers: p.containers.map(c => c.name) };
+      }
+      return null;
+  };
+
+  const terminalTarget = getTerminalTarget();
+
+  // Auto-select first container for terminal when tab is opened
+  useEffect(() => {
+      if (activeTab === 'terminal' && terminalTarget && terminalTarget.containers.length > 0) {
+          if (!terminalContainer || !terminalTarget.containers.includes(terminalContainer)) {
+              setTerminalContainer(terminalTarget.containers[0]);
+          }
+      }
+  }, [activeTab, terminalTarget, terminalContainer]);
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const dropdowns = document.querySelectorAll('.absolute.top-full');
+      dropdowns.forEach(dropdown => {
+        const parent = dropdown.parentElement;
+        if (parent && !parent.contains(e.target as Node)) {
+          dropdown.classList.add('hidden');
+        }
+      });
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const toggleContainer = (index: number) => {
     setExpandedContainers(prev => {
@@ -345,63 +381,6 @@ export const ResourceDrawer: React.FC = () => {
     });
   };
 
-  const getLogTarget = (): { pod: Pod, containers: string[] } | null => {
-      if (!resource) return null;
-      if (state.selectedResourceType === 'pod') {
-          const p = resource as Pod;
-          if (!p.containers) return null;
-          return { pod: p, containers: p.containers.map(c => c.name) };
-      }
-      if (state.selectedResourceType === 'job') {
-          const p = state.pods.find(pod => pod.ownerReferences?.some(o => o.uid === resource.id));
-          if (p && p.containers) return { pod: p, containers: p.containers.map(c => c.name) };
-      }
-      if (state.selectedResourceType === 'deployment') {
-          // For deployments, we return a dummy pod with no containers (we'll fetch by label)
-          return { pod: resource as any, containers: [] };
-      }
-      return null;
-  };
-
-  const logTarget = getLogTarget();
-
-  useEffect(() => {
-      if (activeTab === 'logs' && logTarget && logTarget.containers.length > 0) {
-          if (!logContainer || !logTarget.containers.includes(logContainer)) {
-              setLogContainer(logTarget.containers[0]);
-          }
-      }
-  }, [activeTab, logTarget, logContainer]);
-
-  const fetchLogs = async () => {
-      if (!logTarget) return;
-      setLoadingLogs(true);
-      try {
-          let lines: string[];
-          if (state.selectedResourceType === 'deployment') {
-              // Fetch deployment logs by label selector
-              lines = await kubectl.getDeploymentLogs(resource.name, resource.namespace);
-          } else if (logContainer) {
-              // Fetch pod/job logs
-              lines = await kubectl.getLogs(logTarget.pod.name, logTarget.pod.namespace, logContainer);
-          } else {
-              lines = ["No container selected."];
-          }
-          setLogLogs(lines);
-      } catch (e) {
-          setLogLogs(["Failed to fetch logs."]);
-      } finally {
-          setLoadingLogs(false);
-      }
-  };
-
-  useEffect(() => {
-      if (activeTab === 'logs') {
-          if (state.selectedResourceType === 'deployment' || logContainer) {
-              fetchLogs();
-          }
-      }
-  }, [activeTab, logContainer, state.selectedResourceType]);
 
   if (!state.drawerOpen || !resource) return null;
 
@@ -957,7 +936,6 @@ export const ResourceDrawer: React.FC = () => {
     );
   };
 
-  const showLogsTab = ['pod', 'job', 'deployment'].includes(state.selectedResourceType || '');
   const showEventsTab = state.selectedResourceType !== 'event';
   const showTerminalTab = state.selectedResourceType === 'pod';
 
@@ -1014,7 +992,6 @@ export const ResourceDrawer: React.FC = () => {
       <div className="flex border-b border-gray-800 px-6 bg-gray-900">
         <button onClick={() => setActiveTab('details')} className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide ${activeTab === 'details' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>Details</button>
         <button onClick={() => setActiveTab('yaml')} className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide ${activeTab === 'yaml' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>YAML</button>
-        {showLogsTab && (<button onClick={() => setActiveTab('logs')} className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide ${activeTab === 'logs' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>Logs</button>)}
         {showTerminalTab && (<button onClick={() => setActiveTab('terminal')} className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide ${activeTab === 'terminal' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>Terminal</button>)}
         {showEventsTab && (<button onClick={() => setActiveTab('events')} className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide ${activeTab === 'events' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>Events</button>)}
       </div>
@@ -1025,11 +1002,90 @@ export const ResourceDrawer: React.FC = () => {
             {state.selectedResourceType === 'deployment' && (
               <div className="flex gap-2 mb-4">
                  <button onClick={() => kubectl.rolloutRestart('deployment', resource.name, resource.namespace, resource.id)} className="flex-1 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-blue-300" title="Restart all pods in this deployment"><RotateCw size={14} className="mr-2" /> Rollout Restart</button>
+                 <button 
+                   onClick={() => {
+                     dispatch({ 
+                       type: 'SET_LOGS_TARGET', 
+                       payload: { 
+                         type: 'all-pods', 
+                         deploymentName: resource.name, 
+                         namespace: resource.namespace 
+                       } 
+                     });
+                   }}
+                   className="flex-1 bg-green-900/30 hover:bg-green-900/50 border border-green-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-green-300"
+                   title="View aggregated logs from all pods"
+                 >
+                   <FileText size={14} className="mr-2" /> LOGS
+                 </button>
               </div>
             )}
             {state.selectedResourceType === 'cronjob' && (
               <div className="flex gap-2 mb-4">
                  <button onClick={handleTriggerCronJob} className="flex-1 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-blue-300" title="Manually trigger this cronjob now"><Play size={14} className="mr-2" /> Trigger Now</button>
+              </div>
+            )}
+            {state.selectedResourceType === 'pod' && (
+              <div className="flex gap-2 mb-4">
+                 {(resource as Pod).containers.length === 1 ? (
+                   // Single container: direct button
+                   <button 
+                     onClick={() => {
+                       dispatch({ 
+                         type: 'SET_LOGS_TARGET', 
+                         payload: { 
+                           type: 'pod', 
+                           podName: resource.name, 
+                           namespace: resource.namespace,
+                           container: (resource as Pod).containers[0].name
+                         } 
+                       });
+                     }}
+                     className="flex-1 bg-green-900/30 hover:bg-green-900/50 border border-green-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-green-300"
+                     title="View container logs"
+                   >
+                     <FileText size={14} className="mr-2" /> LOGS
+                   </button>
+                 ) : (
+                   // Multiple containers: dropdown
+                   <div className="relative flex-1">
+                     <button 
+                       onClick={(e) => {
+                         e.stopPropagation();
+                         const btn = e.currentTarget;
+                         const dropdown = btn.nextElementSibling as HTMLElement;
+                         if (dropdown) {
+                           dropdown.classList.toggle('hidden');
+                         }
+                       }}
+                       className="w-full bg-green-900/30 hover:bg-green-900/50 border border-green-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-green-300"
+                       title="View logs"
+                     >
+                       <FileText size={14} className="mr-2" /> LOGS ▾
+                     </button>
+                     <div className="hidden absolute top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-700 rounded shadow-lg z-50 max-h-48 overflow-y-auto">
+                       {(resource as Pod).containers.map(container => (
+                         <button
+                           key={container.name}
+                           onClick={() => {
+                             dispatch({ 
+                               type: 'SET_LOGS_TARGET', 
+                               payload: { 
+                                 type: 'pod', 
+                                 podName: resource.name, 
+                                 namespace: resource.namespace,
+                                 container: container.name
+                               } 
+                             });
+                           }}
+                           className="w-full px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-700 transition-colors"
+                         >
+                           {container.name}
+                         </button>
+                       ))}
+                     </div>
+                   </div>
+                 )}
               </div>
             )}
 
@@ -1141,29 +1197,6 @@ export const ResourceDrawer: React.FC = () => {
                 </div>
             </div>
         )}
-        {activeTab === 'logs' && (
-          <div className="h-full flex flex-col">
-              {state.selectedResourceType !== 'deployment' && logTarget && logTarget.containers.length > 0 && (
-                  <div className="flex items-center gap-2 mb-4">
-                      <select className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-200 focus:outline-none focus:border-blue-500" value={logContainer} onChange={(e) => setLogContainer(e.target.value)}>
-                          {logTarget.containers.map(c => <option key={c} value={c}>{c}</option>)}
-                      </select>
-                      <button onClick={fetchLogs} className="p-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-gray-400 hover:text-white"><RefreshCw size={16} className={loadingLogs ? "animate-spin" : ""} /></button>
-                  </div>
-              )}
-              {state.selectedResourceType === 'deployment' && (
-                  <div className="flex items-center gap-2 mb-4">
-                      <div className="text-xs text-gray-400 bg-gray-800/50 px-3 py-1.5 rounded border border-gray-700">
-                          Showing aggregated logs from all pods with label: <span className="font-mono text-blue-400">release={resource.name}</span>
-                      </div>
-                      <button onClick={fetchLogs} className="p-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-gray-400 hover:text-white"><RefreshCw size={16} className={loadingLogs ? "animate-spin" : ""} /></button>
-                  </div>
-              )}
-              <div className="flex-1 bg-gray-950 border border-gray-800 rounded p-4 overflow-y-auto font-mono text-xs text-gray-300 whitespace-pre-wrap">
-                  {loadingLogs ? (<div className="text-gray-500 italic">Loading logs...</div>) : logLogs.length > 0 ? (logLogs.map((line, i) => <div key={i}>{line}</div>)) : (<div className="text-gray-500 italic">No logs available or container not running.</div>)}
-              </div>
-          </div>
-        )}
         {activeTab === 'events' && (
             <div className="space-y-3">
                 {getEventsToDisplay().length === 0 ? (<div className="text-gray-500 italic text-sm">No related events found.</div>) : (getEventsToDisplay().map(e => (
@@ -1186,20 +1219,20 @@ export const ResourceDrawer: React.FC = () => {
                     Interactive Shell - {resource.name}
                   </span>
                     <br/>
-                    {logTarget && logTarget.containers.length > 1 && (
+                    {terminalTarget && terminalTarget.containers.length > 1 && (
                     <select
                       className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-blue-500"
-                      value={logContainer}
-                      onChange={(e) => setLogContainer(e.target.value)}
+                      value={terminalContainer}
+                      onChange={(e) => setTerminalContainer(e.target.value)}
                     >
-                      {logTarget.containers.map(c => <option key={c} value={c}>{c}</option>)}
+                      {terminalTarget.containers.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                   )}
                 </div>
                 <div className="flex-1 relative overflow-hidden">
-                  {logTarget && logTarget.containers.length > 0 && (
+                  {terminalTarget && terminalTarget.containers.length > 0 && (
                     <PodTerminal
-                      wsUrl={`${BACKEND_WS_BASE_URL}/exec?ns=${resource.namespace}&pod=${resource.name}&container=${logContainer}&shell=/bin/sh`}
+                      wsUrl={`${BACKEND_WS_BASE_URL}/exec?ns=${resource.namespace}&pod=${resource.name}&container=${terminalContainer}&shell=/bin/sh`}
                     />
                   )}
                 </div>
