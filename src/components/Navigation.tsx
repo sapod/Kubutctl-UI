@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../store';
-import { Layers, ChevronDown, Activity, Server, Box, Copy, PlayCircle, Clock, Globe, Anchor, Network, FileText, PieChart, LayoutGrid } from 'lucide-react';
+import { Layers, ChevronDown, Activity, Server, Box, Copy, PlayCircle, Clock, Globe, Anchor, Network, FileText, PieChart, LayoutGrid, ChevronLeft } from 'lucide-react';
 
 // --- Namespace Selector ---
 export const NamespaceSelector: React.FC = () => {
@@ -85,6 +85,84 @@ export const Sidebar: React.FC<{ currentView: string; onViewChange: (view: any) 
   const { state } = useStore();
   const currentCluster = state.clusters.find(c => c.id === state.currentClusterId);
 
+  // Sidebar resizing and collapsing
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = localStorage.getItem('sidebarWidth');
+    return saved ? parseInt(saved) : 240; // Default 240px (w-60)
+  });
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    const saved = localStorage.getItem('sidebarCollapsed');
+    return saved === 'true';
+  });
+  const [isResizing, setIsResizing] = useState(false);
+  const resizingRef = useRef(false);
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(0);
+
+  // Sidebar resize handlers
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    resizingRef.current = true;
+    startXRef.current = e.clientX;
+    startWidthRef.current = sidebarWidth;
+    setIsResizing(true);
+    document.body.style.cursor = 'ew-resize';
+    document.body.style.userSelect = 'none';
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!resizingRef.current) return;
+      const diff = e.clientX - startXRef.current;
+      const newWidth = startWidthRef.current + diff;
+      const minWidth = 180; // Minimum sidebar width
+      const maxWidth = Math.min(400, window.innerWidth * 0.3); // Max 30% of window or 400px
+      const constrainedWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
+      setSidebarWidth(constrainedWidth);
+    };
+
+    const handleMouseUp = () => {
+      if (resizingRef.current) {
+        resizingRef.current = false;
+        setIsResizing(false);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        localStorage.setItem('sidebarWidth', sidebarWidth.toString());
+      }
+    };
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isResizing, sidebarWidth]);
+
+  // Handle window resize to ensure sidebar stays within bounds
+  useEffect(() => {
+    const handleWindowResize = () => {
+      const maxWidth = Math.min(400, window.innerWidth * 0.3);
+      if (sidebarWidth > maxWidth) {
+        const newWidth = maxWidth;
+        setSidebarWidth(newWidth);
+        localStorage.setItem('sidebarWidth', newWidth.toString());
+      }
+    };
+
+    window.addEventListener('resize', handleWindowResize);
+    return () => window.removeEventListener('resize', handleWindowResize);
+  }, [sidebarWidth]);
+
+  // Toggle collapse state
+  const toggleCollapse = () => {
+    const newCollapsed = !isCollapsed;
+    setIsCollapsed(newCollapsed);
+    localStorage.setItem('sidebarCollapsed', newCollapsed.toString());
+  };
+
   const groups = [
     {
       title: 'Cluster',
@@ -126,15 +204,38 @@ export const Sidebar: React.FC<{ currentView: string; onViewChange: (view: any) 
   ];
 
   return (
-    <div className="w-60 bg-gray-900 flex flex-col h-full flex-shrink-0 border-r border-gray-800">
-      <div className="h-14 flex items-center px-4 border-b border-gray-800 font-bold text-gray-100 truncate shadow-sm bg-gray-900">
-        <span className="truncate">{currentCluster?.name}</span>
-      </div>
+    <div 
+      className={`bg-gray-900 flex flex-col h-full flex-shrink-0 border-r border-gray-800 relative ${isResizing ? '' : 'transition-all duration-300'}`}
+      style={{ width: isCollapsed ? '48px' : `${sidebarWidth}px` }}
+    >
+      {/* Resize handle */}
+      {!isCollapsed && (
+        <div
+          onMouseDown={handleMouseDown}
+          className={`absolute right-0 top-0 bottom-0 w-0.5 cursor-ew-resize hover:bg-blue-500 transition-colors ${isResizing ? 'bg-blue-500' : 'bg-transparent'}`}
+          style={{ zIndex: 51 }}
+        />
+      )}
+
+      <button 
+        onClick={toggleCollapse}
+        className={`h-14 flex items-center border-b border-gray-800 font-bold text-gray-100 shadow-sm bg-gray-900 w-full hover:bg-gray-800/50 transition-colors ${isCollapsed ? 'justify-center px-2' : 'justify-between px-4'}`}
+        title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+      >
+        {isCollapsed ? (
+          <Activity size={20} className="text-blue-400" />
+        ) : (
+          <>
+            <span className="truncate">{currentCluster?.name}</span>
+            <ChevronLeft size={16} className="text-gray-400 flex-shrink-0 ml-2" />
+          </>
+        )}
+      </button>
       
       <div className="flex-1 overflow-y-auto py-2 custom-scrollbar">
         {groups.map((group, idx) => (
           <div key={idx} className="mb-4">
-             {group.title && group.items.length > 0 && (
+             {!isCollapsed && group.title && group.items.length > 0 && (
                <div className="px-4 py-1 text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center justify-between group cursor-pointer hover:text-gray-300">
                  {group.title}
                  <ChevronDown size={12} />
@@ -145,14 +246,15 @@ export const Sidebar: React.FC<{ currentView: string; onViewChange: (view: any) 
                  <button
                    key={item.view}
                    onClick={() => onViewChange(item.view)}
-                   className={`flex items-center w-full px-4 py-2 text-sm font-medium transition-colors border-l-2 ${
+                   className={`flex items-center w-full ${isCollapsed ? 'justify-center px-2' : 'px-4'} py-2 text-sm font-medium transition-colors border-l-2 ${
                      currentView === item.view
                        ? 'bg-blue-600/10 text-blue-400 border-blue-500'
                        : 'border-transparent text-gray-400 hover:bg-gray-800 hover:text-gray-200'
                    }`}
+                   title={isCollapsed ? item.label : undefined}
                  >
-                   <item.icon size={16} className="mr-3" />
-                   {item.label}
+                   <item.icon size={16} className={isCollapsed ? '' : 'mr-3'} />
+                   {!isCollapsed && item.label}
                  </button>
                ))}
              </div>
