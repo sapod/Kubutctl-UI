@@ -1,6 +1,6 @@
 {
   "appId": "com.kubectl.ui",
-  "productName": "Kubectl UI",
+  "productName": "Kubectl-UI",
   "directories": {
     "output": "dist-electron",
     "buildResources": "electron/build"
@@ -11,6 +11,11 @@
     "src/backend/**/*",
     "node_modules/**/*"
   ],
+  "publish": {
+    "provider": "github",
+    "owner": "sapod",
+    "repo": "Kubutctl-UI"
+  },
   "files": [
     "electron/**/*",
     "src/**/*",
