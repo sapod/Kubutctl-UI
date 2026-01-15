@@ -324,22 +324,14 @@ app.post('/api/port-forward/start', (req, res) => {
     }
 
     let stderrOutput = '';
-    const onStderr = (data) => {
-        stderrOutput += data.toString();
-        if (DEBUG) console.error(`[PF-Err ${pid}]: ${data}`);
-    };
-    child.stderr.on('data', onStderr);
-    child.stderr.on('error', (err) => {
-        console.error(`❌ [PF ${pid}] stderr stream error:`, err.message);
-    });
-
-    child.stdout.on('error', (err) => {
-        console.error(`❌ [PF ${pid}] stdout stream error:`, err.message);
-    });
-
+    let capturedPort = null;
     let responded = false;
-
-    const startupCheck = setTimeout(() => {
+    
+    // Check if using random port (port 0) - look for "0:xxxx" in any argument
+    const isRandomPort = commandArgs.some(arg => String(arg).match(/^0:\d+$/));
+    
+    // Function to send success response (defined first so tryCapturingPort can use it)
+    const sendSuccessResponse = () => {
         if (responded) return;
         responded = true;
 
@@ -364,8 +356,63 @@ app.post('/api/port-forward/start', (req, res) => {
             console.error("Stack:", err.stack);
         });
 
-        res.json({ pid, status: 'Started' });
-    }, 5000);
+        // Include captured port in response
+        const response = { pid, status: 'Started' };
+        if (capturedPort) {
+            response.localPort = capturedPort;
+        }
+        res.json(response);
+    };
+    
+    // Function to try capturing port from output
+    const tryCapturingPort = (output, source) => {
+        if (capturedPort) return; // Already captured
+        
+        // kubectl outputs: "Forwarding from 127.0.0.1:xxxxx -> yyyy" or "Forwarding from [::1]:xxxxx -> yyyy"
+        const match = output.match(/Forwarding from .*?:(\d+)/);
+        if (match) {
+            capturedPort = parseInt(match[1], 10);
+            
+            // If using random port, respond immediately after capturing
+            if (isRandomPort) {
+                clearTimeout(startupCheck);
+                sendSuccessResponse();
+            }
+        }
+    };
+    
+    const onStderr = (data) => {
+        const output = data.toString();
+        stderrOutput += output;
+        if (DEBUG) console.error(`[PF-Err ${pid}]: ${output}`);
+        
+        // Try to capture port from stderr too (kubectl sometimes outputs here)
+        tryCapturingPort(output, 'stderr');
+    };
+    child.stderr.on('data', onStderr);
+    child.stderr.on('error', (err) => {
+        console.error(`❌ [PF ${pid}] stderr stream error:`, err.message);
+    });
+
+
+    // Capture stdout to get the actual port when using port 0
+    const onStdout = (data) => {
+        const output = data.toString();
+        if (DEBUG) console.log(`[PF-Out ${pid}]: ${output}`);
+        
+        // Try to capture port from stdout
+        tryCapturingPort(output, 'stdout');
+    };
+    child.stdout.on('data', onStdout);
+    child.stdout.on('error', (err) => {
+        console.error(`❌ [PF ${pid}] stdout stream error:`, err.message);
+    });
+
+    // Wait longer for random ports to capture
+    const timeoutDuration = isRandomPort ? 10000 : 5000;
+    const startupCheck = setTimeout(() => {
+        sendSuccessResponse();
+    }, timeoutDuration);
 
     child.on('error', (err) => {
         if (responded) return;

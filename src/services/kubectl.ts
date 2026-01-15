@@ -220,7 +220,9 @@ const execute = async (command: string, notifyOnError: boolean = true): Promise<
         });
         if (!response.ok) {
              const err = await response.json().catch(() => ({ error: "Backend execution failed" }));
-             throw new Error(err.error || "Backend execution failed");
+             // Include stderr if available as it often contains AWS SSO error details
+             const errorMsg = err.stderr ? `${err.error}\n${err.stderr}` : err.error;
+             throw new Error(errorMsg || "Backend execution failed");
         }
         const result = await response.json();
         if (command.includes('-o json') || command.includes('config view')) {
@@ -348,10 +350,11 @@ export const kubectl = {
   openShell: async (podName: string, namespace: string, container: string): Promise<void> => {
       try { await fetch(`${BACKEND_BASE_URL}/api/kubectl/shell`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pod: podName, namespace, container }) }); } catch (e) {}
   },
-  startPortForward: async (id: string, type: string, name: string, namespace: string, localPort: number, remotePort: number): Promise<number> => {
+  startPortForward: async (id: string, type: string, name: string, namespace: string, localPort: number, remotePort: number): Promise<{ pid: number; localPort?: number }> => {
       const response = await fetch(`${BACKEND_BASE_URL}/api/port-forward/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ commandArgs: ['port-forward', '-n', namespace, `${type}/${name}`, `${localPort}:${remotePort}`], metadata: { id, resourceName: name, resourceType: type, namespace, localPort, remotePort } }) });
       if (!response.ok) throw new Error("PF start failed");
-      const data = await response.json(); return data.pid;
+      const data = await response.json(); 
+      return { pid: data.pid, localPort: data.localPort };
   },
   stopPortForward: async (pid: number): Promise<void> => {
       await fetch(`${BACKEND_BASE_URL}/api/port-forward/stop`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pid }) });

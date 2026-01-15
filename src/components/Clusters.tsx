@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useStore } from '../store';
 import { Cluster } from '../types';
 import { kubectl } from '../services/kubectl';
-import { Grid, Star, Edit2, Trash2, RefreshCw, CheckCircle, Plus, X } from 'lucide-react';
+import { Grid, Star, Edit2, Trash2, RefreshCw, CheckCircle, Plus, X, Search } from 'lucide-react';
 
 // --- Cluster Hotbar (Lens Style) ---
 export const ClusterHotbar: React.FC = () => {
@@ -52,6 +52,7 @@ export const ClusterCatalogModal: React.FC = () => {
     const [editingId, setEditingId] = useState<string | null>(null);
     const [availableContexts, setAvailableContexts] = useState<{name: string}[]>([]);
     const [isLoadingContexts, setIsLoadingContexts] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
 
     // Edit State
     const [editName, setEditName] = useState('');
@@ -170,6 +171,16 @@ export const ClusterCatalogModal: React.FC = () => {
         dispatch({ type: 'ADD_CLUSTER', payload: newCluster });
     };
 
+    // Filter clusters and contexts based on search query
+    const filteredClusters = state.clusters.filter((cluster: Cluster) => 
+        cluster.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        cluster.server.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+
+    const filteredContexts = availableContexts.filter(ctx => 
+        ctx.name.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+
     return (
       <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
          <div className="bg-gray-900 border border-gray-700 rounded-lg shadow-2xl w-full max-w-5xl flex flex-col max-h-[85vh]">
@@ -182,13 +193,42 @@ export const ClusterCatalogModal: React.FC = () => {
                </button>
             </div>
 
+            {/* Search Box */}
+            <div className="px-6 pt-4 pb-2 border-b border-gray-800 flex-shrink-0">
+               <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" size={18} />
+                  <input
+                     type="text"
+                     placeholder="Search clusters by name or server..."
+                     value={searchQuery}
+                     onChange={(e) => setSearchQuery(e.target.value)}
+                     className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-10 pr-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                  />
+                  {searchQuery && (
+                     <button
+                        onClick={() => setSearchQuery('')}
+                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-300"
+                     >
+                        <X size={16} />
+                     </button>
+                  )}
+               </div>
+            </div>
+
             <div className="flex-1 overflow-y-auto p-6 space-y-8">
 
                {/* Section 1: Saved Clusters */}
                <div>
-                  <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wide mb-4">Saved Clusters</h3>
+                  <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wide mb-4">
+                     Saved Clusters {searchQuery && `(${filteredClusters.length})`}
+                  </h3>
+                  {filteredClusters.length === 0 ? (
+                     <div className="text-gray-500 text-sm bg-gray-800/50 p-4 rounded border border-gray-700/50">
+                        {searchQuery ? 'No clusters match your search.' : 'No saved clusters yet.'}
+                     </div>
+                  ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {state.clusters.map((cluster: Cluster) => (
+                      {filteredClusters.map((cluster: Cluster) => (
                       <div key={cluster.id} className={`bg-gray-800 border border-gray-700 rounded-lg p-4 flex flex-col shadow-sm ${editingId === cluster.id ? 'cluster-edit-card' : ''}`}>
                           <div className="flex items-center justify-between mb-4">
                               <div className="flex items-center gap-3">
@@ -276,6 +316,7 @@ export const ClusterCatalogModal: React.FC = () => {
                       </div>
                       ))}
                   </div>
+                  )}
                </div>
 
                <div className="w-full h-px bg-gray-800"></div>
@@ -283,20 +324,20 @@ export const ClusterCatalogModal: React.FC = () => {
                {/* Section 2: Discovered Contexts */}
                <div>
                   <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wide mb-4 flex items-center justify-between">
-                      <span>Discovered Contexts (from local kubeconfig)</span>
+                      <span>Discovered Contexts (from local kubeconfig) {searchQuery && `(${filteredContexts.length})`}</span>
                       <button onClick={loadContexts} className="text-blue-400 hover:text-blue-300 flex items-center gap-1 text-xs">
                           <RefreshCw size={12} /> Refresh
                       </button>
                   </h3>
                   {isLoadingContexts ? (
                       <div className="text-gray-500 italic text-sm">Scanning for contexts...</div>
-                  ) : availableContexts.length === 0 ? (
+                  ) : filteredContexts.length === 0 ? (
                       <div className="text-gray-500 text-sm bg-gray-800/50 p-4 rounded border border-gray-700/50">
-                          No contexts found. Ensure your local server is running and kubectl is configured.
+                          {searchQuery ? 'No contexts match your search.' : 'No contexts found. Ensure your local server is running and kubectl is configured.'}
                       </div>
                   ) : (
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                          {availableContexts.map(ctx => {
+                          {filteredContexts.map(ctx => {
                               const isAdded = state.clusters.some((c: { name: string; }) => c.name === ctx.name);
                               return (
                                   <div key={ctx.name} className={`border rounded p-3 flex justify-between items-center transition-colors ${isAdded ? 'bg-gray-800/50 border-gray-700 opacity-60' : 'bg-gray-800 border-gray-700 hover:border-blue-500'}`}>

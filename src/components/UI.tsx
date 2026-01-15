@@ -6,4 +6,4 @@ export * from './Terminal';
 export * from './Drawer';
 export * from './Modals';
 export * from './Views';
-export * from './VersionCheckPopup';
+export * from './UpdateNotification';
