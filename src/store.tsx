@@ -20,7 +20,7 @@ const initialClusterId = getStoredCurrentClusterId(storedClusters);
 const initialClusterState = loadClusterState(initialClusterId);
 
 const initialState: AppState = {
-  view: initialClusterState.view, isLoading: false, isContextSwitching: false, error: null, currentClusterId: initialClusterId, selectedNamespace: getStoredNamespace(initialClusterId), clusters: storedClusters, nodes: [], pods: [], deployments: [], replicaSets: [], jobs: [], cronJobs: [], services: [], ingresses: [], configMaps: [], namespaces: [], events: [], resourceQuotas: [], portForwards: [], routines: getStoredRoutines(), terminalOutput: ['Welcome to Kubectl-UI', 'Initializing application...'], selectedResourceId: initialClusterState.selectedResourceId, selectedResourceType: initialClusterState.selectedResourceType, resourceHistory: initialClusterState.resourceHistory || [], drawerOpen: initialClusterState.drawerOpen, isAddClusterModalOpen: false, isCatalogOpen: false, isPortForwardModalOpen: false, portForwardModalData: null, isRoutineModalOpen: false, routineModalData: null, isShellModalOpen: false, shellModalData: null, isConfirmationModalOpen: false, confirmationModalData: null, logsTarget: null,
+  view: initialClusterState.view, isLoading: false, isContextSwitching: false, error: null, awsSsoLoginRequired: false, currentClusterId: initialClusterId, selectedNamespace: getStoredNamespace(initialClusterId), clusters: storedClusters, nodes: [], pods: [], deployments: [], replicaSets: [], jobs: [], cronJobs: [], services: [], ingresses: [], configMaps: [], namespaces: [], events: [], resourceQuotas: [], portForwards: [], routines: getStoredRoutines(), terminalOutput: ['Welcome to Kubectl-UI', 'Initializing application...'], selectedResourceId: initialClusterState.selectedResourceId, selectedResourceType: initialClusterState.selectedResourceType, resourceHistory: initialClusterState.resourceHistory || [], drawerOpen: initialClusterState.drawerOpen, isAddClusterModalOpen: false, isCatalogOpen: false, isPortForwardModalOpen: false, portForwardModalData: null, isRoutineModalOpen: false, routineModalData: null, isShellModalOpen: false, shellModalData: null, isConfirmationModalOpen: false, confirmationModalData: null, logsTarget: null,
 };
 
 // Simplified reducer signature using updated Action type
@@ -65,6 +65,7 @@ function reducer(state: AppState, action: Action): AppState {
     case 'CLOSE_DRAWER_SILENTLY': return { ...state, drawerOpen: false };
     case 'CLOSE_CONFIRMATION_MODAL': return { ...state, isConfirmationModalOpen: false, confirmationModalData: null };
     case 'SET_LOGS_TARGET': return { ...state, logsTarget: action.payload };
+    case 'SET_AWS_SSO_LOGIN_REQUIRED': return { ...state, awsSsoLoginRequired: action.payload };
     case 'UPDATE_RESOURCE': { const { id, type, data } = action.payload; if (!data) return state; const update = (list: any[]) => list.map(item => (item.id === id || item.name === data.name) ? (type === 'pod' ? { ...data, cpuUsage: item.cpuUsage, memoryUsage: item.memoryUsage } : data) : item); let k: keyof AppState | undefined; if (type === 'pod') k = 'pods'; else if (type === 'deployment') k = 'deployments'; else if (type === 'replicaset') k = 'replicaSets'; else if (type === 'job') k = 'jobs'; else if (type === 'cronjob') k = 'cronJobs'; else if (type === 'node') k = 'nodes'; else if (type === 'service') k = 'services'; else if (type === 'ingress') k = 'ingresses'; else if (type === 'configmap') k = 'configMaps'; else if (type === 'namespace') k = 'namespaces'; else if (type === 'resourcequota') k = 'resourceQuotas'; if (k) return { ...state, [k]: update((state as any)[k]) }; return state; }
     default: return state;
   }
@@ -82,15 +83,27 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     kubectl.setLogger((cmd: string) => dispatch({ type: 'ADD_LOG', payload: cmd }));
     kubectl.setGlobalErrorHandler((err: string) => {
+        // Check for AWS SSO errors
+        const isAwsSsoError = 
+            err.includes('CERTIFICATE_VERIFY_FAILED') ||
+            err.includes('certificate verify failed: self-signed certificate') ||
+            err.includes('SSL validation failed') ||
+            err.includes('executable aws failed with exit code 255') ||
+            err.includes('SSO session associated with this profile has expired') ||
+            err.includes('getting credentials: exec: executable aws failed');
+        
+        if (isAwsSsoError) {
+            dispatch({ type: 'SET_AWS_SSO_LOGIN_REQUIRED', payload: true });
+            dispatch({ type: 'SET_ERROR', payload: 'AWS SSO authentication required. Please run "aws sso login" in your terminal and refresh the application.' });
+            return;
+        }
+        
         // Suppress repeated connection errors
         if (err.includes('Cannot reach local backend') || err.includes('Failed to fetch')) {
             if (!isOfflineRef.current) {
                 dispatch({ type: 'SET_ERROR', payload: err });
                 isOfflineRef.current = true;
             }
-        }
-        if (err.includes('SSO session associated with this profile has expired')) {
-            dispatch({ type: 'SET_ERROR', payload: 'SSO session expired. Please run <aws sso login> on your machine' })
         }
         else {
             dispatch({ type: 'SET_ERROR', payload: err });
