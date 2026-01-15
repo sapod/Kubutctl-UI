@@ -63,6 +63,8 @@ jobs:
             dist-electron/*.AppImage
             dist-electron/*.deb
             dist-electron/*.rpm
+            dist-electron/*.blockmap
+            dist-electron/latest*.yml
           retention-days: 30
 
   create-release:
@@ -166,8 +168,14 @@ jobs:
           files: |
             artifacts/electron-macos-latest/*.dmg
             artifacts/electron-macos-latest/*.zip
+            artifacts/electron-macos-latest/*.blockmap
+            artifacts/electron-macos-latest/latest*.yml
             artifacts/electron-windows-latest/*.exe
+            artifacts/electron-windows-latest/*.blockmap
+            artifacts/electron-windows-latest/latest*.yml
             artifacts/electron-ubuntu-latest/*.AppImage
             artifacts/electron-ubuntu-latest/*.deb
             artifacts/electron-ubuntu-latest/*.rpm
+            artifacts/electron-ubuntu-latest/*.blockmap
+            artifacts/electron-ubuntu-latest/latest*.yml
 
