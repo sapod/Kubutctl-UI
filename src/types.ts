@@ -230,6 +230,7 @@ export interface AppState {
   isLoading: boolean;
   isContextSwitching: boolean; // Lock UI during context switch
   error: string | null; // Added global error state
+  awsSsoLoginRequired: boolean; // Block UI when AWS SSO login is needed
   currentClusterId: string;
   selectedNamespace: string; // 'All Namespaces' or specific name
   clusters: Cluster[];
@@ -316,4 +317,5 @@ export type Action =
   | { type: 'OPEN_CONFIRMATION_MODAL'; payload: { title: string; message: string; onConfirm: () => void; onCancel?: () => void } }
   | { type: 'CLOSE_CONFIRMATION_MODAL' }
   | { type: 'SET_LOGS_TARGET'; payload: AppState['logsTarget'] }
+  | { type: 'SET_AWS_SSO_LOGIN_REQUIRED'; payload: boolean }
   | { type: 'UPDATE_RESOURCE'; payload: { id: string; type: string; data: any } };

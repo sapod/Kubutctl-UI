@@ -231,7 +231,37 @@ export const PortForwardingPage: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {state.routines.map(routine => (
                         <div key={routine.id} className="bg-gray-800 border border-gray-700 rounded-lg p-4 shadow-sm hover:border-gray-600 transition-colors">
-                            <div className="flex justify-between items-start mb-3"> <div> <h4 className="font-bold text-gray-200">{routine.name}</h4> <span className="text-xs text-gray-500">{routine.items.length} items</span> </div> <div className="flex gap-1"> <button onClick={async () => { for (const item of routine.items) { const id = `pf-routine-${Date.now()}-${Math.random()}`; try { const pid = await kubectl.startPortForward(id, item.resourceType, item.resourceName, item.namespace, item.localPort, item.remotePort); dispatch({ type: 'ADD_PORT_FORWARD', payload: { id, pid, resourceName: item.resourceName, resourceType: item.resourceType as any, namespace: item.namespace, localPort: item.localPort, remotePort: item.remotePort, status: 'Active' }}); } catch (e) {} } }} className="p-1.5 bg-green-900/30 text-green-400 rounded hover:bg-green-900/50 hover:text-white transition-colors" title="Start all port forwards in this routine"><Play size={16} fill="currentColor" /></button> <button onClick={() => dispatch({ type: 'OPEN_ROUTINE_MODAL', payload: routine })} className="p-1.5 text-gray-400 hover:text-blue-300 hover:bg-gray-700 rounded transition-colors" title="Edit routine"><Edit2 size={16} /></button> <button onClick={() => { if (confirm("Delete routine?")) dispatch({ type: 'REMOVE_ROUTINE', payload: routine.id }); }} className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-gray-700 rounded transition-colors" title="Delete routine"><Trash2 size={16} /></button> </div> </div>
+                            <div className="flex justify-between items-start mb-3">
+                                <div>
+                                    <h4 className="font-bold text-gray-200">{routine.name}</h4>
+                                    <span className="text-xs text-gray-500">{routine.items.length} items</span>
+                                </div>
+                                <div className="flex gap-1">
+                                    <button onClick={
+                                        async () => {
+                                            for (const item of routine.items) {
+                                                const id = `pf-routine-${Date.now()}-${Math.random()}`;
+                                                try {
+                                                    const result = await kubectl.startPortForward(id, item.resourceType, item.resourceName, item.namespace, item.localPort, item.remotePort);
+                                                    const actualLocalPort = result.localPort || item.localPort;
+                                                    dispatch({ type: 'ADD_PORT_FORWARD', payload: { id, pid: result.pid, resourceName: item.resourceName, resourceType: item.resourceType as any, namespace: item.namespace, localPort: actualLocalPort, remotePort: item.remotePort, status: 'Active' }});
+                                                } catch (e) {}
+                                            }
+                                        }
+                                    } className="p-1.5 bg-green-900/30 text-green-400 rounded hover:bg-green-900/50 hover:text-white transition-colors" title="Start all port forwards in this routine">
+                                        <Play size={16} fill="currentColor" />
+                                    </button>
+                                    <button onClick={() => dispatch({ type: 'OPEN_ROUTINE_MODAL', payload: routine })}
+                                            className="p-1.5 text-gray-400 hover:text-blue-300 hover:bg-gray-700 rounded transition-colors" title="Edit routine"><Edit2 size={16} />
+                                    </button>
+                                    <button onClick={() => {
+                                        if (confirm("Delete routine?"))
+                                            dispatch({ type: 'REMOVE_ROUTINE', payload: routine.id }); }
+                                    } className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-gray-700 rounded transition-colors" title="Delete routine">
+                                        <Trash2 size={16} />
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     ))}
                 </div>

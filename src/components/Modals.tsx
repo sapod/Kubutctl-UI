@@ -52,9 +52,11 @@ export const PortForwardModal: React.FC<{
     resourceType: string;
     targetPort: number;
     namespace: string;
-    onConfirm: (localPort: number) => void;
+    onConfirm: (localPort: number, openInBrowser?: boolean) => void;
   }> = ({ isOpen, onClose, resourceName, targetPort, onConfirm }) => {
     const [localPort, setLocalPort] = useState(targetPort);
+    const [useRandomPort, setUseRandomPort] = useState(false);
+    const [openInBrowser, setOpenInBrowser] = useState(false);
 
     useEffect(() => {
         // Automatically suggest a high port if target is privileged (< 1024)
@@ -63,9 +65,18 @@ export const PortForwardModal: React.FC<{
         } else {
             setLocalPort(targetPort);
         }
+        // Reset checkboxes when modal opens
+        setUseRandomPort(false);
+        setOpenInBrowser(false);
     }, [targetPort, isOpen]);
 
     if (!isOpen) return null;
+
+    const handleConfirm = () => {
+        const portToUse = useRandomPort ? 0 : localPort;
+        onConfirm(portToUse, openInBrowser);
+        onClose();
+    };
 
     return (
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
@@ -76,6 +87,31 @@ export const PortForwardModal: React.FC<{
               <br/>
               Remote Port: <span className="text-green-400 font-mono">{targetPort}</span>
            </div>
+
+           {/* Checkboxes in one line above local port */}
+           <div className="mb-4 flex gap-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                 <input
+                    type="checkbox"
+                    checked={useRandomPort}
+                    onChange={(e) => setUseRandomPort(e.target.checked)}
+                    className="w-4 h-4 bg-gray-900 border border-gray-600 rounded focus:ring-2 focus:ring-blue-500 text-blue-600 cursor-pointer"
+                 />
+                 <span className="text-sm text-gray-300">Random port</span>
+              </label>
+
+              <label className="flex items-center gap-2 cursor-pointer">
+                 <input
+                    type="checkbox"
+                    checked={openInBrowser}
+                    onChange={(e) => setOpenInBrowser(e.target.checked)}
+                    className="w-4 h-4 bg-gray-900 border border-gray-600 rounded focus:ring-2 focus:ring-blue-500 text-blue-600 cursor-pointer"
+                 />
+                 <span className="text-sm text-gray-300">Open in browser</span>
+              </label>
+           </div>
+
+           {!useRandomPort && (
            <div className="mb-6">
               <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Local Port</label>
               <input
@@ -88,10 +124,12 @@ export const PortForwardModal: React.FC<{
                   <p className="text-xs text-yellow-500 mt-1">Warning: Ports under 1024 often require root privileges.</p>
               )}
            </div>
+           )}
+
            <div className="flex justify-end gap-2">
               <button onClick={onClose} className="px-3 py-1.5 text-gray-300 hover:bg-gray-700 rounded text-sm">Cancel</button>
               <button
-                onClick={() => { onConfirm(localPort); onClose(); }}
+                onClick={handleConfirm}
                 className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-medium"
               >
                 Start Forwarding

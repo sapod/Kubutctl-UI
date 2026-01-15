@@ -8,8 +8,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Now import everything else
-import { app, BrowserWindow } from 'electron';
-import { spawn } from 'child_process';
+import { app, BrowserWindow, ipcMain } from 'electron';
+import { spawn, exec } from 'child_process';
 import http from 'http';
 
 // Simple MIME type mapping
@@ -54,15 +54,33 @@ const appPath = isDev
   ? path.join(__dirname, '..') 
   : path.join(process.resourcesPath, 'app.asar.unpacked');
 
+// IPC Handler for executing shell commands
+ipcMain.handle('execute-command', async (event, command) => {
+  return new Promise((resolve, reject) => {
+    exec(command, (error, stdout, stderr) => {
+      if (error) {
+        reject({ error: error.message, stderr });
+      } else {
+        resolve({ stdout, stderr });
+      }
+    });
+  });
+});
+
 
 function createWindow() {
+  // Determine correct preload path for dev and production
+  const preloadPath = isDev
+    ? path.join(__dirname, 'preload.js')
+    : path.join(__dirname, 'preload.js'); // In production, preload.js is in the same dir as main.js in app.asar
+  
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js')
+      preload: preloadPath
     },
     title: 'Kubectl UI'
   });
