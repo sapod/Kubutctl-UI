@@ -24,6 +24,7 @@
     "package.json",
     "vite.config.ts",
     "tsconfig.json",
+    "node_modules/electron-updater/**/*",
     "node_modules/**/*",
     "!node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
     "!node_modules/*/{test,__tests__,tests,powered-test,example,examples}",

@@ -16,10 +16,10 @@ echo "Version: $VERSION"
 # Detect architecture
 ARCH=$(uname -m)
 if [ "$ARCH" = "arm64" ]; then
-    DMG="Kubectl UI-${VERSION}-arm64.dmg"
+    DMG="Kubectl-UI-${VERSION}-arm64.dmg"
     echo "Platform: Apple Silicon"
 else
-    DMG="Kubectl UI-${VERSION}.dmg"
+    DMG="Kubectl-UI-${VERSION}.dmg"
     echo "Platform: Intel Mac"
 fi
 
@@ -55,7 +55,7 @@ fi
 # Remove old app
 echo ""
 echo "Removing old app..."
-rm -rf "/Applications/Kubectl UI.app"
+rm -rf "/Applications/Kubectl-UI.app"
 
 # Install
 echo "Installing app from: dist-electron/$DMG"
@@ -64,30 +64,30 @@ if ! hdiutil attach "dist-electron/$DMG" -mountpoint /tmp/kubectl-dmg -quiet; th
     exit 1
 fi
 
-if [ ! -d "/tmp/kubectl-dmg/Kubectl UI.app" ]; then
+if [ ! -d "/tmp/kubectl-dmg/Kubectl-UI.app" ]; then
     echo "❌ App not found in DMG"
     hdiutil detach /tmp/kubectl-dmg -quiet 2>/dev/null
     exit 1
 fi
 
-cp -R "/tmp/kubectl-dmg/Kubectl UI.app" /Applications/
+cp -R "/tmp/kubectl-dmg/Kubectl-UI.app" /Applications/
 hdiutil detach /tmp/kubectl-dmg -quiet
 
-if [ ! -d "/Applications/Kubectl UI.app" ]; then
+if [ ! -d "/Applications/Kubectl-UI.app" ]; then
     echo "❌ Failed to copy app to Applications"
     exit 1
 fi
 
 # Remove quarantine
 echo "Configuring app..."
-xattr -cr "/Applications/Kubectl UI.app"
+xattr -cr "/Applications/Kubectl-UI.app"
 
 # Launch
 echo ""
 echo "✅ Installation complete!"
 echo ""
-echo "Launching Kubectl UI..."
-open "/Applications/Kubectl UI.app"
+echo "Launching Kubectl-UI..."
+open "/Applications/Kubectl-UI.app"
 
 echo ""
 echo "========================================="

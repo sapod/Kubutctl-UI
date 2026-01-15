@@ -18,6 +18,31 @@ try {
       // Use IPC to communicate with main process
       return await ipcRenderer.invoke('execute-command', command);
     },
+    // Auto-updater APIs
+    checkForUpdates: async () => {
+      return await ipcRenderer.invoke('check-for-updates');
+    },
+    downloadUpdate: async () => {
+      return await ipcRenderer.invoke('download-update');
+    },
+    installUpdate: () => {
+      ipcRenderer.invoke('install-update');
+    },
+    getAppVersion: async () => {
+      return await ipcRenderer.invoke('get-app-version');
+    },
+    onUpdateAvailable: (callback) => {
+      ipcRenderer.on('update-available', (event, info) => callback(info));
+    },
+    onDownloadProgress: (callback) => {
+      ipcRenderer.on('download-progress', (event, progress) => callback(progress));
+    },
+    onUpdateDownloaded: (callback) => {
+      ipcRenderer.on('update-downloaded', (event, info) => callback(info));
+    },
+    onUpdateError: (callback) => {
+      ipcRenderer.on('update-error', (event, error) => callback(error));
+    },
   });
 } catch (error) {
   console.error('[Preload] Error setting up context bridge:', error);

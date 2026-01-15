@@ -5,7 +5,7 @@ import { ThemeToggle } from './components/ThemeToggle';
 import {
     Sidebar, TerminalPanel, ResourceDrawer, ClusterHotbar, AddClusterModal,
     NamespaceSelector, ClusterCatalogModal, PortForwardModal, ShellModal, ConfirmationModal,
-    RoutineModal, ErrorBanner, //VersionCheckPopup,
+    RoutineModal, ErrorBanner, UpdateNotification,
     OverviewPage, NodesPage, PodsPage, DeploymentsPage, ReplicaSetsPage,
     JobsPage, CronJobsPage, ServicesPage, IngressesPage, ConfigMapsPage,
     NamespacesPage, ResourceQuotasPage, PortForwardingPage
@@ -179,7 +179,7 @@ const MainLayout = () => {
         </div>
 
         {/* Overlays */}
-        {/*<VersionCheckPopup currentVersion={CURRENT_VERSION} />*/}
+        <UpdateNotification />
         <AddClusterModal />
         <ClusterCatalogModal />
         <ResourceDrawer />
