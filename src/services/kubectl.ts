@@ -57,22 +57,57 @@ export const KUBECTL_COMMANDS: Record<string, CommandDefinition> = {
     verification: (name: string) => ({ title: 'Trigger CronJob', message: `Are you sure you want to trigger a manual run for "${name}"?` })
   },
   portForward: { command: (type: string, name: string, ns: string, local: number, remote: number) => `kubectl port-forward ${type}/${name} ${local}:${remote} -n ${ns}`, shouldVerify: false },
-  logs: { command: (name: string, ns: string, container?: string, previous?: boolean, grep?: string) => {
-    let cmd = `kubectl logs ${name} -n ${ns} ${container ? `-c ${container}` : ''} ${previous ? '--previous' : ''} --tail=100`;
+  logs: { command: (name: string, ns: string, container?: string, previous?: boolean, grep?: string, dateFrom?: string, dateTo?: string) => {
+    let cmd = `kubectl logs ${name} -n ${ns} ${container ? `-c ${container}` : ''} ${previous ? '--previous' : ''} --tail=100 --timestamps`;
+
+    // Add date filter if provided (since-time uses RFC3339 format)
+    if (dateFrom) {
+      const dateFromISO = new Date(dateFrom).toISOString();
+      cmd += ` --since-time="${dateFromISO}"`;
+    }
+
     if (grep) {
       // Use grep -E for extended regex, -i for case-insensitive
-      cmd += ` | grep -E -i '${grep.replace(/'/g, "'\\''")}' || true`;
+      cmd += ` | (grep -E -i '${grep.replace(/'/g, "'\\''")}' || true)`;
     }
+
+    // Filter by dateTo - extract timestamp from kubectl --timestamps output and compare
+    if (dateTo) {
+      const dateToISO = new Date(dateTo).toISOString();
+      // kubectl --timestamps format: "2026-01-19T10:30:45.123456789Z log message"
+      // Extract first field (timestamp) and compare
+      cmd += ` | awk '{if ($1 < "${dateToISO}") print}'`;
+    }
+
     return cmd;
   }, shouldVerify: false },
-  logsWithSelector: { command: (selector: string, ns: string, grep?: string) => {
-    let cmd = `kubectl logs -l ${selector} -n ${ns} --all-containers=true --prefix=true --tail=100`;
+  logsWithSelector: { command: (selector: string, ns: string, grep?: string, dateFrom?: string, dateTo?: string) => {
+    let cmd = `kubectl logs -l ${selector} -n ${ns} --all-containers=true --prefix=true --tail=100 --timestamps`;
+
+    // Add date filter if provided
+    if (dateFrom) {
+      const dateFromISO = new Date(dateFrom).toISOString();
+      cmd += ` --since-time="${dateFromISO}"`;
+    }
+
     if (grep) {
       // Use grep -E for extended regex, -i for case-insensitive
-      // Add || true so grep doesn't fail when no matches are found
-      cmd += ` | grep -E -i '${grep.replace(/'/g, "'\\''")}' || true`;
+      cmd += ` | (grep -E -i '${grep.replace(/'/g, "'\\''")}' || true)`;
     }
-    // Always limit to 200 total lines across all pods
+
+    // Filter by dateTo - extract timestamp from kubectl --timestamps output and compare (before sort)
+    if (dateTo) {
+      const dateToISO = new Date(dateTo).toISOString();
+      // kubectl --timestamps with --prefix format: "[pod/name/container] 2026-01-19T10:30:45.123456789Z log message"
+      // Extract second field (timestamp after pod prefix) and compare
+      cmd += ` | awk '{if ($2 < "${dateToISO}") print}'`;
+    }
+
+    // Sort logs by timestamp (field 2 when using --prefix) to get chronological order across all containers
+    // This ensures logs are ordered by time, not grouped by container
+    cmd += ` | sort -k2,2`;
+
+    // Always limit to 200 total lines across all pods (applied after sorting)
     cmd += ` | tail -200`;
     return cmd;
   }, shouldVerify: false },
@@ -353,17 +388,17 @@ export const kubectl = {
   exec: async (podName: string, namespace: string, container: string, cmd: string): Promise<string> => {
       try { return await executeWithVerification(KUBECTL_COMMANDS.exec, [podName, namespace, container, cmd], true); } catch(e) { return ""; }
   },
-  getLogs: async (name: string, ns: string, container?: string, previous?: boolean, grep?: string): Promise<string[]> => {
-      try { 
-        const data = await executeWithVerification(KUBECTL_COMMANDS.logs, [name, ns, container, previous, grep], false); 
-        return typeof data === 'string' ? data.split('\n').filter(line => line.trim() !== '') : []; 
-      } catch (e) { 
-        return [(e as any).message || "Failed to fetch logs"]; 
+  getLogs: async (name: string, ns: string, container?: string, previous?: boolean, grep?: string, dateFrom?: string, dateTo?: string): Promise<string[]> => {
+      try {
+        const data = await executeWithVerification(KUBECTL_COMMANDS.logs, [name, ns, container, previous, grep, dateFrom, dateTo], false);
+        return typeof data === 'string' ? data.split('\n').filter(line => line.trim() !== '') : [];
+      } catch (e) {
+        return [(e as any).message || "Failed to fetch logs"];
       }
   },
-  getDeploymentLogs: async (deploymentName: string, ns: string, grep?: string): Promise<string[]> => {
+  getDeploymentLogs: async (deploymentName: string, ns: string, grep?: string, dateFrom?: string, dateTo?: string): Promise<string[]> => {
       try {
-        const data = await executeWithVerification(KUBECTL_COMMANDS.logsWithSelector, [`release=${deploymentName}`, ns, grep], false);
+        const data = await executeWithVerification(KUBECTL_COMMANDS.logsWithSelector, [`release=${deploymentName}`, ns, grep, dateFrom, dateTo], false);
         return typeof data === 'string' ? data.split('\n').filter(line => line.trim() !== '') : [];
       } catch (e) {
         return [(e as any).message || "Failed to fetch deployment logs"];

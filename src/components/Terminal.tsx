@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useStore } from '../store';
-import { Terminal, FileText, RefreshCw, Search, X, AlertTriangle } from 'lucide-react';
+import { Terminal, FileText, RefreshCw, Search, X, AlertTriangle, Calendar } from 'lucide-react';
 import { kubectl } from '../services/kubectl';
 
 export const TerminalPanel: React.FC = () => {
@@ -13,6 +13,7 @@ export const TerminalPanel: React.FC = () => {
     // Logs state
     const [logLines, setLogLines] = useState<string[]>([]);
     const [loadingLogs, setLoadingLogs] = useState(false);
+    const [isContextLoading, setIsContextLoading] = useState(false); // Track if loading is from context change
     const [selectedDeployment, setSelectedDeployment] = useState<string>(''); // Start empty - user must select
     const [selectedPod, setSelectedPod] = useState<string>(''); // Start empty
     const [selectedContainer, setSelectedContainer] = useState<string>('');
@@ -26,6 +27,13 @@ export const TerminalPanel: React.FC = () => {
 
     // Previous container logs state
     const [showPrevious, setShowPrevious] = useState(false);
+
+    // Date range filter state
+    const [showDateFilter, setShowDateFilter] = useState(false);
+    const [dateFrom, setDateFrom] = useState<string>(''); // ISO datetime-local format
+    const [dateTo, setDateTo] = useState<string>(''); // ISO datetime-local format
+    const [appliedDateFrom, setAppliedDateFrom] = useState<string>(''); // Actually applied dates
+    const [appliedDateTo, setAppliedDateTo] = useState<string>(''); // Actually applied dates
 
     // Logs scroll ref
     const logsBottomRef = useRef<HTMLDivElement>(null);
@@ -143,14 +151,15 @@ export const TerminalPanel: React.FC = () => {
         // Check if we're fetching all pods logs
         if (selectedPod === 'all-pods') {
             try {
-                const lines = await kubectl.getDeploymentLogs(depName, namespace, searchQuery);
+                const lines = await kubectl.getDeploymentLogs(depName, namespace, searchQuery, appliedDateFrom, appliedDateTo);
                 setLogLines(lines);
                 // Jump to bottom after logs are loaded
                 setTimeout(() => logsBottomRef.current?.scrollIntoView({ behavior: 'auto' }), 100);
             } catch (e) {
                 setLogLines(['Failed to fetch deployment logs: ' + (e as Error).message]);
             } finally {
-                setLoadingLogs(false); // Always turn off loading
+                setLoadingLogs(false);
+                setIsContextLoading(false);
             }
             return;
         }
@@ -159,16 +168,17 @@ export const TerminalPanel: React.FC = () => {
         if (!selectedPod || !selectedContainer) return;
 
         const [podNamespace, podName] = selectedPod.split('/');
-        
+
         try {
-            const lines = await kubectl.getLogs(podName, podNamespace, selectedContainer, showPrevious, searchQuery);
+            const lines = await kubectl.getLogs(podName, podNamespace, selectedContainer, showPrevious, searchQuery, appliedDateFrom, appliedDateTo);
             setLogLines(lines);
             // Scroll to bottom after logs are loaded
             setTimeout(() => logsBottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
         } catch (e) {
             setLogLines(['Failed to fetch logs: ' + (e as Error).message]);
         } finally {
-            setLoadingLogs(false); // Always turn off loading
+            setLoadingLogs(false);
+            setIsContextLoading(false);
         }
     };
 
@@ -177,27 +187,47 @@ export const TerminalPanel: React.FC = () => {
     const prevPodRef = useRef(selectedPod);
     const prevContainerRef = useRef(selectedContainer);
     const prevShowPreviousRef = useRef(showPrevious);
+    const prevAppliedDateFromRef = useRef(appliedDateFrom);
+    const prevAppliedDateToRef = useRef(appliedDateTo);
+    const prevSearchQueryRef = useRef(searchQuery);
 
     // Fetch logs when tab is switched or selection changes
     useEffect(() => {
         if (activeTab === 'logs' && selectedDeployment) {
             if (selectedPod === 'all-pods' || (selectedPod && selectedContainer)) {
                 // Check if this is a context change (deployment/pod/container changed) vs just a search query change
-                const isContextChange = 
+                const isContextChange =
                     prevDeploymentRef.current !== selectedDeployment ||
                     prevPodRef.current !== selectedPod ||
                     prevContainerRef.current !== selectedContainer ||
                     prevShowPreviousRef.current !== showPrevious;
+
+                // Check if date filters changed
+                const isDateFilterChange =
+                    prevAppliedDateFromRef.current !== appliedDateFrom ||
+                    prevAppliedDateToRef.current !== appliedDateTo;
+
+                // Check if search query changed
+                const isSearchQueryChange = prevSearchQueryRef.current !== searchQuery;
 
                 // Update refs
                 prevDeploymentRef.current = selectedDeployment;
                 prevPodRef.current = selectedPod;
                 prevContainerRef.current = selectedContainer;
                 prevShowPreviousRef.current = showPrevious;
+                prevAppliedDateFromRef.current = appliedDateFrom;
+                prevAppliedDateToRef.current = appliedDateTo;
+                prevSearchQueryRef.current = searchQuery;
 
-                // Clear logs immediately on context change, but not on search query change
+                // Clear logs and show "Loading logs..." text only on context change
+                // Show spinning icon for all changes
                 if (isContextChange) {
                     setLogLines([]);
+                    setIsContextLoading(true);
+                    setLoadingLogs(true);
+                } else if (isDateFilterChange || isSearchQueryChange) {
+                    // Just show spinning icon, keep existing logs visible
+                    setIsContextLoading(false);
                     setLoadingLogs(true);
                 }
 
@@ -205,11 +235,11 @@ export const TerminalPanel: React.FC = () => {
                 const timeoutId = setTimeout(() => {
                     fetchLogs();
                 }, searchQuery ? 500 : 0); // 500ms delay for search, immediate for other changes
-                
+
                 return () => clearTimeout(timeoutId);
             }
         }
-    }, [activeTab, selectedDeployment, selectedPod, selectedContainer, showPrevious, searchQuery]);
+    }, [activeTab, selectedDeployment, selectedPod, selectedContainer, showPrevious, searchQuery, appliedDateFrom, appliedDateTo]);
 
     // Update pod selection when deployment changes (but not when logsTarget is being set)
     useEffect(() => {
@@ -539,6 +569,27 @@ export const TerminalPanel: React.FC = () => {
                 >
                   <Search size={14} />
                 </button>
+
+                <button
+                  onClick={() => {
+                    const newShowDateFilter = !showDateFilter;
+                    setShowDateFilter(newShowDateFilter);
+                    if (!newShowDateFilter) {
+                      // Don't clear dates when closing - let user keep their selection
+                    }
+                  }}
+                  className={`p-1.5 border border-gray-700 rounded transition-colors ${showDateFilter || appliedDateFrom || appliedDateTo ? 'bg-blue-900/50 text-blue-400' : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'}`}
+                  title="Filter by date range"
+                >
+                  <Calendar size={14} />
+                </button>
+
+                {/* Lines count indicator */}
+                {logLines.length > 0 && (
+                  <span className="text-xs text-gray-400 ml-3">
+                    Showing {logLines.length} line{logLines.length !== 1 ? 's' : ''}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -557,11 +608,6 @@ export const TerminalPanel: React.FC = () => {
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                   />
-                  {searchQuery && !regexError && (
-                    <span className="text-xs text-gray-400 whitespace-nowrap">
-                      {logLines.length} lines found
-                    </span>
-                  )}
                   <button
                     onClick={() => {
                       setShowSearch(false);
@@ -583,9 +629,116 @@ export const TerminalPanel: React.FC = () => {
               </div>
             )}
 
+            {/* Date range filter */}
+            {showDateFilter && (
+              <div
+                className="px-4 py-2 bg-gray-800/50 border-b border-gray-700"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (dateFrom || dateTo)) {
+                    e.preventDefault();
+                    setAppliedDateFrom(dateFrom);
+                    setAppliedDateTo(dateTo);
+                  }
+                }}
+              >
+                <div className="flex items-center gap-3">
+                  <Calendar size={14} className="text-gray-400" />
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-gray-400 font-medium">From <span className="text-gray-500">(Local)</span>:</label>
+                    <input
+                      type="datetime-local"
+                      className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 focus:outline-none focus:border-blue-500"
+                      value={dateFrom}
+                      onChange={(e) => setDateFrom(e.target.value)}
+                      max={dateTo || undefined}
+                      title="Select date and time, then press Enter or click Apply"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-gray-400 font-medium">To <span className="text-gray-500">(Local)</span>:</label>
+                    <input
+                      type="datetime-local"
+                      className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 focus:outline-none focus:border-blue-500"
+                      value={dateTo}
+                      onChange={(e) => setDateTo(e.target.value)}
+                      min={dateFrom || undefined}
+                      title="Select date and time, then press Enter or click Apply"
+                    />
+                  </div>
+
+                  {/* Apply button */}
+                  <button
+                    onClick={() => {
+                      setAppliedDateFrom(dateFrom);
+                      setAppliedDateTo(dateTo);
+                    }}
+                    disabled={!dateFrom && !dateTo}
+                    className={`px-3 py-1 text-xs rounded border transition-colors ${
+                      (!dateFrom && !dateTo) 
+                        ? 'bg-gray-800 border-gray-700 text-gray-500 cursor-not-allowed'
+                        : 'bg-blue-900/40 border-blue-700 text-blue-300 hover:bg-blue-800 hover:text-white'
+                    }`}
+                    title="Apply date filter (or press Enter)"
+                  >
+                    Apply
+                  </button>
+
+                  {(dateFrom || dateTo || appliedDateFrom || appliedDateTo) && (
+                    <button
+                      onClick={() => {
+                        setDateFrom('');
+                        setDateTo('');
+                        setAppliedDateFrom('');
+                        setAppliedDateTo('');
+                      }}
+                      className="text-xs text-gray-400 hover:text-white transition-colors underline"
+                      title="Clear date filter"
+                    >
+                      Clear
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      setShowDateFilter(false);
+                    }}
+                    className="ml-auto p-1 text-gray-400 hover:text-white transition-colors"
+                    title="Close date filter"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+                {((appliedDateFrom || appliedDateTo) || ((dateFrom || dateTo) && !(appliedDateFrom === dateFrom && appliedDateTo === dateTo))) && (
+                  <div className="mt-1.5 text-xs flex items-center gap-1">
+                    {(appliedDateFrom || appliedDateTo) && (
+                      <>
+                        <span className="text-green-400">✓</span>
+                        <span className="text-green-400">
+                          {appliedDateFrom && appliedDateTo ? (
+                            `Filter applied: ${new Date(appliedDateFrom).toLocaleString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })} to ${new Date(appliedDateTo).toLocaleString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}`
+                          ) : appliedDateFrom ? (
+                            `Filter applied: from ${new Date(appliedDateFrom).toLocaleString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })} onwards`
+                          ) : (
+                            `Filter applied: up to ${new Date(appliedDateTo).toLocaleString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })}`
+                          )}
+                        </span>
+                      </>
+                    )}
+                    {(dateFrom || dateTo) && !(appliedDateFrom === dateFrom && appliedDateTo === dateTo) && (
+                      <>
+                        <span className="text-yellow-400 ml-3">
+                          <AlertTriangle size={12} className="inline mr-1" />
+                          Click "Apply" to update the filter
+                        </span>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Logs output */}
             <div className="flex-1 overflow-auto p-3 text-gray-300 font-mono text-xs leading-relaxed bg-gray-950 custom-scrollbar">
-              {loadingLogs ? (
+              {isContextLoading ? (
                 <div className="text-gray-500 italic">Loading logs...</div>
               ) : !selectedDeployment ? (
                 <div className="text-gray-500 italic">Select a deployment to view logs.</div>
