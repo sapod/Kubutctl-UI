@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useStore } from '../store';
-import { Terminal, FileText, RefreshCw, Search, X } from 'lucide-react';
+import { Terminal, FileText, RefreshCw, Search, X, AlertTriangle } from 'lucide-react';
 import { kubectl } from '../services/kubectl';
 
 export const TerminalPanel: React.FC = () => {
@@ -20,7 +20,8 @@ export const TerminalPanel: React.FC = () => {
 
     // Search state for logs
     const [searchQuery, setSearchQuery] = useState<string>('');
-    const [showSearch, setShowSearch] = useState(false);
+    const [showSearch, setShowSearch] = useState<boolean>(false);
+    const [regexError, setRegexError] = useState<string>('');
     const searchInputRef = useRef<HTMLInputElement>(null);
 
     // Previous container logs state
@@ -287,26 +288,56 @@ export const TerminalPanel: React.FC = () => {
         }
     }, [showSearch]);
 
-    // Filter logs based on search query
+    // Filter logs based on search query (always uses regex with fallback)
     const filteredLogLines = searchQuery
-        ? logLines.filter(line => line.toLowerCase().includes(searchQuery.toLowerCase()))
+        ? logLines.filter(line => {
+            try {
+                const regex = new RegExp(searchQuery, 'i');
+                return regex.test(line);
+            } catch (e) {
+                // Invalid regex - fall back to plain text search
+                return line.toLowerCase().includes(searchQuery.toLowerCase());
+            }
+        })
         : logLines;
 
-    // Highlight search matches in log line
+    // Highlight search matches in log line (always uses regex with fallback)
     const highlightMatches = (line: string, query: string) => {
         if (!query) return line;
 
-        const parts = line.split(new RegExp(`(${query})`, 'gi'));
-        return (
-            <>
-                {parts.map((part, i) =>
-                    part.toLowerCase() === query.toLowerCase()
-                        ? <span key={i} className="bg-yellow-500 text-gray-900">{part}</span>
-                        : part
-                )}
-            </>
-        );
+        try {
+            const regex = new RegExp(`(${query})`, 'gi');
+            const parts = line.split(regex);
+            return (
+                <>
+                    {parts.map((part, i) => {
+                        // Test if this part matches the pattern
+                        const testRegex = new RegExp(query, 'i');
+                        return testRegex.test(part)
+                            ? <span key={i} className="bg-yellow-500 text-gray-900">{part}</span>
+                            : part;
+                    })}
+                </>
+            );
+        } catch (e) {
+            // Invalid regex - return line without highlighting
+            return line;
+        }
     };
+
+    // Validate regex pattern
+    useEffect(() => {
+        if (searchQuery) {
+            try {
+                new RegExp(searchQuery);
+                setRegexError('');
+            } catch (e: any) {
+                setRegexError(e.message || 'Invalid regex');
+            }
+        } else {
+            setRegexError('');
+        }
+    }, [searchQuery]);
 
     return (
       <div
@@ -497,31 +528,42 @@ export const TerminalPanel: React.FC = () => {
 
             {/* Search bar */}
             {showSearch && (
-              <div className="flex items-center gap-2 px-4 py-2 bg-gray-800/50 border-b border-gray-700">
-                <Search size={14} className="text-gray-400" />
-                <input
-                  ref={searchInputRef}
-                  type="text"
-                  placeholder="Search in logs..."
-                  className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-blue-500"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-                {searchQuery && (
-                  <span className="text-xs text-gray-400">
-                    {filteredLogLines.length} / {logLines.length} lines
-                  </span>
+              <div className="px-4 py-2 bg-gray-800/50 border-b border-gray-700">
+                <div className="flex items-center gap-2">
+                  <Search size={14} className="text-gray-400" />
+                  <input
+                    ref={searchInputRef}
+                    type="text"
+                    placeholder="Search in logs (supports regex, e.g., error.*failed)"
+                    className={`flex-1 bg-gray-800 border rounded px-3 py-1.5 text-xs text-gray-200 focus:outline-none ${
+                      regexError ? 'border-red-500 focus:border-red-400' : 'border-gray-700 focus:border-blue-500'
+                    }`}
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                  {searchQuery && !regexError && (
+                    <span className="text-xs text-gray-400 whitespace-nowrap">
+                      {filteredLogLines.length} / {logLines.length} lines
+                    </span>
+                  )}
+                  <button
+                    onClick={() => {
+                      setShowSearch(false);
+                      setSearchQuery('');
+                      setRegexError('');
+                    }}
+                    className="p-1 text-gray-400 hover:text-white transition-colors"
+                    title="Close search (Esc)"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+                {regexError && (
+                  <div className="mt-1.5 text-xs text-red-400 flex items-center gap-1">
+                    <AlertTriangle size={12} />
+                    <span>Invalid regex: {regexError}</span>
+                  </div>
                 )}
-                <button
-                  onClick={() => {
-                    setShowSearch(false);
-                    setSearchQuery('');
-                  }}
-                  className="p-1 text-gray-400 hover:text-white transition-colors"
-                  title="Close search (Esc)"
-                >
-                  <X size={14} />
-                </button>
               </div>
             )}
 
