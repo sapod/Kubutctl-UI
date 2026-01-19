@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useStore } from '../store';
-import { Terminal, FileText, RefreshCw, Search, X, AlertTriangle, Calendar } from 'lucide-react';
+import { Terminal, FileText, RefreshCw, Search, X, AlertTriangle, Calendar, Download } from 'lucide-react';
 import { kubectl } from '../services/kubectl';
 
 export const TerminalPanel: React.FC = () => {
@@ -14,6 +14,7 @@ export const TerminalPanel: React.FC = () => {
     const [logLines, setLogLines] = useState<string[]>([]);
     const [loadingLogs, setLoadingLogs] = useState(false);
     const [isContextLoading, setIsContextLoading] = useState(false); // Track if loading is from context change
+    const [downloadingLogs, setDownloadingLogs] = useState(false); // Track if downloading logs
     const [selectedDeployment, setSelectedDeployment] = useState<string>(''); // Start empty - user must select
     const [selectedPod, setSelectedPod] = useState<string>(''); // Start empty
     const [selectedContainer, setSelectedContainer] = useState<string>('');
@@ -179,6 +180,48 @@ export const TerminalPanel: React.FC = () => {
         } finally {
             setLoadingLogs(false);
             setIsContextLoading(false);
+        }
+    };
+
+    // Download logs function - fetches all logs without line limit
+    const downloadLogs = async () => {
+        if (!selectedDeployment) return;
+
+        setDownloadingLogs(true);
+        try {
+            const [namespace, depName] = selectedDeployment.split('/');
+            let lines: string[];
+
+            // Fetch all logs with unlimited flag
+            if (selectedPod === 'all-pods') {
+                lines = await kubectl.getDeploymentLogs(depName, namespace, searchQuery, appliedDateFrom, appliedDateTo, true);
+            } else if (selectedPod && selectedContainer) {
+                const [podNamespace, podName] = selectedPod.split('/');
+                lines = await kubectl.getLogs(podName, podNamespace, selectedContainer, showPrevious, searchQuery, appliedDateFrom, appliedDateTo, true);
+            } else {
+                return;
+            }
+
+            // Create filename with timestamp and filter info
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+            const resourceName = selectedPod === 'all-pods' ? depName : selectedPod.split('/')[1];
+            const filterSuffix = searchQuery ? `-filtered` : '';
+            const filename = `${resourceName}${filterSuffix}-${timestamp}.log`;
+
+            // Create blob and download
+            const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            console.error('Failed to download logs:', e);
+        } finally {
+            setDownloadingLogs(false);
         }
     };
 
@@ -582,6 +625,15 @@ export const TerminalPanel: React.FC = () => {
                   title="Filter by date range"
                 >
                   <Calendar size={14} />
+                </button>
+
+                <button
+                  onClick={downloadLogs}
+                  className="p-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-gray-400 hover:text-white transition-colors"
+                  title="Download all logs (no line limit)"
+                  disabled={downloadingLogs || !selectedDeployment || (selectedPod !== 'all-pods' && !selectedContainer)}
+                >
+                  <Download size={14} className={downloadingLogs ? "animate-spin" : ""} />
                 </button>
 
                 {/* Lines count indicator */}

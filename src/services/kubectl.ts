@@ -57,8 +57,8 @@ export const KUBECTL_COMMANDS: Record<string, CommandDefinition> = {
     verification: (name: string) => ({ title: 'Trigger CronJob', message: `Are you sure you want to trigger a manual run for "${name}"?` })
   },
   portForward: { command: (type: string, name: string, ns: string, local: number, remote: number) => `kubectl port-forward ${type}/${name} ${local}:${remote} -n ${ns}`, shouldVerify: false },
-  logs: { command: (name: string, ns: string, container?: string, previous?: boolean, grep?: string, dateFrom?: string, dateTo?: string) => {
-    let cmd = `kubectl logs ${name} -n ${ns} ${container ? `-c ${container}` : ''} ${previous ? '--previous' : ''} --tail=100 --timestamps`;
+  logs: { command: (name: string, ns: string, container?: string, previous?: boolean, grep?: string, dateFrom?: string, dateTo?: string, unlimited?: boolean) => {
+    let cmd = `kubectl logs ${name} -n ${ns} ${container ? `-c ${container}` : ''} ${previous ? '--previous' : ''} ${unlimited ? '--tail=-1' : '--tail=100'} --timestamps`;
 
     // Add date filter if provided (since-time uses RFC3339 format)
     if (dateFrom) {
@@ -81,8 +81,8 @@ export const KUBECTL_COMMANDS: Record<string, CommandDefinition> = {
 
     return cmd;
   }, shouldVerify: false },
-  logsWithSelector: { command: (selector: string, ns: string, grep?: string, dateFrom?: string, dateTo?: string) => {
-    let cmd = `kubectl logs -l ${selector} -n ${ns} --all-containers=true --prefix=true --tail=100 --timestamps`;
+  logsWithSelector: { command: (selector: string, ns: string, grep?: string, dateFrom?: string, dateTo?: string, unlimited?: boolean) => {
+    let cmd = `kubectl logs -l ${selector} -n ${ns} --all-containers=true --prefix=true ${unlimited ? '--tail=-1' : '--tail=100'} --timestamps`;
 
     // Add date filter if provided
     if (dateFrom) {
@@ -107,8 +107,10 @@ export const KUBECTL_COMMANDS: Record<string, CommandDefinition> = {
     // This ensures logs are ordered by time, not grouped by container
     cmd += ` | sort -k2,2`;
 
-    // Always limit to 200 total lines across all pods (applied after sorting)
-    cmd += ` | tail -200`;
+    // Limit to 200 total lines only if not unlimited
+    if (!unlimited) {
+      cmd += ` | tail -200`;
+    }
     return cmd;
   }, shouldVerify: false },
   exec: { command: (name: string, ns: string, container: string, cmd: string) => `kubectl exec ${name} -n ${ns} -c ${container} -- ${cmd}`, shouldVerify: false },
@@ -388,17 +390,17 @@ export const kubectl = {
   exec: async (podName: string, namespace: string, container: string, cmd: string): Promise<string> => {
       try { return await executeWithVerification(KUBECTL_COMMANDS.exec, [podName, namespace, container, cmd], true); } catch(e) { return ""; }
   },
-  getLogs: async (name: string, ns: string, container?: string, previous?: boolean, grep?: string, dateFrom?: string, dateTo?: string): Promise<string[]> => {
+  getLogs: async (name: string, ns: string, container?: string, previous?: boolean, grep?: string, dateFrom?: string, dateTo?: string, unlimited?: boolean): Promise<string[]> => {
       try {
-        const data = await executeWithVerification(KUBECTL_COMMANDS.logs, [name, ns, container, previous, grep, dateFrom, dateTo], false);
+        const data = await executeWithVerification(KUBECTL_COMMANDS.logs, [name, ns, container, previous, grep, dateFrom, dateTo, unlimited], false);
         return typeof data === 'string' ? data.split('\n').filter(line => line.trim() !== '') : [];
       } catch (e) {
         return [(e as any).message || "Failed to fetch logs"];
       }
   },
-  getDeploymentLogs: async (deploymentName: string, ns: string, grep?: string, dateFrom?: string, dateTo?: string): Promise<string[]> => {
+  getDeploymentLogs: async (deploymentName: string, ns: string, grep?: string, dateFrom?: string, dateTo?: string, unlimited?: boolean): Promise<string[]> => {
       try {
-        const data = await executeWithVerification(KUBECTL_COMMANDS.logsWithSelector, [`release=${deploymentName}`, ns, grep, dateFrom, dateTo], false);
+        const data = await executeWithVerification(KUBECTL_COMMANDS.logsWithSelector, [`release=${deploymentName}`, ns, grep, dateFrom, dateTo, unlimited], false);
         return typeof data === 'string' ? data.split('\n').filter(line => line.trim() !== '') : [];
       } catch (e) {
         return [(e as any).message || "Failed to fetch deployment logs"];
