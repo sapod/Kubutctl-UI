@@ -116,7 +116,7 @@ export const ResourceDrawer: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'details' | 'yaml' | 'events' | 'terminal'>('details');
   const [expandedCmKey, setExpandedCmKey] = useState<string | null>(null);
   const [expandedContainers, setExpandedContainers] = useState<Set<number>>(new Set());
-  
+
   // Terminal container selection
   const [terminalContainer, setTerminalContainer] = useState<string>('');
 
@@ -256,14 +256,14 @@ export const ResourceDrawer: React.FC = () => {
     const handleWindowResize = () => {
       const minWidth = Math.max(400, window.innerWidth * 0.25);
       const maxWidth = window.innerWidth * 0.8;
-      
+
       let newWidth = drawerWidth;
       if (drawerWidth > maxWidth) {
         newWidth = maxWidth;
       } else if (drawerWidth < minWidth) {
         newWidth = minWidth;
       }
-      
+
       if (newWidth !== drawerWidth) {
         setDrawerWidth(newWidth);
         localStorage.setItem('drawerWidth', newWidth.toString());
@@ -732,8 +732,8 @@ export const ResourceDrawer: React.FC = () => {
                )}
                {c.ports.length > 0 && (
                  <div>
-                    <span className="text-xs text-gray-500 uppercase tracking-wider font-bold">Ports:</span>
-                    <div className="flex flex-wrap gap-1 mt-1">
+                    <span className="text-xs text-gray-500 uppercase tracking-wider font-bold">Ports (Click to Forward):</span>
+                    <div className="flex flex-wrap gap-2 mt-1">
                        {c.ports.map((p, idx) => {
                            const activePf = state.portForwards.find(pf =>
                                 pf.resourceName === pod.name &&
@@ -745,15 +745,16 @@ export const ResourceDrawer: React.FC = () => {
                                 <button
                                     key={idx}
                                     onClick={() => handlePortClick(pod.name, p.containerPort)}
-                                    className={`px-1.5 py-0.5 rounded text-xs border font-mono transition-colors cursor-pointer ${
+                                    className={`px-2 py-1 rounded text-xs border font-mono transition-all cursor-pointer flex items-center gap-1.5 ${
                                         activePf 
-                                        ? 'bg-green-600 text-white border-green-500 hover:bg-red-600 hover:border-red-500' 
-                                        : 'bg-gray-900 text-gray-300 border-gray-700 hover:bg-blue-900/50 hover:border-blue-500'
+                                        ? 'bg-green-900/60 text-green-200 border-green-600 hover:bg-red-900/60 hover:text-red-200 hover:border-red-600 shadow-sm' 
+                                        : 'bg-blue-900/30 text-blue-300 border-blue-700 hover:bg-blue-800/60 hover:text-white hover:border-blue-500 hover:shadow-md'
                                     }`}
-                                    title={activePf ? `Stop Forwarding ${activePf.localPort}:${activePf.remotePort}` : 'Click to Forward Port'}
+                                    title={activePf ? `Click to Stop Forwarding ${activePf.localPort}:${activePf.remotePort}` : 'Click to Start Port Forwarding'}
                                 >
-                                    {p.containerPort}/{p.protocol} {p.name ? `(${p.name})` : ''}
-                                    {activePf && ` -> ${activePf.localPort}`}
+                                    <Network size={12} className={activePf ? 'text-green-300' : 'text-blue-400'} />
+                                    <span>{p.containerPort}/{p.protocol} {p.name ? `(${p.name})` : ''}</span>
+                                    {activePf && <span className="text-green-100">→ {activePf.localPort}</span>}
                                 </button>
                            );
                        })}
@@ -954,7 +955,7 @@ export const ResourceDrawer: React.FC = () => {
 
   return (
     <>
-    <div 
+    <div
       className="fixed inset-y-0 right-0 bg-gray-900 border-l border-gray-800 shadow-2xl transform transition-transform duration-300 z-50 flex flex-col"
       style={{ width: `${drawerWidth}px` }}
     >
@@ -964,7 +965,7 @@ export const ResourceDrawer: React.FC = () => {
         className={`absolute left-0 top-0 bottom-0 w-0.5 cursor-ew-resize hover:bg-blue-500 transition-colors ${isResizing ? 'bg-blue-500' : 'bg-transparent'}`}
         style={{ zIndex: 51 }}
       />
-      
+
       <div className="h-14 flex items-center justify-between px-6 border-b border-gray-800 bg-gray-900">
         <div className="flex items-center gap-3 overflow-hidden">
             {state.resourceHistory.length > 0 && (
@@ -1002,15 +1003,15 @@ export const ResourceDrawer: React.FC = () => {
             {state.selectedResourceType === 'deployment' && (
               <div className="flex gap-2 mb-4">
                  <button onClick={() => kubectl.rolloutRestart('deployment', resource.name, resource.namespace, resource.id)} className="flex-1 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-blue-300" title="Restart all pods in this deployment"><RotateCw size={14} className="mr-2" /> Rollout Restart</button>
-                 <button 
+                 <button
                    onClick={() => {
-                     dispatch({ 
-                       type: 'SET_LOGS_TARGET', 
-                       payload: { 
-                         type: 'all-pods', 
-                         deploymentName: resource.name, 
-                         namespace: resource.namespace 
-                       } 
+                     dispatch({
+                       type: 'SET_LOGS_TARGET',
+                       payload: {
+                         type: 'all-pods',
+                         deploymentName: resource.name,
+                         namespace: resource.namespace
+                       }
                      });
                    }}
                    className="flex-1 bg-green-900/30 hover:bg-green-900/50 border border-green-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-green-300"
@@ -1029,16 +1030,16 @@ export const ResourceDrawer: React.FC = () => {
               <div className="flex gap-2 mb-4">
                  {(resource as Pod).containers.length === 1 ? (
                    // Single container: direct button
-                   <button 
+                   <button
                      onClick={() => {
-                       dispatch({ 
-                         type: 'SET_LOGS_TARGET', 
-                         payload: { 
-                           type: 'pod', 
-                           podName: resource.name, 
+                       dispatch({
+                         type: 'SET_LOGS_TARGET',
+                         payload: {
+                           type: 'pod',
+                           podName: resource.name,
                            namespace: resource.namespace,
                            container: (resource as Pod).containers[0].name
-                         } 
+                         }
                        });
                      }}
                      className="flex-1 bg-green-900/30 hover:bg-green-900/50 border border-green-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-green-300"
@@ -1049,7 +1050,7 @@ export const ResourceDrawer: React.FC = () => {
                  ) : (
                    // Multiple containers: dropdown
                    <div className="relative flex-1">
-                     <button 
+                     <button
                        onClick={(e) => {
                          e.stopPropagation();
                          const btn = e.currentTarget;
@@ -1068,14 +1069,14 @@ export const ResourceDrawer: React.FC = () => {
                          <button
                            key={container.name}
                            onClick={() => {
-                             dispatch({ 
-                               type: 'SET_LOGS_TARGET', 
-                               payload: { 
-                                 type: 'pod', 
-                                 podName: resource.name, 
+                             dispatch({
+                               type: 'SET_LOGS_TARGET',
+                               payload: {
+                                 type: 'pod',
+                                 podName: resource.name,
                                  namespace: resource.namespace,
                                  container: container.name
-                               } 
+                               }
                              });
                            }}
                            className="w-full px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-700 transition-colors"
