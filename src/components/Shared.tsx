@@ -31,7 +31,16 @@ export const parseMemory = (value: string): number => {
 };
 
 export const getAge = (timestamp: string) => {
-  const diff = Date.now() - new Date(timestamp).getTime();
+  if (!timestamp) return 'N/A';
+  
+  const date = new Date(timestamp);
+  if (isNaN(date.getTime())) return 'N/A';
+  
+  const diff = Date.now() - date.getTime();
+  
+  // Handle negative or invalid diffs
+  if (diff < 0 || !isFinite(diff)) return 'N/A';
+  
   const seconds = Math.floor(diff / 1000);
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);

@@ -949,9 +949,23 @@ export const ResourceDrawer: React.FC = () => {
         return e.involvedObject.name === resource.name && e.involvedObject.namespace === resource.namespace && (e.involvedObject.kind === resourceKind || (resourceKind === 'Pod' && e.involvedObject.kind === 'Pod'));
     }).sort((a, b) => {
         // Sort by lastTimestamp in descending order (latest to oldest)
-        const timeA = new Date(a.lastTimestamp || a.creationTimestamp).getTime();
-        const timeB = new Date(b.lastTimestamp || b.creationTimestamp).getTime();
-        return timeB - timeA;
+        // Handle null/undefined/invalid timestamps properly
+        const timestampA = a.lastTimestamp || a.creationTimestamp;
+        const timestampB = b.lastTimestamp || b.creationTimestamp;
+        
+        if (!timestampA && !timestampB) return 0;
+        if (!timestampA) return 1; // Push events without timestamps to the end
+        if (!timestampB) return -1;
+        
+        const timeA = new Date(timestampA).getTime();
+        const timeB = new Date(timestampB).getTime();
+        
+        // Handle invalid dates (NaN)
+        if (isNaN(timeA) && isNaN(timeB)) return 0;
+        if (isNaN(timeA)) return 1; // Push invalid dates to the end
+        if (isNaN(timeB)) return -1;
+        
+        return timeB - timeA; // Descending order (latest first)
     });
   };
 
@@ -1205,17 +1219,23 @@ export const ResourceDrawer: React.FC = () => {
         )}
         {activeTab === 'events' && (
             <div className="space-y-3">
-                {getEventsToDisplay().length === 0 ? (<div className="text-gray-500 italic text-sm">No related events found.</div>) : (getEventsToDisplay().map(e => (
+                {getEventsToDisplay().length === 0 ? (<div className="text-gray-500 italic text-sm">No related events found.</div>) : (getEventsToDisplay().map(e => {
+                    // Use same timestamp logic as sorting
+                    const displayTimestamp = e.lastTimestamp || e.creationTimestamp;
+                    const ageText = displayTimestamp ? `${getAge(displayTimestamp)} ago` : 'Unknown';
+                    
+                    return (
                     <div key={e.id} className="bg-gray-800/50 border border-gray-700/50 rounded p-3">
                         <div className="flex justify-between items-start mb-1">
                             <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${e.type === 'Warning' ? 'bg-red-900/30 text-red-400' : 'bg-gray-700 text-gray-300'}`}>{e.type}</span>
-                            <span className="text-xs text-gray-500">{getAge(e.lastTimestamp)} ago</span>
+                            <span className="text-xs text-gray-500">{ageText}</span>
                         </div>
                         <div className="text-sm text-gray-200 font-medium mb-1">{e.reason}</div>
                         <div className="text-xs text-gray-400">{e.message}</div>
                         <div className="mt-2 text-xs text-gray-500">Source: {e.source.component}</div>
                     </div>
-                )))}
+                    );
+                }))}
             </div>
         )}
         {activeTab === 'terminal' && (
