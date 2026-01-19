@@ -142,16 +142,15 @@ export const TerminalPanel: React.FC = () => {
 
         // Check if we're fetching all pods logs
         if (selectedPod === 'all-pods') {
-            setLoadingLogs(true);
             try {
-                const lines = await kubectl.getDeploymentLogs(depName, namespace);
+                const lines = await kubectl.getDeploymentLogs(depName, namespace, searchQuery);
                 setLogLines(lines);
                 // Jump to bottom after logs are loaded
                 setTimeout(() => logsBottomRef.current?.scrollIntoView({ behavior: 'auto' }), 100);
             } catch (e) {
                 setLogLines(['Failed to fetch deployment logs: ' + (e as Error).message]);
             } finally {
-                setLoadingLogs(false);
+                setLoadingLogs(false); // Always turn off loading
             }
             return;
         }
@@ -160,27 +159,57 @@ export const TerminalPanel: React.FC = () => {
         if (!selectedPod || !selectedContainer) return;
 
         const [podNamespace, podName] = selectedPod.split('/');
-        setLoadingLogs(true);
+        
         try {
-            const lines = await kubectl.getLogs(podName, podNamespace, selectedContainer, showPrevious);
+            const lines = await kubectl.getLogs(podName, podNamespace, selectedContainer, showPrevious, searchQuery);
             setLogLines(lines);
             // Scroll to bottom after logs are loaded
             setTimeout(() => logsBottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
         } catch (e) {
             setLogLines(['Failed to fetch logs: ' + (e as Error).message]);
         } finally {
-            setLoadingLogs(false);
+            setLoadingLogs(false); // Always turn off loading
         }
     };
+
+    // Track previous values to detect context changes vs search changes
+    const prevDeploymentRef = useRef(selectedDeployment);
+    const prevPodRef = useRef(selectedPod);
+    const prevContainerRef = useRef(selectedContainer);
+    const prevShowPreviousRef = useRef(showPrevious);
 
     // Fetch logs when tab is switched or selection changes
     useEffect(() => {
         if (activeTab === 'logs' && selectedDeployment) {
             if (selectedPod === 'all-pods' || (selectedPod && selectedContainer)) {
-                fetchLogs();
+                // Check if this is a context change (deployment/pod/container changed) vs just a search query change
+                const isContextChange = 
+                    prevDeploymentRef.current !== selectedDeployment ||
+                    prevPodRef.current !== selectedPod ||
+                    prevContainerRef.current !== selectedContainer ||
+                    prevShowPreviousRef.current !== showPrevious;
+
+                // Update refs
+                prevDeploymentRef.current = selectedDeployment;
+                prevPodRef.current = selectedPod;
+                prevContainerRef.current = selectedContainer;
+                prevShowPreviousRef.current = showPrevious;
+
+                // Clear logs immediately on context change, but not on search query change
+                if (isContextChange) {
+                    setLogLines([]);
+                    setLoadingLogs(true);
+                }
+
+                // Debounce search query changes to avoid too many requests
+                const timeoutId = setTimeout(() => {
+                    fetchLogs();
+                }, searchQuery ? 500 : 0); // 500ms delay for search, immediate for other changes
+                
+                return () => clearTimeout(timeoutId);
             }
         }
-    }, [activeTab, selectedDeployment, selectedPod, selectedContainer, showPrevious]);
+    }, [activeTab, selectedDeployment, selectedPod, selectedContainer, showPrevious, searchQuery]);
 
     // Update pod selection when deployment changes (but not when logsTarget is being set)
     useEffect(() => {
@@ -287,19 +316,6 @@ export const TerminalPanel: React.FC = () => {
             searchInputRef.current.focus();
         }
     }, [showSearch]);
-
-    // Filter logs based on search query (always uses regex with fallback)
-    const filteredLogLines = searchQuery
-        ? logLines.filter(line => {
-            try {
-                const regex = new RegExp(searchQuery, 'i');
-                return regex.test(line);
-            } catch (e) {
-                // Invalid regex - fall back to plain text search
-                return line.toLowerCase().includes(searchQuery.toLowerCase());
-            }
-        })
-        : logLines;
 
     // Highlight search matches in log line (always uses regex with fallback)
     const highlightMatches = (line: string, query: string) => {
@@ -543,7 +559,7 @@ export const TerminalPanel: React.FC = () => {
                   />
                   {searchQuery && !regexError && (
                     <span className="text-xs text-gray-400 whitespace-nowrap">
-                      {filteredLogLines.length} / {logLines.length} lines
+                      {logLines.length} lines found
                     </span>
                   )}
                   <button
@@ -573,16 +589,16 @@ export const TerminalPanel: React.FC = () => {
                 <div className="text-gray-500 italic">Loading logs...</div>
               ) : !selectedDeployment ? (
                 <div className="text-gray-500 italic">Select a deployment to view logs.</div>
-              ) : filteredLogLines.length > 0 ? (
+              ) : logLines.length > 0 ? (
                 <>
-                  {filteredLogLines.map((line, i) => (
+                  {logLines.map((line, i) => (
                     <div key={i} className="mb-0.5 whitespace-pre">
                       {searchQuery ? highlightMatches(line, searchQuery) : line}
                     </div>
                   ))}
                   <div ref={logsBottomRef} />
                 </>
-              ) : searchQuery && logLines.length > 0 ? (
+              ) : searchQuery ? (
                 <div className="text-gray-500 italic">No logs match your search "{searchQuery}".</div>
               ) : (
                 <div className="text-gray-500 italic">No logs available or container not running.</div>
