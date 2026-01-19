@@ -947,6 +947,11 @@ export const ResourceDrawer: React.FC = () => {
         const kind = state.selectedResourceType ? (state.selectedResourceType.charAt(0).toUpperCase() + state.selectedResourceType.slice(1)) : '';
         const resourceKind = kind === 'Cronjob' ? 'CronJob' : (kind === 'Configmap' ? 'ConfigMap' : (kind === 'Replicaset' ? 'ReplicaSet' : kind));
         return e.involvedObject.name === resource.name && e.involvedObject.namespace === resource.namespace && (e.involvedObject.kind === resourceKind || (resourceKind === 'Pod' && e.involvedObject.kind === 'Pod'));
+    }).sort((a, b) => {
+        // Sort by lastTimestamp in descending order (latest to oldest)
+        const timeA = new Date(a.lastTimestamp || a.creationTimestamp).getTime();
+        const timeB = new Date(b.lastTimestamp || b.creationTimestamp).getTime();
+        return timeB - timeA;
     });
   };
 
