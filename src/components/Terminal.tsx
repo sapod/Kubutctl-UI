@@ -591,7 +591,10 @@ export const TerminalPanel: React.FC = () => {
                 )}
 
                 <button
-                  onClick={fetchLogs}
+                  onClick={() => {
+                    setLoadingLogs(true);
+                    fetchLogs();
+                  }}
                   className="p-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-gray-400 hover:text-white transition-colors ml-2"
                   title="Refresh logs"
                   disabled={loadingLogs || !selectedDeployment || (selectedPod !== 'all-pods' && !selectedContainer)}
