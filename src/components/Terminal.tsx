@@ -15,6 +15,8 @@ export const TerminalPanel: React.FC = () => {
     const [loadingLogs, setLoadingLogs] = useState(false);
     const [isContextLoading, setIsContextLoading] = useState(false); // Track if loading is from context change
     const [downloadingLogs, setDownloadingLogs] = useState(false); // Track if downloading logs
+    const lastSeenLogLineRef = useRef<string>(''); // Track the last log line we've seen to avoid duplicates
+    const hasInitializedLogsRef = useRef(false); // Track if we've loaded logs at least once
     const [selectedDeployment, setSelectedDeployment] = useState<string>(''); // Start empty - user must select
     const [selectedPod, setSelectedPod] = useState<string>(''); // Start empty
     const [selectedContainer, setSelectedContainer] = useState<string>('');
@@ -38,6 +40,9 @@ export const TerminalPanel: React.FC = () => {
 
     // Logs scroll ref
     const logsBottomRef = useRef<HTMLDivElement>(null);
+    const logsContainerRef = useRef<HTMLDivElement>(null);
+    const isScrolledToBottomRef = useRef(true); // Use ref instead of state to avoid stale closures
+    const scrollPositionBeforeFetchRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null);
 
     // Terminal resizing
     const [terminalHeight, setTerminalHeight] = useState(() => {
@@ -147,15 +152,81 @@ export const TerminalPanel: React.FC = () => {
     const fetchLogs = async () => {
         if (!selectedDeployment) return;
 
+        setLoadingLogs(true);
+
+        // Save scroll position before fetching (if not at bottom)
+        if (logsContainerRef.current && !isScrolledToBottomRef.current) {
+            scrollPositionBeforeFetchRef.current = {
+                scrollTop: logsContainerRef.current.scrollTop,
+                scrollHeight: logsContainerRef.current.scrollHeight
+            };
+        } else {
+            scrollPositionBeforeFetchRef.current = null;
+        }
+
         const [namespace, depName] = selectedDeployment.split('/');
 
         // Check if we're fetching all pods logs
         if (selectedPod === 'all-pods') {
             try {
                 const lines = await kubectl.getDeploymentLogs(depName, namespace, searchQuery, appliedDateFrom, appliedDateTo);
-                setLogLines(lines);
-                // Jump to bottom after logs are loaded
-                setTimeout(() => logsBottomRef.current?.scrollIntoView({ behavior: 'auto' }), 100);
+
+                // If we have existing logs and new logs, append only truly new ones
+                if (hasInitializedLogsRef.current && !isContextLoading && lastSeenLogLineRef.current) {
+                    // Find the index where we should start taking new logs
+                    // Since logs are sorted oldest to newest, find the last log we've seen and take everything after it
+                    const lastSeenIndex = lines.findIndex(line => line === lastSeenLogLineRef.current);
+
+                    let newLines: string[] = [];
+                    if (lastSeenIndex >= 0) {
+                        // Take all logs after the last one we've seen
+                        newLines = lines.slice(lastSeenIndex + 1);
+                    } else {
+                        // Couldn't find our last log - this means we might have missed some logs
+                        // Take all new logs
+                        newLines = lines;
+                    }
+
+                    if (newLines.length > 0) {
+                        // Store the scroll info before state update
+                        const savedScrollInfo = scrollPositionBeforeFetchRef.current;
+
+                        // Append new logs to the END (they're newest, so they go at bottom)
+                        setLogLines(prev => [...prev, ...newLines]);
+
+                        // Update the last seen log line
+                        lastSeenLogLineRef.current = newLines[newLines.length - 1];
+
+                        // Maintain scroll position if user was scrolled up
+                        if (savedScrollInfo && logsContainerRef.current) {
+                            // Disable smooth scrolling temporarily
+                            const container = logsContainerRef.current;
+                            const oldBehavior = container.style.scrollBehavior;
+                            container.style.scrollBehavior = 'auto';
+
+                            // Use single requestAnimationFrame
+                            requestAnimationFrame(() => {
+                                if (logsContainerRef.current && savedScrollInfo) {
+                                    logsContainerRef.current.scrollTop = savedScrollInfo.scrollTop;
+                                    logsContainerRef.current.style.scrollBehavior = oldBehavior;
+                                }
+                            });
+                        }
+                    }
+                } else {
+                    // First load or context change - replace all logs
+                    setLogLines(lines);
+                    hasInitializedLogsRef.current = true;
+                    // Store the last log line
+                    if (lines.length > 0) {
+                        lastSeenLogLineRef.current = lines[lines.length - 1];
+                    }
+                }
+
+                // Only scroll to bottom if user is already at the bottom
+                if (isScrolledToBottomRef.current) {
+                    setTimeout(() => logsBottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+                }
             } catch (e) {
                 setLogLines(['Failed to fetch deployment logs: ' + (e as Error).message]);
             } finally {
@@ -172,9 +243,63 @@ export const TerminalPanel: React.FC = () => {
 
         try {
             const lines = await kubectl.getLogs(podName, podNamespace, selectedContainer, showPrevious, searchQuery, appliedDateFrom, appliedDateTo);
-            setLogLines(lines);
-            // Scroll to bottom after logs are loaded
-            setTimeout(() => logsBottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+
+            // If we have existing logs and new logs, append only truly new ones
+            if (hasInitializedLogsRef.current && !isContextLoading && lastSeenLogLineRef.current) {
+                // Find the index where we should start taking new logs
+                // Since logs are sorted oldest to newest, find the last log we've seen and take everything after it
+                const lastSeenIndex = lines.findIndex(line => line === lastSeenLogLineRef.current);
+
+                let newLines: string[] = [];
+                if (lastSeenIndex >= 0) {
+                    // Take all logs after the last one we've seen
+                    newLines = lines.slice(lastSeenIndex + 1);
+                } else {
+                    // Couldn't find our last log - this means we might have missed some logs
+                    // Take all new logs
+                    newLines = lines;
+                }
+
+                if (newLines.length > 0) {
+                    // Store the scroll info before state update
+                    const savedScrollInfo = scrollPositionBeforeFetchRef.current;
+
+                    // Append new logs to the END (they're newest, so they go at bottom)
+                    setLogLines(prev => [...prev, ...newLines]);
+
+                    // Update the last seen log line
+                    lastSeenLogLineRef.current = newLines[newLines.length - 1];
+
+                    // Maintain scroll position if user was scrolled up
+                    if (savedScrollInfo && logsContainerRef.current) {
+                        // Disable smooth scrolling temporarily
+                        const container = logsContainerRef.current;
+                        const oldBehavior = container.style.scrollBehavior;
+                        container.style.scrollBehavior = 'auto';
+
+                        // Use single requestAnimationFrame
+                        requestAnimationFrame(() => {
+                            if (logsContainerRef.current && savedScrollInfo) {
+                                logsContainerRef.current.scrollTop = savedScrollInfo.scrollTop;
+                                logsContainerRef.current.style.scrollBehavior = oldBehavior;
+                            }
+                        });
+                    }
+                }
+            } else {
+                // First load or context change - replace all logs
+                setLogLines(lines);
+                hasInitializedLogsRef.current = true;
+                // Store the last log line
+                if (lines.length > 0) {
+                    lastSeenLogLineRef.current = lines[lines.length - 1];
+                }
+            }
+
+            // Only scroll to bottom if user is already at the bottom
+            if (isScrolledToBottomRef.current) {
+                setTimeout(() => logsBottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+            }
         } catch (e) {
             setLogLines(['Failed to fetch logs: ' + (e as Error).message]);
         } finally {
@@ -268,10 +393,17 @@ export const TerminalPanel: React.FC = () => {
                     setLogLines([]);
                     setIsContextLoading(true);
                     setLoadingLogs(true);
+                    isScrolledToBottomRef.current = true; // Reset to auto-scroll on context change
+                    lastSeenLogLineRef.current = ''; // Reset last seen log on context change
+                    hasInitializedLogsRef.current = false; // Reset initialization flag
                 } else if (isDateFilterChange || isSearchQueryChange) {
-                    // Just show spinning icon, keep existing logs visible
+                    // For filter changes, clear logs and fetch fresh
+                    setLogLines([]);
                     setIsContextLoading(false);
                     setLoadingLogs(true);
+                    isScrolledToBottomRef.current = true; // Reset to auto-scroll on filter change
+                    lastSeenLogLineRef.current = ''; // Reset last seen log on filter change
+                    hasInitializedLogsRef.current = false; // Reset initialization flag
                 }
 
                 // Debounce search query changes to avoid too many requests
@@ -283,6 +415,17 @@ export const TerminalPanel: React.FC = () => {
             }
         }
     }, [activeTab, selectedDeployment, selectedPod, selectedContainer, showPrevious, searchQuery, appliedDateFrom, appliedDateTo]);
+
+    // Auto-refresh logs every 3 seconds when logs tab is active and not searching/filtering
+    useEffect(() => {
+        if (activeTab === 'logs' && selectedDeployment && (selectedPod === 'all-pods' || (selectedPod && selectedContainer)) && !searchQuery && !appliedDateFrom && !appliedDateTo) {
+            const intervalId = setInterval(() => {
+                fetchLogs();
+            }, 3000); // Every 3 seconds
+
+            return () => clearInterval(intervalId);
+        }
+    }, [activeTab, selectedDeployment, selectedPod, selectedContainer, searchQuery, appliedDateFrom, appliedDateTo, showPrevious]);
 
     // Update pod selection when deployment changes (but not when logsTarget is being set)
     useEffect(() => {
@@ -389,6 +532,14 @@ export const TerminalPanel: React.FC = () => {
             searchInputRef.current.focus();
         }
     }, [showSearch]);
+
+    // Track scroll position to determine if user is at the bottom
+    const handleLogsScroll = (e: React.UIEvent<HTMLDivElement>) => {
+        const target = e.currentTarget;
+        const threshold = 50; // pixels from bottom to consider "at bottom"
+        const isAtBottom = target.scrollHeight - target.scrollTop - target.clientHeight < threshold;
+        isScrolledToBottomRef.current = isAtBottom;
+    };
 
     // Highlight search matches in log line (always uses regex with fallback)
     const highlightMatches = (line: string, query: string) => {
@@ -792,18 +943,33 @@ export const TerminalPanel: React.FC = () => {
             )}
 
             {/* Logs output */}
-            <div className="flex-1 overflow-auto p-3 text-gray-300 font-mono text-xs leading-relaxed bg-gray-950 custom-scrollbar">
+            <div
+              ref={logsContainerRef}
+              onScroll={handleLogsScroll}
+              className="flex-1 overflow-auto p-3 text-gray-300 font-mono text-xs leading-relaxed bg-gray-950 custom-scrollbar"
+            >
               {isContextLoading ? (
                 <div className="text-gray-500 italic">Loading logs...</div>
               ) : !selectedDeployment ? (
                 <div className="text-gray-500 italic">Select a deployment to view logs.</div>
               ) : logLines.length > 0 ? (
                 <>
-                  {logLines.map((line, i) => (
-                    <div key={i} className="mb-0.5 whitespace-pre">
-                      {searchQuery ? highlightMatches(line, searchQuery) : line}
-                    </div>
-                  ))}
+                  {logLines
+                    .filter(line => {
+                      // Client-side filter: if there's a search query, only show lines that match
+                      if (!searchQuery) return true;
+                      try {
+                        const regex = new RegExp(searchQuery, 'i');
+                        return regex.test(line);
+                      } catch (e) {
+                        return true; // If regex is invalid, show all lines
+                      }
+                    })
+                    .map((line, i) => (
+                      <div key={i} className="mb-0.5 whitespace-pre">
+                        {searchQuery ? highlightMatches(line, searchQuery) : line}
+                      </div>
+                    ))}
                   <div ref={logsBottomRef} />
                 </>
               ) : searchQuery ? (
