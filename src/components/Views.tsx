@@ -19,11 +19,11 @@ export const OverviewPage: React.FC = () => {
     { name: 'Pending', value: state.pods.filter(p => p.status === ResourceStatus.Pending).length, color: '#facc15' },
     { name: 'Failed', value: state.pods.filter(p => p.status === ResourceStatus.Failed || p.status === ResourceStatus.CrashLoopBackOff).length, color: '#f87171' },
   ];
-  
+
   const handleNavigate = (view: 'nodes' | 'pods' | 'deployments') => {
     dispatch({ type: 'SET_VIEW', payload: view });
   };
-  
+
   return (
     <div className="p-6 space-y-6">
        <h1 className="text-2xl font-bold text-gray-100 mb-6">Cluster Overview</h1>
@@ -31,8 +31,8 @@ export const OverviewPage: React.FC = () => {
           {stats.map((stat, idx) => {
             const Icon = stat.icon;
             return (
-              <div 
-                key={idx} 
+              <div
+                key={idx}
                 onClick={() => handleNavigate(stat.view)}
                 className="bg-gray-800 p-6 rounded-lg border border-gray-700 shadow-sm flex items-center justify-between cursor-pointer hover:bg-gray-750 hover:border-gray-600 transition-colors"
               >
@@ -147,7 +147,30 @@ export const NodesPage: React.FC = () => {
 
 export const PodsPage: React.FC = () => {
     const { state, dispatch } = useStore();
-    return <ResourceTable title="Pods" data={state.pods} enableMultiSelect onBulkDelete={(ids) => kubectl.deleteResources(ids, 'pod', state.pods.filter(p => ids.includes(p.id)).map(p => ({ name: p.name, namespace: p.namespace })))} onSelect={(id) => dispatch({ type: 'SELECT_RESOURCE', payload: { id, type: 'pod' } })} columns={[ { header: 'Name', accessor: (p) => <div className="flex items-center gap-2"> <span className="font-medium text-gray-200">{p.name}</span> {(!p.isReady && p.status !== ResourceStatus.Completed && p.status !== ResourceStatus.Succeeded) && <AlertTriangle size={14} className="text-yellow-500" />} </div>, sortValue: (p) => p.name }, { header: 'Namespace', accessor: (p) => p.namespace, sortValue: (p) => p.namespace }, { header: 'Status', accessor: (p) => <StatusBadge status={p.status} />, sortValue: (p) => p.status }, { header: 'Restarts', accessor: (p) => p.restarts }, { header: 'CPU', accessor: (p) => p.cpuUsage, sortValue: (p) => parseCpu(p.cpuUsage) }, { header: 'Memory', accessor: (p) => p.memoryUsage, sortValue: (p) => parseMemory(p.memoryUsage) }, { header: 'Age', accessor: (p) => getAge(p.creationTimestamp), sortValue: (p) => p.creationTimestamp }, ]} />;
+    return <ResourceTable title="Pods" data={state.pods}
+                          enableMultiSelect
+                          onBulkDelete={(ids) =>
+                              kubectl.deleteResources(ids, 'pod',
+                                  state.pods.filter(p => ids.includes(p.id))
+                                      .map(p => ({ name: p.name, namespace: p.namespace })))}
+                          onSelect={(id) => dispatch({ type: 'SELECT_RESOURCE', payload: { id, type: 'pod' } })}
+                          columns={[ { header: 'Name', accessor: (p) =>
+                                  <div className="flex items-center gap-2">
+                                      <span className="font-medium text-gray-200">{p.name}</span>
+                                      {(!p.isReady && p.status !== ResourceStatus.Completed && p.status !== ResourceStatus.Succeeded) &&
+                                          <div title="Pod is not ready">
+                                              <AlertTriangle size={14} className="text-yellow-500" />
+                                          </div>} 
+                                  </div>,
+                              sortValue: (p) => p.name },
+                              { header: 'Namespace', accessor: (p) => p.namespace, sortValue: (p) => p.namespace },
+                              { header: 'Status', accessor: (p) =>
+                                      <StatusBadge status={p.status} />,
+                                  sortValue: (p) => p.status },
+                              { header: 'Restarts', accessor: (p) => p.restarts },
+                              { header: 'CPU', accessor: (p) => p.cpuUsage, sortValue: (p) => parseCpu(p.cpuUsage) },
+                              { header: 'Memory', accessor: (p) => p.memoryUsage, sortValue: (p) => parseMemory(p.memoryUsage) },
+                              { header: 'Age', accessor: (p) => getAge(p.creationTimestamp), sortValue: (p) => p.creationTimestamp }, ]} />;
 };
 
 export const DeploymentsPage: React.FC = () => {
