@@ -1,7 +1,7 @@
 {
   "name": "kubectl-ui",
   "private": true,
-  "version": "2.3.1",
+  "version": "2.3.2",
   "description": "A modern desktop application for managing Kubernetes clusters with an intuitive UI",
   "author": {
     "name": "Sapir Oded",
@@ -16,6 +16,7 @@
     "preview": "vite preview",
     "server": "node src/backend/server.js",
     "generate-icon": "node scripts/generate-icon.js",
+    "update-readme": "node scripts/update-readme-version.js",
     "electron": "electron .",
     "electron:dev": "electron . --debug",
     "prebuild:electron": "npm run build",

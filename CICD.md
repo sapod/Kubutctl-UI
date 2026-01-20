@@ -23,20 +23,27 @@ The GitHub Actions workflow automatically builds and releases desktop applicatio
    - Creates GitHub Release
    - Attaches all installers to the release
 
+3. **Update README** - After release is published:
+   - Automatically triggers `update-readme-on-release` workflow
+   - Updates download links in README.md
+   - Commits changes back to master
+   - Ensures all download links point to the newly published files
+
 ### Release Assets
 
 Each release includes:
 
 **macOS:**
-- `Kubectl UI-{version}-arm64.dmg` (Apple Silicon)
-- `Kubectl UI-{version}.dmg` (Intel)
-- ZIP archives for both architectures
+- `Kubectl-UI-{version}-arm64.dmg` (Apple Silicon)
+- `Kubectl-UI-{version}.dmg` (Intel)
+- `Kubectl-UI-{version}-arm64-mac.zip` (Apple Silicon - ZIP)
+- `Kubectl-UI-{version}-mac.zip` (Intel - ZIP)
 
 **Windows:**
-- `Kubectl UI Setup {version}.exe`
+- `Kubectl-UI-Setup-{version}.exe`
 
 **Linux:**
-- `Kubectl UI-{version}.AppImage` (universal)
+- `Kubectl-UI-{version}.AppImage` (universal)
 - `kubectl-ui_{version}_amd64.deb` (Debian/Ubuntu)
 - `kubectl-ui-{version}.x86_64.rpm` (Red Hat/Fedora)
 
@@ -49,6 +56,13 @@ Edit `package.json`:
 {
   "version": "1.4.0"
 }
+```
+
+Or use npm version command:
+```bash
+npm version patch  # 1.3.0 -> 1.3.1
+npm version minor  # 1.3.0 -> 1.4.0
+npm version major  # 1.3.0 -> 2.0.0
 ```
 
 ### 2. Commit and Push
@@ -65,6 +79,16 @@ The workflow will:
 - ✅ Build installers for all platforms
 - ✅ Create Git tag `v1.4.0`
 - ✅ Create GitHub Release with all files attached
+- ✅ **Automatically update README.md download links**
+
+### 4. README Update (Automatic)
+
+After the release is published, a second workflow automatically:
+- ✅ Runs the `update-readme` script
+- ✅ Updates all download links to the new version
+- ✅ Commits and pushes the changes to master
+
+> **Note**: The README update happens **after** the release files are available, ensuring all download links work correctly.
 
 ## Testing Locally
 
