@@ -3,6 +3,9 @@ import { useStore } from '../store';
 import { Terminal, FileText, RefreshCw, Search, X, AlertTriangle, Calendar, Download } from 'lucide-react';
 import { kubectl } from '../services/kubectl';
 
+// Maximum number of log lines to keep in memory
+const MAX_LOG_LINES = 5000;
+
 export const TerminalPanel: React.FC = () => {
     const { state, dispatch } = useStore();
     const bottomRef = React.useRef<HTMLDivElement>(null);
@@ -192,7 +195,15 @@ export const TerminalPanel: React.FC = () => {
                         const savedScrollInfo = scrollPositionBeforeFetchRef.current;
 
                         // Append new logs to the END (they're newest, so they go at bottom)
-                        setLogLines(prev => [...prev, ...newLines]);
+                        setLogLines(prev => {
+                            const combined = [...prev, ...newLines];
+                            // Trim old logs if we exceed the limit
+                            if (combined.length > MAX_LOG_LINES) {
+                                const trimmed = combined.slice(combined.length - MAX_LOG_LINES);
+                                return trimmed;
+                            }
+                            return combined;
+                        });
 
                         // Update the last seen log line
                         lastSeenLogLineRef.current = newLines[newLines.length - 1];
@@ -265,7 +276,15 @@ export const TerminalPanel: React.FC = () => {
                     const savedScrollInfo = scrollPositionBeforeFetchRef.current;
 
                     // Append new logs to the END (they're newest, so they go at bottom)
-                    setLogLines(prev => [...prev, ...newLines]);
+                    setLogLines(prev => {
+                        const combined = [...prev, ...newLines];
+                        // Trim old logs if we exceed the limit
+                        if (combined.length > MAX_LOG_LINES) {
+                            const trimmed = combined.slice(combined.length - MAX_LOG_LINES);
+                            return trimmed;
+                        }
+                        return combined;
+                    });
 
                     // Update the last seen log line
                     lastSeenLogLineRef.current = newLines[newLines.length - 1];
