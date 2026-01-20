@@ -3,6 +3,10 @@ name: Update README Download Links
 on:
   release:
     types: [published]
+  workflow_dispatch:  # Add this for manual testing
+
+permissions:
+  contents: write
 
 jobs:
   update-readme:
@@ -12,6 +16,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          ref: master
           token: ${{ secrets.GITHUB_TOKEN }}
           
       - name: Setup Node.js
