@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
+import ReactDOM from 'react-dom';
 import { useStore } from '../store';
-import { Terminal, FileText, RefreshCw, Search, X, AlertTriangle, Calendar, Download } from 'lucide-react';
+import { Terminal, FileText, RefreshCw, Search, X, AlertTriangle, Calendar, Download, Play, Pause } from 'lucide-react';
 import { kubectl } from '../services/kubectl';
 
 // Maximum number of log lines to keep in memory
@@ -20,6 +21,11 @@ export const TerminalPanel: React.FC = () => {
     const [downloadingLogs, setDownloadingLogs] = useState(false); // Track if downloading logs
     const lastSeenLogLineRef = useRef<string>(''); // Track the last log line we've seen to avoid duplicates
     const hasInitializedLogsRef = useRef(false); // Track if we've loaded logs at least once
+    const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true); // Auto-refresh on by default
+    const [autoRefreshInterval, setAutoRefreshInterval] = useState(5000); // Default 5 seconds
+    const [showAutoRefreshPanel, setShowAutoRefreshPanel] = useState(false);
+    const refreshButtonRef = useRef<HTMLButtonElement>(null);
+    const [panelPosition, setPanelPosition] = useState({ top: 0, left: 0 });
     const [selectedDeployment, setSelectedDeployment] = useState<string>(''); // Start empty - user must select
     const [selectedPod, setSelectedPod] = useState<string>(''); // Start empty
     const [selectedContainer, setSelectedContainer] = useState<string>('');
@@ -435,16 +441,16 @@ export const TerminalPanel: React.FC = () => {
         }
     }, [activeTab, selectedDeployment, selectedPod, selectedContainer, showPrevious, searchQuery, appliedDateFrom, appliedDateTo]);
 
-    // Auto-refresh logs every 3 seconds when logs tab is active and not searching/filtering
+    // Auto-refresh logs when enabled and not searching/filtering
     useEffect(() => {
-        if (activeTab === 'logs' && selectedDeployment && (selectedPod === 'all-pods' || (selectedPod && selectedContainer)) && !searchQuery && !appliedDateFrom && !appliedDateTo) {
+        if (autoRefreshEnabled && activeTab === 'logs' && selectedDeployment && (selectedPod === 'all-pods' || (selectedPod && selectedContainer)) && !searchQuery && !appliedDateFrom && !appliedDateTo) {
             const intervalId = setInterval(() => {
                 fetchLogs();
-            }, 3000); // Every 3 seconds
+            }, autoRefreshInterval);
 
             return () => clearInterval(intervalId);
         }
-    }, [activeTab, selectedDeployment, selectedPod, selectedContainer, searchQuery, appliedDateFrom, appliedDateTo, showPrevious]);
+    }, [autoRefreshEnabled, autoRefreshInterval, activeTab, selectedDeployment, selectedPod, selectedContainer, searchQuery, appliedDateFrom, appliedDateTo, showPrevious]);
 
     // Update pod selection when deployment changes (but not when logsTarget is being set)
     useEffect(() => {
@@ -599,6 +605,7 @@ export const TerminalPanel: React.FC = () => {
     }, [searchQuery]);
 
     return (
+      <>
       <div
         className="bg-gray-950 border-t border-gray-800 flex flex-col font-mono text-sm shadow-inner relative"
         style={{ height: `${terminalHeight}px` }}
@@ -614,7 +621,7 @@ export const TerminalPanel: React.FC = () => {
         />
 
         {/* Header with tabs */}
-        <div className="flex items-center justify-between px-4 py-1.5 bg-gray-900 border-b border-gray-800">
+        <div className="flex items-center justify-between px-4 py-1.5 bg-gray-900 border-b border-gray-800 z-[100]">
           <div className="flex items-center gap-4">
             <button
               onClick={() => setActiveTab('terminal')}
@@ -657,10 +664,10 @@ export const TerminalPanel: React.FC = () => {
 
         {/* Logs content */}
         {activeTab === 'logs' && (
-          <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="flex-1 flex flex-col overflow-hidden z-[110]">
             {/* Logs controls */}
             <div className="flex items-center gap-3 px-4 py-2 bg-gray-900/50 border-b border-gray-800">
-              <div className="flex items-center gap-2 flex-1">
+              <div className="flex items-center gap-2 flex-1 z-[110]">
                 <label className="text-xs text-gray-400 font-medium">Deployment:</label>
                 <select
                   className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-blue-500 max-w-xs"
@@ -760,17 +767,33 @@ export const TerminalPanel: React.FC = () => {
                   </>
                 )}
 
-                <button
-                  onClick={() => {
-                    setLoadingLogs(true);
-                    fetchLogs();
+                <div
+                  className="relative"
+                  onMouseEnter={() => {
+                    if (refreshButtonRef.current) {
+                      const rect = refreshButtonRef.current.getBoundingClientRect();
+                      setPanelPosition({
+                        top: rect.top - 14, // 14px above button
+                        left: rect.left
+                      });
+                    }
+                    setShowAutoRefreshPanel(true);
                   }}
-                  className="p-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-gray-400 hover:text-white transition-colors ml-2"
-                  title="Refresh logs"
-                  disabled={loadingLogs || !selectedDeployment || (selectedPod !== 'all-pods' && !selectedContainer)}
+                  onMouseLeave={() => setShowAutoRefreshPanel(false)}
                 >
-                  <RefreshCw size={14} className={loadingLogs ? "animate-spin" : ""} />
-                </button>
+                  <button
+                    ref={refreshButtonRef}
+                    onClick={() => {
+                      setLoadingLogs(true);
+                      fetchLogs();
+                    }}
+                    className="p-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-gray-400 hover:text-white transition-colors ml-2"
+                    title="Refresh logs"
+                    disabled={loadingLogs || !selectedDeployment || (selectedPod !== 'all-pods' && !selectedContainer)}
+                  >
+                    <RefreshCw size={14} className={loadingLogs ? "animate-spin" : ""} />
+                  </button>
+                </div>
 
                 <button
                   onClick={() => {
@@ -1000,5 +1023,55 @@ export const TerminalPanel: React.FC = () => {
           </div>
         )}
       </div>
-    );
+
+      {/* Auto-refresh control panel - rendered as portal to escape stacking context */}
+      {showAutoRefreshPanel && ReactDOM.createPortal(
+        <div
+          className="fixed bg-gray-800 border border-gray-700 rounded shadow-lg p-2 w-48"
+          style={{
+            top: `${panelPosition.top - 60}px`,
+            left: `${panelPosition.left}px`,
+            zIndex: 9999
+          }}
+          onMouseEnter={() => setShowAutoRefreshPanel(true)}
+          onMouseLeave={() => setShowAutoRefreshPanel(false)}
+        >
+          <div className="text-xs font-medium text-gray-300 mb-2">Auto-Refresh</div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setAutoRefreshEnabled(!autoRefreshEnabled);
+              }}
+              className={`p-1.5 rounded transition-colors ${
+                autoRefreshEnabled 
+                  ? 'bg-blue-900/50 text-blue-300 border border-blue-700 hover:bg-blue-800' 
+                  : 'bg-gray-700 text-gray-300 border border-gray-600 hover:bg-gray-600'
+              }`}
+              title={autoRefreshEnabled ? 'Pause auto-refresh' : 'Resume auto-refresh'}
+            >
+              {autoRefreshEnabled ? <Pause size={14} /> : <Play size={14} />}
+            </button>
+
+            <select
+              value={autoRefreshInterval}
+              onChange={(e) => {
+                e.stopPropagation();
+                setAutoRefreshInterval(Number(e.target.value));
+              }}
+              className="flex-1 bg-gray-700 border border-gray-600 text-gray-200 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-blue-500"
+            >
+              <option value={1000}>Every 1s</option>
+              <option value={5000}>Every 5s</option>
+              <option value={10000}>Every 10s</option>
+              <option value={30000}>Every 30s</option>
+              <option value={60000}>Every 1m</option>
+            </select>
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
+  );
 };
