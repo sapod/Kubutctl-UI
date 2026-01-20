@@ -666,8 +666,8 @@ export const TerminalPanel: React.FC = () => {
         {activeTab === 'logs' && (
           <div className="flex-1 flex flex-col overflow-hidden z-[110]">
             {/* Logs controls */}
-            <div className="flex items-center gap-3 px-4 py-2 bg-gray-900/50 border-b border-gray-800">
-              <div className="flex items-center gap-2 flex-1 z-[110]">
+            <div className="flex flex-wrap items-center gap-3 px-4 py-2 bg-gray-900/50 border-b border-gray-800">
+              <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0 z-[110]">
                 <label className="text-xs text-gray-400 font-medium">Deployment:</label>
                 <select
                   className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-blue-500 max-w-xs"
@@ -767,6 +767,8 @@ export const TerminalPanel: React.FC = () => {
                   </>
                 )}
 
+                {/* Action buttons group */}
+                <div className="flex flex-wrap items-center gap-2">
                 <div
                   className="relative"
                   onMouseEnter={() => {
@@ -787,7 +789,7 @@ export const TerminalPanel: React.FC = () => {
                       setLoadingLogs(true);
                       fetchLogs();
                     }}
-                    className="p-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-gray-400 hover:text-white transition-colors ml-2"
+                    className="p-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-gray-400 hover:text-white transition-colors"
                     title="Refresh logs"
                     disabled={loadingLogs || !selectedDeployment || (selectedPod !== 'all-pods' && !selectedContainer)}
                   >
@@ -834,10 +836,11 @@ export const TerminalPanel: React.FC = () => {
 
                 {/* Lines count indicator */}
                 {logLines.length > 0 && (
-                  <span className="text-xs text-gray-400 ml-3">
+                  <span className="text-xs text-gray-400 whitespace-nowrap">
                     Showing {logLines.length} line{logLines.length !== 1 ? 's' : ''}
                   </span>
                 )}
+                </div>
               </div>
             </div>
 
