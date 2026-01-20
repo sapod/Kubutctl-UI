@@ -7,10 +7,65 @@ import { Grid, Star, Edit2, Trash2, RefreshCw, CheckCircle, Plus, X, Search } fr
 // --- Cluster Hotbar (Lens Style) ---
 export const ClusterHotbar: React.FC = () => {
   const { state, dispatch } = useStore();
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
   // Filter only favorites for the hotbar and sort by timestamp
   const favorites = state.clusters
     .filter((c: { isFavorite: any; }) => c.isFavorite)
     .sort((a, b) => (a.favoriteTimestamp || 0) - (b.favoriteTimestamp || 0));
+
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    // Add a slight delay to allow the drag image to be set
+    setTimeout(() => {
+      (e.target as HTMLElement).style.opacity = '0.5';
+    }, 0);
+  };
+
+  const handleDragEnd = (e: React.DragEvent) => {
+    (e.target as HTMLElement).style.opacity = '1';
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverIndex(index);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverIndex(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, dropIndex: number) => {
+    e.preventDefault();
+
+    if (draggedIndex === null || draggedIndex === dropIndex) {
+      setDragOverIndex(null);
+      return;
+    }
+
+    // Reorder the favorites array
+    const reorderedFavorites = [...favorites];
+    const [draggedCluster] = reorderedFavorites.splice(draggedIndex, 1);
+    reorderedFavorites.splice(dropIndex, 0, draggedCluster);
+
+    // Update timestamps to reflect new order
+    const baseTimestamp = Date.now();
+    reorderedFavorites.forEach((cluster, index) => {
+      const updated = {
+        ...cluster,
+        favoriteTimestamp: baseTimestamp + index
+      };
+      dispatch({ type: 'UPDATE_CLUSTER', payload: updated });
+    });
+
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  };
 
   return (
     <div className="w-16 bg-gray-950 flex flex-col items-center py-4 space-y-4 border-r border-gray-900 z-20 flex-shrink-0 shadow-xl">
@@ -18,23 +73,55 @@ export const ClusterHotbar: React.FC = () => {
         onClick={() => dispatch({ type: 'TOGGLE_CATALOG_MODAL', payload: true })}
         className="w-10 h-10 rounded-full bg-gray-800 text-gray-300 hover:bg-blue-600 hover:text-white flex items-center justify-center transition-colors mb-2 group relative"
         title="Cluster Catalog"
+        style={favorites.length === 0 ? {
+          animation: 'pulse-expand 1.5s ease-out infinite'
+        } : undefined}
       >
-        <Grid size={20} />
+        <Grid size={20} className="relative z-10" />
+        {favorites.length === 0 && (
+          <span className="absolute inset-0 rounded-full pointer-events-none" style={{
+            animation: 'ring-expand 1.5s ease-out infinite'
+          }}></span>
+        )}
       </button>
+      <style>{`
+        @keyframes pulse-expand {
+          0% {
+            box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.6);
+          }
+          100% {
+            box-shadow: 0 0 0 7px rgba(59, 130, 246, 0);
+          }
+        }
+        @keyframes ring-expand {
+          0% {
+            box-shadow: inset 0 0 0 0 rgba(59, 130, 246, 0.4);
+          }
+          100% {
+            box-shadow: inset 0 0 0 7px rgba(59, 130, 246, 0);
+          }
+        }
+      `}</style>
 
       <div className="w-8 h-px bg-gray-800 my-1"></div>
 
-      {favorites.map((cluster: { id: React.Key | null | undefined; color: any; textColor: any; name: string | undefined; initials: string | number | boolean | React.ReactElement<any, string | React.JSXElementConstructor<any>> | Iterable<React.ReactNode> | React.ReactPortal | null | undefined; }) => (
+      {favorites.map((cluster: { id: React.Key | null | undefined; color: any; textColor: any; name: string | undefined; initials: string | number | boolean | React.ReactElement<any, string | React.JSXElementConstructor<any>> | Iterable<React.ReactNode> | React.ReactPortal | null | undefined; }, index: number) => (
         <button
           key={cluster.id}
+          draggable
+          onDragStart={(e) => handleDragStart(e, index)}
+          onDragEnd={handleDragEnd}
+          onDragOver={(e) => handleDragOver(e, index)}
+          onDragLeave={handleDragLeave}
+          onDrop={(e) => handleDrop(e, index)}
           onClick={() => dispatch({ type: 'SELECT_CLUSTER', payload: cluster.id })}
-          className={`relative group w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs transition-all duration-200 overflow-hidden px-0.5 ${
+          className={`relative group w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs transition-all duration-200 overflow-hidden px-0.5 cursor-pointer ${
             state.currentClusterId === cluster.id 
               ? `text-white shadow-lg shadow-blue-900/50 scale-110 border-2 border-white` 
               : 'text-gray-400 hover:text-white opacity-80 hover:opacity-100 hover:scale-105 border-2 border-transparent'
-          }`}
+          } ${dragOverIndex === index && draggedIndex !== index ? 'ring-2 ring-blue-400 ring-offset-2 ring-offset-gray-950' : ''}`}
           style={{ backgroundColor: cluster.color, color: cluster.textColor }}
-          title={cluster.name}
+          title={`${cluster.name} (drag to reorder)`}
         >
           <span className="truncate max-w-full">{cluster.initials}</span>
 
@@ -172,12 +259,12 @@ export const ClusterCatalogModal: React.FC = () => {
     };
 
     // Filter clusters and contexts based on search query
-    const filteredClusters = state.clusters.filter((cluster: Cluster) => 
+    const filteredClusters = state.clusters.filter((cluster: Cluster) =>
         cluster.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         cluster.server.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
-    const filteredContexts = availableContexts.filter(ctx => 
+    const filteredContexts = availableContexts.filter(ctx =>
         ctx.name.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
