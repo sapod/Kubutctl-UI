@@ -15,6 +15,32 @@ export const UpdateNotification: React.FC = () => {
     const electron = (window as any).electron;
     if (!electron || !electron.isElectron) return;
 
+    // Cleanup expired dismissals from localStorage
+    const cleanupExpiredDismissals = () => {
+      const now = Date.now();
+      const keysToRemove: string[] = [];
+
+      // Check all localStorage keys for expired dismissals
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('kubectl-ui-dismissed-')) {
+          const timestamp = localStorage.getItem(key);
+          if (timestamp) {
+            const dismissedUntil = parseInt(timestamp, 10);
+            if (now >= dismissedUntil) {
+              keysToRemove.push(key);
+            }
+          }
+        }
+      }
+
+      // Remove expired entries
+      keysToRemove.forEach(key => localStorage.removeItem(key));
+    };
+
+    // Run cleanup on mount
+    cleanupExpiredDismissals();
+
     // Get current version
     electron.getAppVersion().then((version: string) => {
       setCurrentVersion(version);
@@ -36,6 +62,9 @@ export const UpdateNotification: React.FC = () => {
           if (now < dismissedTimestamp) {
             // Still within the 24-hour dismissal period
             return;
+          } else {
+            // Expired, remove it
+            localStorage.removeItem(`kubectl-ui-dismissed-${info.version}`);
           }
         }
 
@@ -174,7 +203,7 @@ export const UpdateNotification: React.FC = () => {
   if (!isVisible || !updateInfo) return null;
 
   return (
-    <div className="fixed top-20 right-4 z-[60] bg-gray-900 rounded-lg shadow-2xl border border-gray-700 p-4 max-w-md animate-slide-in">
+    <div className="fixed top-20 right-4 z-[400] bg-gray-900 rounded-lg shadow-2xl border border-gray-700 p-4 max-w-md animate-slide-in">
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
           <Download className="w-5 h-5 text-blue-400" />

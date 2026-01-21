@@ -105,13 +105,13 @@ autoUpdater.on('checking-for-update', () => {
 
 autoUpdater.on('update-available', (info) => {
   log('Update available:', info.version);
-  pendingUpdateInfo = info;  // Store for potential fallback use
+  pendingUpdateInfo = info;
   if (mainWindow && mainWindow.webContents) {
     mainWindow.webContents.send('update-available', info);
   }
 });
 
-autoUpdater.on('update-not-available', (info) => {
+autoUpdater.on('update-not-available', () => {
   // Silent - no update available
 });
 
@@ -165,9 +165,7 @@ ipcMain.handle('check-for-updates', async () => {
 
 ipcMain.handle('download-update', async () => {
   try {
-    log('Starting update download...');
     await autoUpdater.downloadUpdate();
-    log('Download initiated successfully');
     return { success: true };
   } catch (error) {
     log('Error downloading update:', error.message || error);
@@ -177,12 +175,8 @@ ipcMain.handle('download-update', async () => {
 });
 
 ipcMain.handle('install-update', async () => {
-  log('Install update requested');
-  log('Platform:', process.platform);
-
   // If we detected a code signing error, skip straight to fallback
   if (shouldUseFallbackInstall && process.platform === 'darwin') {
-    log('Using fallback installation');
     return await performFallbackInstallation();
   }
 
@@ -205,11 +199,9 @@ ipcMain.handle('install-update', async () => {
     // If app hasn't quit after 2 seconds, quitAndInstall failed - use fallback
     setTimeout(async () => {
       if (!hasQuit) {
-        log('Starting fallback installation');
         const result = await performFallbackInstallation();
         resolve(result);
       } else {
-        log('Forcing fallback installation');
         const result = await performFallbackInstallation();
         resolve(result);
       }
@@ -220,14 +212,12 @@ ipcMain.handle('install-update', async () => {
 // Perform fallback installation by extracting and installing the cached update
 async function performFallbackInstallation() {
   const cacheDir = path.join(app.getPath('cache'), 'kubectl-ui-updater', 'pending');
-  log('Starting fallback installation');
 
   try {
     const files = fs.readdirSync(cacheDir);
     const updateFile = files.find(f => f.endsWith('.zip') || f.endsWith('.dmg'));
 
     if (!updateFile) {
-      log('No update file found in cache');
       return {
         success: false,
         error: 'Update file not found. Please download manually.',
@@ -260,8 +250,6 @@ async function performFallbackInstallation() {
 
 // Fallback installation for macOS
 async function installMacOSUpdate(zipPath) {
-  log('Installing update from cache');
-
   const tempDir = path.join(app.getPath('temp'), 'kubectl-ui-update-' + Date.now());
   const appPath = '/Applications/Kubectl-UI.app';
 
@@ -328,9 +316,7 @@ async function installMacOSUpdate(zipPath) {
     if (!fs.existsSync(appPath)) {
       throw new Error('App copy failed - file does not exist at destination');
     }
-
-    log('App installed successfully');
-
+    
     // Clean up temp directory
     try {
       await new Promise((resolve) => {
@@ -348,7 +334,6 @@ async function installMacOSUpdate(zipPath) {
     // Schedule the new app to launch after current app quits
     try {
       process.chdir('/Applications');
-      log('Changed working directory to /Applications');
     } catch (e) {
       log('Could not change directory:', e.message);
     }
@@ -376,7 +361,6 @@ open "/Applications/Kubectl-UI.app"
 
     await new Promise(resolve => setTimeout(resolve, 500));
 
-    log('Update complete - restarting app');
     app.quit();
 
     return { success: true, method: 'fallback' };
@@ -415,6 +399,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
+    show: false, // Don't show until ready
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -423,11 +408,26 @@ function createWindow() {
     title: 'Kubectl UI'
   });
 
-  const frontendUrl = `http://localhost:${FRONTEND_PORT}`;
+  // Use the actual port that frontend is running on (may have changed if original port was taken)
+  const actualFrontendPort = process.env.FRONTEND_PORT || FRONTEND_PORT;
+  const frontendUrl = `http://localhost:${actualFrontendPort}`;
+
+  // Show window when ready to prevent crashes
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+  });
+
+  // Better error handling for load failures
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+    log(`Failed to load: ${errorCode} - ${errorDescription}`);
+    setTimeout(() => {
+      mainWindow.loadURL(frontendUrl);
+    }, 2000);
+  });
 
   const loadWindow = () => {
     mainWindow.loadURL(frontendUrl).catch((err) => {
-      console.error('Failed to load URL:', err);
+      log('Load URL error: ' + err.message);
       setTimeout(loadWindow, 1000);
     });
   };
@@ -437,13 +437,9 @@ function createWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
-
-  if (isDev) {
-    mainWindow.webContents.openDevTools();
-  }
 }
 
-function startBackend() {
+function startBackend(port = BACKEND_PORT, retryCount = 0) {
   return new Promise((resolve, reject) => {
     const serverPath = path.join(appPath, 'src/backend/server.js');
 
@@ -453,8 +449,8 @@ function startBackend() {
     }
 
     // Set environment variables
-    process.env.PORT = BACKEND_PORT;
-    process.env.BACKEND_PORT = BACKEND_PORT;
+    process.env.PORT = port;
+    process.env.BACKEND_PORT = port;
     process.env.NODE_ENV = 'production';
 
     // Change working directory to where node_modules are
@@ -462,20 +458,104 @@ function startBackend() {
       process.chdir(path.join(process.resourcesPath, 'app.asar.unpacked'));
     }
 
+    let resolved = false;
+    let uncaughtHandler;
+    let unhandledHandler;
+
+    // Set up error handlers
+    uncaughtHandler = (error) => {
+      if (resolved) return;
+      
+      const isPortError = error.code === 'EADDRINUSE' || 
+                         (error.message && error.message.includes('EADDRINUSE'));
+      
+      if (isPortError) {
+        log(`Port ${port} is in use`);
+        
+        // Try up to 5 different ports
+        if (retryCount < 5) {
+          const nextPort = port + 1;
+          log(`Retrying with port ${nextPort}...`);
+          resolved = true;
+          
+          // Clean up handlers
+          process.removeListener('uncaughtException', uncaughtHandler);
+          process.removeListener('unhandledRejection', unhandledHandler);
+          
+          // Retry with next port
+          startBackend(nextPort, retryCount + 1)
+            .then(resolve)
+            .catch(reject);
+        } else {
+          resolved = true;
+          process.removeListener('uncaughtException', uncaughtHandler);
+          process.removeListener('unhandledRejection', unhandledHandler);
+          reject(new Error(`Could not find available port after ${retryCount} attempts. Last tried: ${port}`));
+        }
+      } else {
+        resolved = true;
+        process.removeListener('uncaughtException', uncaughtHandler);
+        process.removeListener('unhandledRejection', unhandledHandler);
+        log('Backend error: ' + error.message);
+        reject(error);
+      }
+    };
+
+    unhandledHandler = (error) => {
+      uncaughtHandler(error);
+    };
+
+    // Listen for errors during startup
+    process.once('uncaughtException', uncaughtHandler);
+    process.once('unhandledRejection', unhandledHandler);
+
     // Import backend directly
-    import(serverPath).then(() => {
-      log('Backend started on port ' + BACKEND_PORT);
-      resolve();
-    }).catch((err) => {
-      log('Backend error: ' + err.message);
-      reject(err);
-    });
+    import(serverPath)
+      .then(() => {
+        // Wait a bit to see if the server throws an error
+        setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            process.removeListener('uncaughtException', uncaughtHandler);
+            process.removeListener('unhandledRejection', unhandledHandler);
+            log('Backend started on port ' + port);
+            resolve();
+          }
+        }, 1000);
+      })
+      .catch((err) => {
+        if (resolved) return;
+        
+        resolved = true;
+        process.removeListener('uncaughtException', uncaughtHandler);
+        process.removeListener('unhandledRejection', unhandledHandler);
+        
+        // Check if this is a port conflict error
+        const isPortError = err.code === 'EADDRINUSE' || 
+                           (err.message && err.message.includes('EADDRINUSE'));
+        
+        if (isPortError && retryCount < 5) {
+          const nextPort = port + 1;
+          log(`Port ${port} is in use, retrying with port ${nextPort}...`);
+          startBackend(nextPort, retryCount + 1)
+            .then(resolve)
+            .catch(reject);
+        } else if (isPortError) {
+          reject(new Error(`Could not find available port after ${retryCount} attempts. Last tried: ${port}`));
+        } else {
+          log('Backend error: ' + err.message);
+          reject(err);
+        }
+      });
   });
 }
 
 function startFrontend() {
   return new Promise((resolve, reject) => {
     if (isDev) {
+      let actualPort = null;
+      let hasResolved = false;
+
       const npmProcess = spawn('npm', ['run', 'prod', '--', '--port', FRONTEND_PORT.toString()], {
         cwd: appPath,
         env: {
@@ -483,19 +563,52 @@ function startFrontend() {
           BE_PORT: BACKEND_PORT,
           FRONTEND_PORT: FRONTEND_PORT
         },
-        stdio: 'inherit',
+        stdio: ['ignore', 'pipe', 'pipe'],
         shell: true
+      });
+
+      // Capture stdout to detect actual port
+      npmProcess.stdout.on('data', (data) => {
+        const output = data.toString();
+
+        // Match Vite's port output: "Local:   http://localhost:XXXX/"
+        const portMatch = output.match(/Local:\s+http:\/\/localhost:(\d+)/);
+        if (portMatch && !hasResolved) {
+          actualPort = parseInt(portMatch[1], 10);
+          log(`Frontend started on port ${actualPort}`);
+
+          // Update the global FRONTEND_PORT variable
+          process.env.FRONTEND_PORT = actualPort.toString();
+
+          // Wait a bit for Vite to be fully ready, then resolve
+          setTimeout(() => {
+            hasResolved = true;
+            resolve();
+          }, 2000);
+        }
+      });
+
+      npmProcess.stderr.on('data', (data) => {
+        // Silent - ignore stderr output unless there's an error
       });
 
       npmProcess.on('error', (err) => {
         log('Frontend error: ' + err.message);
-        reject(err);
+        if (!hasResolved) {
+          hasResolved = true;
+          reject(err);
+        }
       });
 
+      // Fallback timeout - if port not detected after 10 seconds, something is wrong
       setTimeout(() => {
-        log('Frontend started on port ' + FRONTEND_PORT);
-        resolve();
-      }, 3000);
+        if (!hasResolved) {
+          log('Frontend port detection timeout - assuming default port');
+          process.env.FRONTEND_PORT = FRONTEND_PORT.toString();
+          hasResolved = true;
+          resolve();
+        }
+      }, 10000);
 
     } else {
       const distPath = path.join(appPath, 'dist');
@@ -566,6 +679,7 @@ app.whenReady().then(async () => {
     }
   } catch (err) {
     log('Failed to start: ' + err.message);
+    log('Error stack: ' + err.stack);
     app.quit();
   }
 
