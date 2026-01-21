@@ -643,6 +643,9 @@ server.listen(port, () => {
     console.error('Failed to start server:', err.message);
     if (err.code === 'EADDRINUSE') {
         console.error(`Port ${port} is already in use.`);
+        // Throw error instead of process.exit so parent can handle it
+        throw new Error(`EADDRINUSE: Port ${port} is already in use`);
     }
-    process.exit(1);
+    // For other errors, throw as well
+    throw err;
 });
