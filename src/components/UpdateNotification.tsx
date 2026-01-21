@@ -20,9 +20,25 @@ export const UpdateNotification: React.FC = () => {
       setCurrentVersion(version);
     });
 
+    // Check for updates on initial load
+    if (electron.checkForUpdates) {
+      electron.checkForUpdates();
+    }
+
     // Listen for update events
     if (electron.onUpdateAvailable) {
       electron.onUpdateAvailable((info: any) => {
+        // Check if user dismissed this version within the last 24 hours
+        const dismissedUntil = localStorage.getItem(`kubectl-ui-dismissed-${info.version}`);
+        if (dismissedUntil) {
+          const dismissedTimestamp = parseInt(dismissedUntil, 10);
+          const now = Date.now();
+          if (now < dismissedTimestamp) {
+            // Still within the 24-hour dismissal period
+            return;
+          }
+        }
+
         setUpdateInfo(info);
         setIsVisible(true);
         setDownloadError(null);
@@ -43,6 +59,28 @@ export const UpdateNotification: React.FC = () => {
         setDownloadError(null);
       });
     }
+
+    // Check for updates when page becomes visible (handles refresh with Cmd+R)
+    const handleVisibilityChange = () => {
+      if (!document.hidden && electron.checkForUpdates) {
+        electron.checkForUpdates();
+      }
+    };
+
+    // Check for updates when window regains focus
+    const handleFocus = () => {
+      if (electron.checkForUpdates) {
+        electron.checkForUpdates();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
   }, []);
 
   const handleDownload = async () => {
@@ -52,15 +90,15 @@ export const UpdateNotification: React.FC = () => {
     setIsDownloading(true);
     setDownloadError(null);
     setDownloadProgress(0);
-    
+
     try {
       const result = await electron.downloadUpdate();
-      
+
       if (!result.success) {
         setDownloadError(result.error || 'Failed to start download');
         setIsDownloading(false);
       }
-      
+
       // Set timeout to detect stalled downloads
       setTimeout(() => {
         if (isDownloading && downloadProgress === 0 && !isDownloaded) {
@@ -88,7 +126,7 @@ export const UpdateNotification: React.FC = () => {
 
     try {
       const result = await electron.installUpdate();
-      
+
       // If result is undefined or success is true, installation is in progress
       // The app will quit and restart automatically
       if (!result || result.success !== false) {
@@ -112,7 +150,7 @@ export const UpdateNotification: React.FC = () => {
   const handleDownloadManually = async () => {
     const electron = (window as any).electron;
     const url = 'https://github.com/sapod/Kubutctl-UI/releases/latest';
-    
+
     if (electron && electron.openExternal) {
       try {
         await electron.openExternal(url);
@@ -126,7 +164,9 @@ export const UpdateNotification: React.FC = () => {
 
   const handleDismiss = () => {
     if (updateInfo?.version) {
-      localStorage.setItem('kubectl-ui-dismissed-version', updateInfo.version);
+      // Store timestamp 24 hours in the future
+      const dismissUntil = Date.now() + (24 * 60 * 60 * 1000);
+      localStorage.setItem(`kubectl-ui-dismissed-${updateInfo.version}`, dismissUntil.toString());
     }
     setIsVisible(false);
   };
@@ -151,7 +191,7 @@ export const UpdateNotification: React.FC = () => {
           </button>
         )}
       </div>
-      
+
       <div className="space-y-2 mb-4">
         <p className="text-sm text-gray-400">
           Current version: <span className="font-mono text-gray-200">{currentVersion}</span>
@@ -159,7 +199,7 @@ export const UpdateNotification: React.FC = () => {
         <p className="text-sm text-gray-400">
           New version: <span className="font-mono text-green-400 font-bold">{updateInfo.version}</span>
         </p>
-        
+
         {isDownloading && (
           <div className="mt-3">
             <div className="flex justify-between text-xs text-gray-400 mb-1">
