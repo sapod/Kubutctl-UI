@@ -81,10 +81,30 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const lastActivityRef = useRef(Date.now());
   const currentPodsRef = useRef<Pod[]>(state.pods);
 
+  // Cluster data cache - stores data for last 3 visited clusters
+  // Uses cluster name (kubectl context name) as key for stability
+  const clusterCacheRef = useRef<Map<string, {
+    data: Partial<AppState>;
+    timestamp: number;
+  }>>(new Map());
+
   // Keep currentPodsRef in sync with state.pods
   useEffect(() => {
     currentPodsRef.current = state.pods;
   }, [state.pods]);
+
+  // Clean up cache when clusters are removed
+  useEffect(() => {
+    const clusterNames = new Set(state.clusters.map(c => c.name));
+    const cachedNames = Array.from(clusterCacheRef.current.keys());
+
+    // Remove cached data for clusters that no longer exist
+    cachedNames.forEach(cachedName => {
+      if (!clusterNames.has(cachedName)) {
+        clusterCacheRef.current.delete(cachedName);
+      }
+    });
+  }, [state.clusters]);
 
   useEffect(() => {
     kubectl.setLogger((cmd: string) => dispatch({ type: 'ADD_LOG', payload: cmd }));
@@ -140,6 +160,60 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   useEffect(() => {
     let isMounted = true;
+
+    // Helper to get cached data for a cluster by name (kubectl context name)
+    const getCachedClusterData = (clusterId: string): Partial<AppState> | null => {
+      // Get cluster name from ID
+      const cluster = state.clusters.find(c => c.id === clusterId);
+      if (!cluster) return null;
+
+      const cached = clusterCacheRef.current.get(cluster.name);
+      if (cached) {
+        // Update timestamp to mark as recently accessed
+        clusterCacheRef.current.set(cluster.name, {
+          ...cached,
+          timestamp: Date.now()
+        });
+        return cached.data;
+      }
+      return null;
+    };
+
+    // Helper to cache cluster data by name (kubectl context name)
+    const setCachedClusterData = (clusterId: string, data: Partial<AppState>) => {
+      // Get cluster name from ID
+      const cluster = state.clusters.find(c => c.id === clusterId);
+      if (!cluster) {
+        // Don't cache data for non-existent clusters
+        return;
+      }
+
+      const clusterName = cluster.name;
+
+      // If we already have 3 clusters and this is a new one, remove the oldest
+      if (clusterCacheRef.current.size >= 3 && !clusterCacheRef.current.has(clusterName)) {
+        // Find the cluster with the oldest timestamp
+        let oldestClusterName: string | null = null;
+        let oldestTimestamp = Infinity;
+
+        clusterCacheRef.current.forEach((value, key) => {
+          if (value.timestamp < oldestTimestamp) {
+            oldestTimestamp = value.timestamp;
+            oldestClusterName = key;
+          }
+        });
+
+        if (oldestClusterName) {
+          clusterCacheRef.current.delete(oldestClusterName);
+        }
+      }
+
+      // Store the new data using cluster name as key
+      clusterCacheRef.current.set(clusterName, {
+        data,
+        timestamp: Date.now()
+      });
+    };
 
     // Helper to preserve existing metrics when fetching new pods
     const preserveMetrics = (newPods: Pod[], existingPods: Pod[]) => {
@@ -310,7 +384,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     // Helper function to fetch background data for logs/drawer functionality
-    const fetchBackgroundData = (view: View, ns: string) => {
+    const fetchBackgroundData = (view: View, ns: string, clusterId: string) => {
       const backgroundPromises: Promise<any>[] = [];
       const viewsNeedingDeps = ['deployments', 'services', 'overview'];
       const viewsNeedingRs = ['replicasets', 'deployments'];
@@ -377,6 +451,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         if (Object.keys(bgData).length > 0) {
           dispatch({ type: 'SET_DATA', payload: bgData });
+
+          // Update cache with background data
+          const cachedData = getCachedClusterData(clusterId);
+          if (cachedData) {
+            setCachedClusterData(clusterId, { ...cachedData, ...bgData });
+          }
         }
       });
     };
@@ -393,6 +473,20 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         if (isClusterSwitch && !isBackground) {
             dispatch({ type: 'SET_CONTEXT_SWITCHING', payload: true });
+
+            // Check if we have cached data for this cluster
+            const cachedData = getCachedClusterData(state.currentClusterId);
+            if (cachedData) {
+              // Immediately load cached data for instant UI update
+              dispatch({ type: 'SET_DATA', payload: cachedData });
+              dispatch({ type: 'SET_LOADING', payload: false });
+              dispatch({ type: 'SET_CONTEXT_SWITCHING', payload: false });
+              isOfflineRef.current = false;
+
+              // Continue to fetch fresh data in background to update the cache
+              // Don't set loading state for this refresh
+            }
+
             const cur = state.clusters.find(c => c.id === state.currentClusterId);
             if (cur) {
               try {
@@ -407,14 +501,25 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
             // Fetch namespaces first (always critical)
             const namespaces = await kubectl.getNamespaces(notify);
-            dispatch({ type: 'SET_DATA', payload: { namespaces } });
+
+            // Only dispatch namespaces if we don't have cached data (to avoid flicker)
+            if (!isClusterSwitch || !getCachedClusterData(state.currentClusterId)) {
+              dispatch({ type: 'SET_DATA', payload: { namespaces } });
+            }
 
             // Fetch view-specific critical data
             const viewData = await fetchViewData(state.view, ns, notify, currentPodsRef.current);
 
-            // Dispatch critical data immediately
+            // Dispatch critical data
             if (isMounted) {
-                dispatch({ type: 'SET_DATA', payload: viewData });
+                const fullData = { ...viewData, namespaces };
+                dispatch({ type: 'SET_DATA', payload: fullData });
+
+                // Cache the data for this cluster
+                if (isClusterSwitch) {
+                  setCachedClusterData(state.currentClusterId, fullData);
+                }
+
                 dispatch({ type: 'SET_LOADING', payload: false });
                 if (wasContextSwitching || isClusterSwitch) {
                     dispatch({ type: 'SET_CONTEXT_SWITCHING', payload: false });
@@ -424,7 +529,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
             // Fetch background data for drawer/logs functionality
             if (isMounted) {
-              fetchBackgroundData(state.view, ns);
+              fetchBackgroundData(state.view, ns, state.currentClusterId);
             }
 
         } catch (error: any) {
