@@ -269,7 +269,7 @@ export const ClusterCatalogModal: React.FC = () => {
     );
 
     return (
-      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[300] flex items-center justify-center p-4">
          <div className="bg-gray-900 border border-gray-700 rounded-lg shadow-2xl w-full max-w-5xl flex flex-col max-h-[85vh]">
             <div className="flex justify-between items-center p-6 border-b border-gray-800 flex-shrink-0">
                <h2 className="text-xl font-bold text-gray-100 flex items-center">

@@ -105,8 +105,8 @@ autoUpdater.on('checking-for-update', () => {
 
 autoUpdater.on('update-available', (info) => {
   log('Update available:', info.version);
-  pendingUpdateInfo = info; // Store for potential fallback use
-  if (mainWindow) {
+  pendingUpdateInfo = info;  // Store for potential fallback use
+  if (mainWindow && mainWindow.webContents) {
     mainWindow.webContents.send('update-available', info);
   }
 });
@@ -158,7 +158,7 @@ ipcMain.handle('check-for-updates', async () => {
     const result = await autoUpdater.checkForUpdates();
     return { updateAvailable: result !== null, updateInfo: result?.updateInfo };
   } catch (error) {
-    log('Error checking for updates:', error);
+    log('Error checking for updates:', error.message);
     return { updateAvailable: false, error: error.message };
   }
 });

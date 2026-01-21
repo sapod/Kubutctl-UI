@@ -23,8 +23,8 @@ export const NamespaceSelector: React.FC = () => {
   // Filter out any invalid items (null/undefined names)
   const nsList = (state.namespaces || []).map(ns => ns?.name).filter(Boolean);
   const allNamespaces = ['All Namespaces', ...nsList];
-  
-  const filteredNamespaces = allNamespaces.filter(ns => 
+
+  const filteredNamespaces = allNamespaces.filter(ns =>
     ns.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -36,7 +36,7 @@ export const NamespaceSelector: React.FC = () => {
 
   return (
     <div className="relative w-64" ref={wrapperRef}>
-      <div 
+      <div
         className="flex items-center justify-between w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-1.5 text-sm cursor-pointer hover:border-gray-600"
         onClick={() => setIsOpen(!isOpen)}
       >
@@ -50,9 +50,9 @@ export const NamespaceSelector: React.FC = () => {
       {isOpen && (
         <div className="absolute top-full left-0 w-full mt-1 bg-gray-800 border border-gray-700 rounded-md shadow-lg z-50 max-h-64 overflow-hidden flex flex-col">
           <div className="p-2 border-b border-gray-700">
-            <input 
-              type="text" 
-              placeholder="Filter namespaces..." 
+            <input
+              type="text"
+              placeholder="Filter namespaces..."
               className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-gray-200 focus:outline-none focus:border-blue-500"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -64,8 +64,8 @@ export const NamespaceSelector: React.FC = () => {
                <div className="px-3 py-2 text-xs text-gray-500">No namespaces found</div>
             ) : (
               filteredNamespaces.map(ns => (
-                <div 
-                  key={ns} 
+                <div
+                  key={ns}
                   className={`px-3 py-2 text-sm cursor-pointer hover:bg-blue-600/20 hover:text-blue-300 ${state.selectedNamespace === ns ? 'text-blue-400 font-medium' : 'text-gray-300'}`}
                   onClick={() => handleSelect(ns)}
                 >
@@ -204,7 +204,7 @@ export const Sidebar: React.FC<{ currentView: string; onViewChange: (view: any) 
   ];
 
   return (
-    <div 
+    <div
       className={`bg-gray-900 flex flex-col h-full flex-shrink-0 border-r border-gray-800 relative ${isResizing ? '' : 'transition-all duration-300'}`}
       style={{ width: isCollapsed ? '48px' : `${sidebarWidth}px` }}
     >
@@ -217,7 +217,7 @@ export const Sidebar: React.FC<{ currentView: string; onViewChange: (view: any) 
         />
       )}
 
-      <button 
+      <button
         onClick={toggleCollapse}
         className={`h-14 flex items-center border-b border-gray-800 font-bold text-gray-100 shadow-sm bg-gray-900 w-full hover:bg-gray-800/50 transition-colors ${isCollapsed ? 'justify-center px-2' : 'justify-between px-4'}`}
         title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
@@ -231,7 +231,7 @@ export const Sidebar: React.FC<{ currentView: string; onViewChange: (view: any) 
           </>
         )}
       </button>
-      
+
       <div className="flex-1 overflow-y-auto py-2 custom-scrollbar">
         {groups.map((group, idx) => (
           <div key={idx} className="mb-4">

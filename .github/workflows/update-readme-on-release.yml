@@ -11,25 +11,25 @@ permissions:
 jobs:
   update-readme:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           ref: master
           token: ${{ secrets.PAT_TOKEN }}
-          
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          
+
       - name: Install dependencies
         run: npm install
-        
+
       - name: Update README download links
         run: npm run update-readme
-        
+
       - name: Check if README was modified
         id: check_changes
         run: |
@@ -38,14 +38,14 @@ jobs:
           else
             echo "changed=true" >> $GITHUB_OUTPUT
           fi
-          
+
       - name: Commit and push changes
         if: steps.check_changes.outputs.changed == 'true'
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add README.md
-          git commit -m "docs: update README download links to version ${{ github.event.release.tag_name }}"
+          git commit -m "docs: update README download links to version ${{ github.event.release.tag_name }} [skip ci]"
           git push
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
