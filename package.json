@@ -1,7 +1,7 @@
 {
   "name": "kubectl-ui",
   "private": true,
-  "version": "2.3.3",
+  "version": "2.3.4",
   "description": "A modern desktop application for managing Kubernetes clusters with an intuitive UI",
   "author": {
     "name": "Sapir Oded",
