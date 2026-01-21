@@ -79,25 +79,31 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const isOfflineRef = useRef(false);
   const previousClusterRef = useRef<string | null>(initialClusterId);
   const lastActivityRef = useRef(Date.now());
+  const currentPodsRef = useRef<Pod[]>(state.pods);
+
+  // Keep currentPodsRef in sync with state.pods
+  useEffect(() => {
+    currentPodsRef.current = state.pods;
+  }, [state.pods]);
 
   useEffect(() => {
     kubectl.setLogger((cmd: string) => dispatch({ type: 'ADD_LOG', payload: cmd }));
     kubectl.setGlobalErrorHandler((err: string) => {
         // Check for AWS SSO errors
-        const isAwsSsoError = 
+        const isAwsSsoError =
             err.includes('CERTIFICATE_VERIFY_FAILED') ||
             err.includes('certificate verify failed: self-signed certificate') ||
             err.includes('SSL validation failed') ||
             err.includes('executable aws failed with exit code 255') ||
             err.includes('SSO session associated with this profile has expired') ||
             err.includes('getting credentials: exec: executable aws failed');
-        
+
         if (isAwsSsoError) {
             dispatch({ type: 'SET_AWS_SSO_LOGIN_REQUIRED', payload: true });
             dispatch({ type: 'SET_ERROR', payload: 'AWS SSO authentication required. Please run "aws sso login" in your terminal and refresh the application.' });
             return;
         }
-        
+
         // Suppress repeated connection errors
         if (err.includes('Cannot reach local backend') || err.includes('Failed to fetch')) {
             if (!isOfflineRef.current) {
@@ -134,72 +140,293 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   useEffect(() => {
     let isMounted = true;
+
+    // Helper to preserve existing metrics when fetching new pods
+    const preserveMetrics = (newPods: Pod[], existingPods: Pod[]) => {
+      return newPods.map(newPod => {
+        const existingPod = existingPods.find(p => p.id === newPod.id || p.name === newPod.name);
+        if (existingPod && (existingPod.cpuUsage || existingPod.memoryUsage)) {
+          return {
+            ...newPod,
+            cpuUsage: existingPod.cpuUsage,
+            memoryUsage: existingPod.memoryUsage
+          };
+        }
+        return newPod;
+      });
+    };
+
+    // Helper function to fetch data for a specific view
+    const fetchViewData = async (
+      view: View,
+      ns: string,
+      notify: boolean,
+      currentPods: Pod[]
+    ): Promise<Partial<AppState>> => {
+      const merge = (pods: Pod[], metrics: any) =>
+        pods.map(p => metrics[p.name] ? { ...p, cpuUsage: metrics[p.name].cpu, memoryUsage: metrics[p.name].memory } : p);
+
+      switch (view) {
+        case 'overview': {
+          const [nodes, pods, deployments] = await Promise.all([
+            kubectl.getNodes(notify),
+            kubectl.getPods(ns, notify),
+            kubectl.getDeployments(ns, notify)
+          ]);
+          return { nodes, pods: preserveMetrics(pods, currentPods), deployments };
+        }
+
+        case 'nodes':
+          return { nodes: await kubectl.getNodes(notify) };
+
+        case 'pods': {
+          const pods = await kubectl.getPods(ns, notify);
+          const podsWithMetrics = preserveMetrics(pods, currentPods);
+          // Fetch nodes and metrics in background
+          if (isMounted) {
+            kubectl.getNodes(false).then(nodes => {
+              if (isMounted) dispatch({ type: 'SET_DATA', payload: { nodes } });
+            }).catch(() => {});
+            kubectl.getPodMetrics(ns, false).then(metrics => {
+              if (isMounted && metrics) {
+                const mergedPods = merge(pods, metrics);
+                dispatch({ type: 'SET_DATA', payload: { pods: mergedPods } });
+              }
+            }).catch(() => {});
+          }
+          return { pods: podsWithMetrics };
+        }
+
+        case 'deployments': {
+          const [deployments, pods, replicaSets] = await Promise.all([
+            kubectl.getDeployments(ns, notify),
+            kubectl.getPods(ns, notify),
+            kubectl.getReplicaSets(ns, notify)
+          ]);
+          const podsWithMetrics = preserveMetrics(pods, currentPods);
+          // Fetch metrics in background
+          if (isMounted) {
+            kubectl.getPodMetrics(ns, false).then(metrics => {
+              if (isMounted && metrics) {
+                const mergedPods = merge(pods, metrics);
+                dispatch({ type: 'SET_DATA', payload: { pods: mergedPods } });
+              }
+            }).catch(() => {});
+          }
+          return { deployments, pods: podsWithMetrics, replicaSets };
+        }
+
+        case 'replicasets': {
+          const replicaSets = await kubectl.getReplicaSets(ns, notify);
+          // Fetch pods and metrics in background
+          if (isMounted) {
+            kubectl.getPods(ns, false).then(pods => {
+              if (isMounted) {
+                const podsPreserved = preserveMetrics(pods, currentPods);
+                dispatch({ type: 'SET_DATA', payload: { pods: podsPreserved } });
+                kubectl.getPodMetrics(ns, false).then(metrics => {
+                  if (isMounted && metrics) {
+                    const mergedPods = merge(pods, metrics);
+                    dispatch({ type: 'SET_DATA', payload: { pods: mergedPods } });
+                  }
+                }).catch(() => {});
+              }
+            }).catch(() => {});
+          }
+          return { replicaSets };
+        }
+
+        case 'jobs': {
+          const jobs = await kubectl.getJobs(ns, notify);
+          // Fetch pods in background
+          if (isMounted) {
+            kubectl.getPods(ns, false).then(pods => {
+              if (isMounted) {
+                const podsPreserved = preserveMetrics(pods, currentPods);
+                dispatch({ type: 'SET_DATA', payload: { pods: podsPreserved } });
+              }
+            }).catch(() => {});
+          }
+          return { jobs };
+        }
+
+        case 'cronjobs': {
+          const cronJobs = await kubectl.getCronJobs(ns, notify);
+          // Fetch jobs in background
+          if (isMounted) {
+            kubectl.getJobs(ns, false).then(jobs => {
+              if (isMounted) dispatch({ type: 'SET_DATA', payload: { jobs } });
+            }).catch(() => {});
+          }
+          return { cronJobs };
+        }
+
+        case 'services': {
+          const services = await kubectl.getServices(ns, notify);
+          // Fetch deployments and pods in background
+          if (isMounted) {
+            Promise.all([
+              kubectl.getDeployments(ns, false),
+              kubectl.getPods(ns, false)
+            ]).then(([deps, pods]) => {
+              if (isMounted) {
+                const podsPreserved = preserveMetrics(pods, currentPods);
+                dispatch({ type: 'SET_DATA', payload: { deployments: deps, pods: podsPreserved } });
+              }
+            }).catch(() => {});
+          }
+          return { services };
+        }
+
+        case 'ingresses': {
+          const ingresses = await kubectl.getIngresses(ns, notify);
+          // Fetch services in background
+          if (isMounted) {
+            kubectl.getServices(ns, false).then(svcs => {
+              if (isMounted) dispatch({ type: 'SET_DATA', payload: { services: svcs } });
+            }).catch(() => {});
+          }
+          return { ingresses };
+        }
+
+        case 'configmaps':
+          return { configMaps: await kubectl.getConfigMaps(ns, notify) };
+
+        case 'resourcequotas':
+          return { resourceQuotas: await kubectl.getResourceQuotas(ns, notify) };
+
+        case 'port-forwarding':
+          return { portForwards: await kubectl.getPortForwards(notify) };
+
+        default:
+          // Default to overview data
+          const [nodes, pods, deployments] = await Promise.all([
+            kubectl.getNodes(notify),
+            kubectl.getPods(ns, notify),
+            kubectl.getDeployments(ns, notify)
+          ]);
+          return { nodes, pods: preserveMetrics(pods, currentPods), deployments };
+      }
+    };
+
+    // Helper function to fetch background data for logs/drawer functionality
+    const fetchBackgroundData = (view: View, ns: string) => {
+      const backgroundPromises: Promise<any>[] = [];
+      const viewsNeedingDeps = ['deployments', 'services', 'overview'];
+      const viewsNeedingRs = ['replicasets', 'deployments'];
+      const viewsNeedingPods = ['pods', 'deployments', 'replicasets', 'jobs', 'services', 'overview'];
+
+      // Always fetch deployments, replicaSets, pods for logs functionality
+      if (!viewsNeedingDeps.includes(view)) {
+        backgroundPromises.push(kubectl.getDeployments(ns, false));
+      }
+      if (!viewsNeedingRs.includes(view)) {
+        backgroundPromises.push(kubectl.getReplicaSets(ns, false));
+      }
+      if (!viewsNeedingPods.includes(view)) {
+        backgroundPromises.push(kubectl.getPods(ns, false));
+      }
+      if (view !== 'nodes') {
+        backgroundPromises.push(kubectl.getNodes(false));
+      }
+
+      // Always fetch events in background
+      backgroundPromises.push(kubectl.getEvents(ns, false));
+
+      // Fetch services if not already loaded
+      if (view !== 'services') {
+        backgroundPromises.push(kubectl.getServices(ns, false));
+      }
+
+      if (backgroundPromises.length === 0) return;
+
+      Promise.allSettled(backgroundPromises).then((results) => {
+        if (!isMounted) return;
+
+        const bgData: Partial<AppState> = {};
+        let idx = 0;
+
+        if (!viewsNeedingDeps.includes(view) && results[idx]?.status === 'fulfilled') {
+          bgData.deployments = (results[idx] as any).value;
+        }
+        if (!viewsNeedingDeps.includes(view)) idx++;
+
+        if (!viewsNeedingRs.includes(view) && results[idx]?.status === 'fulfilled') {
+          bgData.replicaSets = (results[idx] as any).value;
+        }
+        if (!viewsNeedingRs.includes(view)) idx++;
+
+        if (!viewsNeedingPods.includes(view) && results[idx]?.status === 'fulfilled') {
+          bgData.pods = (results[idx] as any).value;
+        }
+        if (!viewsNeedingPods.includes(view)) idx++;
+
+        if (view !== 'nodes' && results[idx]?.status === 'fulfilled') {
+          bgData.nodes = (results[idx] as any).value;
+        }
+        idx++;
+
+        if (results[idx]?.status === 'fulfilled') {
+          bgData.events = (results[idx] as any).value;
+        }
+        idx++;
+
+        if (view !== 'services' && results[idx]?.status === 'fulfilled') {
+          bgData.services = (results[idx] as any).value;
+        }
+
+        if (Object.keys(bgData).length > 0) {
+          dispatch({ type: 'SET_DATA', payload: bgData });
+        }
+      });
+    };
+
     const fetchData = async (isBackground = false) => {
         if (isBackground && Date.now() - lastActivityRef.current > INACTIVITY_TIMEOUT) return;
         if (isFetchingRef.current) return;
         isFetchingRef.current = true;
         const isClusterSwitch = previousClusterRef.current !== state.currentClusterId;
-        const wasContextSwitching = state.isContextSwitching; // Track if we were already switching
+        const wasContextSwitching = state.isContextSwitching;
         previousClusterRef.current = state.currentClusterId;
+
         if (!isBackground) dispatch({ type: 'SET_LOADING', payload: true });
-        if (isClusterSwitch && !isBackground) { 
+
+        if (isClusterSwitch && !isBackground) {
             dispatch({ type: 'SET_CONTEXT_SWITCHING', payload: true });
-            const cur = state.clusters.find(c => c.id === state.currentClusterId); 
-            if (cur) { try { await kubectl.setContext(cur.name); } catch (e) {} } 
-        }
-        try {
-            let data: Partial<AppState> = {}; const ns = state.selectedNamespace; const notify = !isBackground;
-            const merge = (pods: Pod[], metrics: any) => pods.map(p => metrics[p.name] ? { ...p, cpuUsage: metrics[p.name].cpu, memoryUsage: metrics[p.name].memory } : p);
-            if (isClusterSwitch) {
-                data.namespaces = await kubectl.getNamespaces(notify);
-                dispatch({ type: 'SET_DATA', payload: data });
-                const [nodes, pods, deployments, services, events] =
-                    await Promise.all([kubectl.getNodes(notify), kubectl.getPods(ns, notify), kubectl.getDeployments(ns, notify), kubectl.getServices(ns, notify), kubectl.getEvents(ns, notify)]);
-                data = { nodes, pods, deployments, services, events };
-            } else {
-                data.namespaces = await kubectl.getNamespaces(notify);
-                dispatch({ type: 'SET_DATA', payload: data });
-                data.events = await kubectl.getEvents(ns, notify);
-                dispatch({ type: 'SET_DATA', payload: data });
-
-                // Always fetch deployments, replicaSets, and pods in background for logs functionality
-                // Fetch these first so they're available, then view-specific data can override if needed
-                try {
-                    const [bgDeps, bgRs, bgPods] = await Promise.all([
-                        kubectl.getDeployments(ns, false),
-                        kubectl.getReplicaSets(ns, false),
-                        kubectl.getPods(ns, false)
-                    ]);
-                    data.deployments = bgDeps;
-                    data.replicaSets = bgRs;
-                    data.pods = bgPods;
-                } catch (e) {
-                    // Silently fail - this is background data for logs
-                }
-
-                switch (state.view) {
-                    case 'overview': { const [nodes, pods, deps] = await Promise.all([kubectl.getNodes(notify), kubectl.getPods(ns, notify), kubectl.getDeployments(ns, notify)]); data = { ...data, nodes, pods, deployments: deps }; break; }
-                    case 'nodes': data.nodes = await kubectl.getNodes(notify); break;
-                    case 'pods': { const [pods, metrics, nodes] = await Promise.all([kubectl.getPods(ns, notify), kubectl.getPodMetrics(ns, notify), kubectl.getNodes(notify)]); data.pods = merge(pods, metrics); data.nodes = nodes; break; }
-                    case 'deployments': { const [deps, rs, pods, metrics] = await Promise.all([kubectl.getDeployments(ns, notify), kubectl.getReplicaSets(ns, notify), kubectl.getPods(ns, notify), kubectl.getPodMetrics(ns, notify)]); data = { ...data, deployments: deps, replicaSets: rs, pods: merge(pods, metrics) }; break; }
-                    case 'replicasets': { const [rs, pods, metrics] = await Promise.all([kubectl.getReplicaSets(ns, notify), kubectl.getPods(ns, notify), kubectl.getPodMetrics(ns, notify)]); data = { ...data, replicaSets: rs, pods: merge(pods, metrics) }; break; }
-                    case 'jobs': { const [jobs, pods] = await Promise.all([kubectl.getJobs(ns, notify), kubectl.getPods(ns, notify)]); data.jobs = jobs; data.pods = pods; break; }
-                    case 'cronjobs': { const [cjs, jobs] = await Promise.all([kubectl.getCronJobs(ns, notify), kubectl.getJobs(ns, notify)]); data.cronJobs = cjs; data.jobs = jobs; break; }
-                    case 'services': { const [svcs, deps, pods] = await Promise.all([kubectl.getServices(ns, notify), kubectl.getDeployments(ns, notify), kubectl.getPods(ns, notify)]); data.services = svcs; data.deployments = deps; data.pods = pods; break; }
-                    case 'ingresses': { const [ing, svcs] = await Promise.all([kubectl.getIngresses(ns, notify), kubectl.getServices(ns, notify)]); data.ingresses = ing; data.services = svcs; break; }
-                    case 'configmaps': data.configMaps = await kubectl.getConfigMaps(ns, notify); break;
-                    case 'resourcequotas': data.resourceQuotas = await kubectl.getResourceQuotas(ns, notify); break;
-                    case 'port-forwarding': data.portForwards = await kubectl.getPortForwards(notify); break;
-                }
+            const cur = state.clusters.find(c => c.id === state.currentClusterId);
+            if (cur) {
+              try {
+                await kubectl.setContext(cur.name);
+              } catch (e) {}
             }
+        }
+
+        try {
+            const ns = state.selectedNamespace;
+            const notify = !isBackground;
+
+            // Fetch namespaces first (always critical)
+            const namespaces = await kubectl.getNamespaces(notify);
+            dispatch({ type: 'SET_DATA', payload: { namespaces } });
+
+            // Fetch view-specific critical data
+            const viewData = await fetchViewData(state.view, ns, notify, currentPodsRef.current);
+
+            // Dispatch critical data immediately
             if (isMounted) {
-                dispatch({ type: 'SET_DATA', payload: data });
-                // Clear context switching if it was set (either by this fetch or previous)
+                dispatch({ type: 'SET_DATA', payload: viewData });
+                dispatch({ type: 'SET_LOADING', payload: false });
                 if (wasContextSwitching || isClusterSwitch) {
                     dispatch({ type: 'SET_CONTEXT_SWITCHING', payload: false });
                 }
                 isOfflineRef.current = false;
             }
+
+            // Fetch background data for drawer/logs functionality
+            if (isMounted) {
+              fetchBackgroundData(state.view, ns);
+            }
+
         } catch (error: any) {
             // Silent error logging to prevent UI spam if offline
             if (!isOfflineRef.current) {
@@ -215,6 +442,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             }
         }
     };
+
     fetchData(false);
     const interval = setInterval(() => fetchData(true), 2000);
     return () => { isMounted = false; clearInterval(interval); isFetchingRef.current = false; };
