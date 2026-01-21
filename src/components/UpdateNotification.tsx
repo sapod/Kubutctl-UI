@@ -203,7 +203,7 @@ export const UpdateNotification: React.FC = () => {
   if (!isVisible || !updateInfo) return null;
 
   return (
-    <div className="fixed top-20 right-4 z-[60] bg-gray-900 rounded-lg shadow-2xl border border-gray-700 p-4 max-w-md animate-slide-in">
+    <div className="fixed top-20 right-4 z-[400] bg-gray-900 rounded-lg shadow-2xl border border-gray-700 p-4 max-w-md animate-slide-in">
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
           <Download className="w-5 h-5 text-blue-400" />
