@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useStore } from '../store';
 import { Server, Box, Layers, Info, Trash2, ArrowUp, ArrowDown, Search, MoreVertical, StopCircle, AlertTriangle, Play,
     Plus, Edit2 } from 'lucide-react';
@@ -80,12 +80,56 @@ export const OverviewPage: React.FC = () => {
 interface ResourceTableProps { title: string; data: any[]; columns: { header: string; accessor: (item: any) => React.ReactNode; sortValue?: (item: any) => string | number; }[]; onSelect?: (id: string) => void; showActions?: boolean; enableMultiSelect?: boolean; onBulkDelete?: (ids: string[]) => void; bulkActions?: { label: string; icon: React.ReactNode; onClick: (ids: string[]) => void }[]; }
 const ResourceTable: React.FC<ResourceTableProps> = ({ title, data, columns, onSelect, showActions = false, enableMultiSelect = false, onBulkDelete }) => {
   const { state } = useStore();
-  const [filter, setFilter] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const storageKey = `main_table_${title.replace(/\s/g, '').replace(/\//g, '_').toLowerCase()}`;
-  const [sortConfig, setSortConfig] = useState<{ key: number; direction: 'asc' | 'desc' } | null>(() => {
-        try { const saved = localStorage.getItem(`kube_sort_${storageKey}`); return saved ? JSON.parse(saved) : null; } catch { return null; }
+
+  // Filter state - single search saved to localStorage, cleared on view change
+  const [filter, setFilter] = useState(() => {
+    try {
+      const saved = localStorage.getItem('kube_search_filter');
+      return saved || '';
+    } catch {
+      return '';
+    }
   });
+
+  // Load saved sort config from localStorage
+  const [sortConfig, setSortConfig] = useState<{ key: number; direction: 'asc' | 'desc' } | null>(() => {
+    try {
+      const saved = localStorage.getItem(`kube_sort_${storageKey}`);
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  // Save filter to localStorage when it changes
+  const handleFilterChange = (value: string) => {
+    setFilter(value);
+    try {
+      localStorage.setItem('kube_search_filter', value);
+    } catch {}
+  };
+
+  // Clear filter when view changes (tab switch)
+  // Store the current view in localStorage to detect view changes across component remounts
+  useEffect(() => {
+    const lastView = localStorage.getItem('kube_last_view');
+
+    if (lastView && lastView !== state.view) {
+      // View changed - clear filter
+      setFilter('');
+      try {
+        localStorage.removeItem('kube_search_filter');
+      } catch {}
+    }
+
+    // Update last view
+    try {
+      localStorage.setItem('kube_last_view', state.view);
+    } catch {}
+  }, [state.view]);
+
   const filteredData = useMemo(() => data.filter(item => { if (state.selectedNamespace !== 'All Namespaces' && item.namespace && item.namespace !== state.selectedNamespace) return false; const nameToCheck = item.name || item.resourceName || ''; const namespaceToCheck = item.namespace || ''; return nameToCheck.toLowerCase().includes(filter.toLowerCase()) || namespaceToCheck.toLowerCase().includes(filter.toLowerCase()); }), [data, filter, state.selectedNamespace]);
   const sortedData = useMemo(() => { if (!sortConfig) return filteredData; const col = columns[sortConfig.key]; return [...filteredData].sort((a, b) => { const getVal = (item: any) => { if (col.sortValue) return col.sortValue(item); const key = col.header.toLowerCase(); if (item[key] !== undefined) return item[key]; return ''; }; const valA = getVal(a); const valB = getVal(b); if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1; if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1; return 0; }); }, [filteredData, sortConfig, columns]);
   const handleSort = (idx: number) => { let direction: 'asc' | 'desc' = 'asc'; if (sortConfig && sortConfig.key === idx && sortConfig.direction === 'asc') direction = 'desc'; const nextState = { key: idx, direction }; setSortConfig(nextState); localStorage.setItem(`kube_sort_${storageKey}`, JSON.stringify(nextState)); };
@@ -103,7 +147,7 @@ const ResourceTable: React.FC<ResourceTableProps> = ({ title, data, columns, onS
          </div>
          <div className="relative">
             <Search className="absolute left-3 top-2.5 text-gray-500" size={16} />
-            <input type="text" placeholder="Search..." className="bg-gray-800 border border-gray-700 text-gray-200 pl-9 pr-4 py-2 rounded-lg text-sm focus:ring-1 focus:ring-blue-500 focus:outline-none w-64" value={filter} onChange={e => setFilter(e.target.value)} onClick={(e) => e.stopPropagation()} />
+            <input type="text" placeholder="Search..." className="bg-gray-800 border border-gray-700 text-gray-200 pl-9 pr-4 py-2 rounded-lg text-sm focus:ring-1 focus:ring-blue-500 focus:outline-none w-64" value={filter} onChange={e => handleFilterChange(e.target.value)} onClick={(e) => e.stopPropagation()} />
          </div>
        </div>
        <div className="flex-1 bg-gray-800 border border-gray-700 rounded-lg overflow-hidden flex flex-col">
@@ -160,7 +204,7 @@ export const PodsPage: React.FC = () => {
                                       {(!p.isReady && p.status !== ResourceStatus.Completed && p.status !== ResourceStatus.Succeeded) &&
                                           <div title="Pod is not ready">
                                               <AlertTriangle size={14} className="text-yellow-500" />
-                                          </div>} 
+                                          </div>}
                                   </div>,
                               sortValue: (p) => p.name },
                               { header: 'Namespace', accessor: (p) => p.namespace, sortValue: (p) => p.namespace },

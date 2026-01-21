@@ -92,6 +92,20 @@ function reducer(state: AppState, action: Action): AppState {
 
 const StoreContext = createContext<{ state: AppState; dispatch: React.Dispatch<any> } | null>(null);
 
+// Helper to load cache from localStorage
+const loadClusterCache = (): Map<string, { data: Partial<AppState>; timestamp: number }> => {
+  try {
+    const stored = localStorage.getItem('kube_cluster_cache');
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      return new Map(Object.entries(parsed));
+    }
+  } catch (e) {
+    console.error('Failed to load cluster cache:', e);
+  }
+  return new Map();
+};
+
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, dispatch] = useReducer(reducer, initialState);
   const isFetchingRef = useRef(false);
@@ -102,10 +116,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Cluster data cache - stores data for last 3 visited clusters
   // Uses cluster name (kubectl context name) as key for stability
-  const clusterCacheRef = useRef<Map<string, {
-    data: Partial<AppState>;
-    timestamp: number;
-  }>>(new Map());
+  // Load cache from localStorage on initialization
+  const clusterCacheRef = useRef(loadClusterCache());
 
   // Keep currentPodsRef in sync with state.pods
   useEffect(() => {
@@ -117,12 +129,24 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const clusterNames = new Set(state.clusters.map(c => c.name));
     const cachedNames = Array.from(clusterCacheRef.current.keys());
 
+    let cacheChanged = false;
     // Remove cached data for clusters that no longer exist
     cachedNames.forEach(cachedName => {
       if (!clusterNames.has(cachedName)) {
         clusterCacheRef.current.delete(cachedName);
+        cacheChanged = true;
       }
     });
+
+    // Persist cache cleanup to localStorage
+    if (cacheChanged) {
+      try {
+        const cacheObject = Object.fromEntries(clusterCacheRef.current);
+        localStorage.setItem('kube_cluster_cache', JSON.stringify(cacheObject));
+      } catch (e) {
+        console.error('Failed to persist cache cleanup:', e);
+      }
+    }
   }, [state.clusters]);
 
   useEffect(() => {
@@ -163,6 +187,59 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => { window.removeEventListener('mousedown', update); window.removeEventListener('keydown', update); window.removeEventListener('focus', update); };
   }, []);
 
+  // Load cached data immediately on page load for instant display
+  useEffect(() => {
+    if (state.currentClusterId) {
+      const cluster = state.clusters.find(c => c.id === state.currentClusterId);
+      if (cluster) {
+        const cached = clusterCacheRef.current.get(cluster.name);
+        if (cached) {
+          // Dispatch cached data immediately for instant UI
+          dispatch({ type: 'SET_DATA', payload: cached.data });
+        }
+      }
+    }
+  }, []); // Run only once on mount
+
+  // Restore drawer state after data is loaded (from cache or fresh fetch)
+  useEffect(() => {
+    // Only try to restore drawer if we have selectedResourceId but drawer is not open yet
+    // This happens on page refresh when localStorage has drawer state
+    if (!state.drawerOpen && state.selectedResourceId && state.selectedResourceType) {
+      const type = state.selectedResourceType;
+      const id = state.selectedResourceId;
+      let res: any = null;
+      
+      // Check if resource exists in current state (from cache or fresh data)
+      if (type === 'pod') res = state.pods.find(r => r.id === id);
+      else if (type === 'deployment') res = state.deployments.find(r => r.id === id);
+      else if (type === 'replicaset') res = state.replicaSets.find(r => r.id === id);
+      else if (type === 'job') res = state.jobs.find(r => r.id === id);
+      else if (type === 'cronjob') res = state.cronJobs.find(r => r.id === id);
+      else if (type === 'node') res = state.nodes.find(r => r.id === id);
+      else if (type === 'service') res = state.services.find(r => r.id === id);
+      else if (type === 'ingress') res = state.ingresses.find(r => r.id === id);
+      else if (type === 'configmap') res = state.configMaps.find(r => r.id === id);
+      else if (type === 'namespace') res = state.namespaces.find(r => r.id === id);
+      else if (type === 'resourcequota') res = state.resourceQuotas.find(r => r.id === id);
+      
+      if (res) {
+        // Resource exists - restore drawer state
+        dispatch({ type: 'SELECT_RESOURCE', payload: { id, type } });
+      } else if (state.pods.length > 0 || state.deployments.length > 0 || state.nodes.length > 0) {
+        // Data has been loaded but resource doesn't exist anymore - clear the saved state
+        saveClusterState(state.currentClusterId, {
+          view: state.view,
+          drawerOpen: false,
+          selectedResourceId: null,
+          selectedResourceType: null,
+          resourceHistory: []
+        });
+      }
+      // If no data loaded yet, wait for cache/data to arrive
+    }
+  }, [state.pods, state.deployments, state.replicaSets, state.jobs, state.cronJobs, state.nodes, state.services, state.ingresses, state.configMaps, state.namespaces, state.resourceQuotas]);
+
   useEffect(() => {
       let interval: any;
       if (state.drawerOpen && state.selectedResourceId && state.selectedResourceType) {
@@ -171,7 +248,27 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               const type = state.selectedResourceType!; const id = state.selectedResourceId!;
               let res: any = null;
               if (type === 'pod') res = state.pods.find(r => r.id === id); else if (type === 'deployment') res = state.deployments.find(r => r.id === id); else if (type === 'replicaset') res = state.replicaSets.find(r => r.id === id); else if (type === 'job') res = state.jobs.find(r => r.id === id); else if (type === 'cronjob') res = state.cronJobs.find(r => r.id === id); else if (type === 'node') res = state.nodes.find(r => r.id === id); else if (type === 'service') res = state.services.find(r => r.id === id); else if (type === 'ingress') res = state.ingresses.find(r => r.id === id); else if (type === 'configmap') res = state.configMaps.find(r => r.id === id); else if (type === 'namespace') res = state.namespaces.find(r => r.id === id); else if (type === 'resourcequota') res = state.resourceQuotas.find(r => r.id === id);
-              if (res) { try { const updated = await kubectl.getResource(type, res.name, res.namespace, false); if (updated) { dispatch({ type: 'UPDATE_RESOURCE', payload: { id, type, data: updated } }); isOfflineRef.current = false; } } catch (e) {} }
+
+              if (res) {
+                try {
+                  const updated = await kubectl.getResource(type, res.name, res.namespace, false);
+                  if (updated) {
+                    dispatch({ type: 'UPDATE_RESOURCE', payload: { id, type, data: updated } });
+                    isOfflineRef.current = false;
+                  }
+                } catch (e: any) {
+                  // Resource no longer exists (terminated pod, deleted resource, etc.)
+                  // Silently close the drawer to avoid errors
+                  if (e?.message?.includes('404') || e?.message?.includes('not found') || e?.message?.includes('NotFound')) {
+                    dispatch({ type: 'CLOSE_DRAWER' });
+                  }
+                  // Ignore other errors (network issues, etc.)
+                }
+              } else {
+                // Resource not found in state - might have been deleted
+                // Close drawer to prevent showing stale data
+                dispatch({ type: 'CLOSE_DRAWER' });
+              }
           }, 1000);
       }
       return () => clearInterval(interval);
@@ -193,6 +290,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           ...cached,
           timestamp: Date.now()
         });
+
+        // Persist timestamp update to localStorage
+        try {
+          const cacheObject = Object.fromEntries(clusterCacheRef.current);
+          localStorage.setItem('kube_cluster_cache', JSON.stringify(cacheObject));
+        } catch (e) {
+          console.error('Failed to update cluster cache timestamp:', e);
+        }
+
         return cached.data;
       }
       return null;
@@ -232,6 +338,14 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         data,
         timestamp: Date.now()
       });
+
+      // Persist cache to localStorage
+      try {
+        const cacheObject = Object.fromEntries(clusterCacheRef.current);
+        localStorage.setItem('kube_cluster_cache', JSON.stringify(cacheObject));
+      } catch (e) {
+        console.error('Failed to save cluster cache:', e);
+      }
     };
 
     // Helper to preserve existing metrics when fetching new pods
