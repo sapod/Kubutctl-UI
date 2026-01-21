@@ -31,7 +31,26 @@ function reducer(state: AppState, action: Action): AppState {
     case 'SET_LOADING': return { ...state, isLoading: action.payload };
     case 'SET_CONTEXT_SWITCHING': return { ...state, isContextSwitching: action.payload };
     case 'SET_ERROR': return { ...state, error: action.payload, isLoading: false };
-    case 'SELECT_CLUSTER': { try { localStorage.setItem('kube_current_cluster_id', action.payload); } catch {} const nextNs = getStoredNamespace(action.payload); const nextState = loadClusterState(action.payload); return { ...state, currentClusterId: action.payload, selectedNamespace: nextNs, view: nextState.view, drawerOpen: nextState.drawerOpen, selectedResourceId: nextState.selectedResourceId, selectedResourceType: nextState.selectedResourceType, resourceHistory: nextState.resourceHistory || [], terminalOutput: [...state.terminalOutput, `Context switch: ${state.clusters.find(c => c.id === action.payload)?.name}`], error: null }; }
+    case 'SELECT_CLUSTER': {
+      try {
+        localStorage.setItem('kube_current_cluster_id', action.payload);
+      } catch {}
+      const nextNs = getStoredNamespace(action.payload);
+      const nextState = loadClusterState(action.payload);
+      return {
+        ...state,
+        currentClusterId: action.payload,
+        selectedNamespace: nextNs,
+        view: nextState.view,
+        // Always start with drawer closed when switching clusters
+        drawerOpen: false,
+        selectedResourceId: null,
+        selectedResourceType: null,
+        resourceHistory: [],
+        terminalOutput: [...state.terminalOutput, `Context switch: ${state.clusters.find(c => c.id === action.payload)?.name}`],
+        error: null
+      };
+    }
     case 'DISCONNECT_CLUSTER': { const updated = state.clusters.map(c => c.id === action.payload ? { ...c, status: 'Disconnected' } : c); localStorage.setItem('kube_clusters', JSON.stringify(updated)); return { ...state, clusters: updated as Cluster[] }; }
     case 'SELECT_NAMESPACE': { localStorage.setItem(`kube_selected_namespace_${state.currentClusterId}`, action.payload); return { ...state, selectedNamespace: action.payload }; }
     case 'ADD_CLUSTER': { if (state.clusters.some(c => c.name === action.payload.name)) return state; const updated = [...state.clusters, action.payload]; localStorage.setItem('kube_clusters', JSON.stringify(updated)); return { ...state, clusters: updated, isAddClusterModalOpen: false }; }
@@ -452,10 +471,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (Object.keys(bgData).length > 0) {
           dispatch({ type: 'SET_DATA', payload: bgData });
 
-          // Update cache with background data
+          // Update cache with background data to keep it fresh and complete
           const cachedData = getCachedClusterData(clusterId);
           if (cachedData) {
             setCachedClusterData(clusterId, { ...cachedData, ...bgData });
+          } else {
+            // If no cache exists yet, create one with current state + background data
+            // This handles the case where background data arrives before cache is set
+            const currentCluster = state.clusters.find(c => c.id === clusterId);
+            if (currentCluster && state.currentClusterId === clusterId) {
+              setCachedClusterData(clusterId, bgData);
+            }
           }
         }
       });
@@ -472,6 +498,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (!isBackground) dispatch({ type: 'SET_LOADING', payload: true });
 
         if (isClusterSwitch && !isBackground) {
+            // Close drawer immediately to start with clean state
+            if (state.drawerOpen) {
+              dispatch({ type: 'CLOSE_DRAWER_SILENTLY' });
+            }
+
             dispatch({ type: 'SET_CONTEXT_SWITCHING', payload: true });
 
             // Check if we have cached data for this cluster
@@ -515,10 +546,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 const fullData = { ...viewData, namespaces };
                 dispatch({ type: 'SET_DATA', payload: fullData });
 
-                // Cache the data for this cluster
-                if (isClusterSwitch) {
-                  setCachedClusterData(state.currentClusterId, fullData);
-                }
+                // Always cache the data for this cluster (not just on cluster switch)
+                // This ensures refreshed data is cached
+                setCachedClusterData(state.currentClusterId, fullData);
 
                 dispatch({ type: 'SET_LOADING', payload: false });
                 if (wasContextSwitching || isClusterSwitch) {
