@@ -189,7 +189,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Load cached data immediately on page load for instant display
   useEffect(() => {
-    if (state.currentClusterId) {
+    // Only load cache if there's a valid cluster selected
+    if (state.currentClusterId && state.clusters.some(c => c.id === state.currentClusterId)) {
       const cluster = state.clusters.find(c => c.id === state.currentClusterId);
       if (cluster) {
         const cached = clusterCacheRef.current.get(cluster.name);
@@ -209,7 +210,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const type = state.selectedResourceType;
       const id = state.selectedResourceId;
       let res: any = null;
-      
+
       // Check if resource exists in current state (from cache or fresh data)
       if (type === 'pod') res = state.pods.find(r => r.id === id);
       else if (type === 'deployment') res = state.deployments.find(r => r.id === id);
@@ -222,7 +223,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       else if (type === 'configmap') res = state.configMaps.find(r => r.id === id);
       else if (type === 'namespace') res = state.namespaces.find(r => r.id === id);
       else if (type === 'resourcequota') res = state.resourceQuotas.find(r => r.id === id);
-      
+
       if (res) {
         // Resource exists - restore drawer state
         dispatch({ type: 'SELECT_RESOURCE', payload: { id, type } });
@@ -602,6 +603,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
 
     const fetchData = async (isBackground = false) => {
+        // Skip fetching if no cluster is selected
+        if (!state.currentClusterId || !state.clusters.some(c => c.id === state.currentClusterId)) {
+            return;
+        }
+
         if (isBackground && Date.now() - lastActivityRef.current > INACTIVITY_TIMEOUT) return;
         if (isFetchingRef.current) return;
         isFetchingRef.current = true;

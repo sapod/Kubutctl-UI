@@ -7,3 +7,4 @@ export * from './Drawer';
 export * from './Modals';
 export * from './Views';
 export * from './UpdateNotification';
+export * from './WelcomeScreen';

@@ -5,7 +5,7 @@ import { ThemeToggle } from './components/ThemeToggle';
 import {
     Sidebar, TerminalPanel, ResourceDrawer, ClusterHotbar, AddClusterModal,
     NamespaceSelector, ClusterCatalogModal, PortForwardModal, ShellModal, ConfirmationModal,
-    RoutineModal, ErrorBanner, UpdateNotification,
+    RoutineModal, ErrorBanner, UpdateNotification, WelcomeScreen,
     OverviewPage, NodesPage, PodsPage, DeploymentsPage, ReplicaSetsPage,
     JobsPage, CronJobsPage, ServicesPage, IngressesPage, ConfigMapsPage,
     NamespacesPage, ResourceQuotasPage, PortForwardingPage
@@ -62,19 +62,28 @@ const MainLayout = () => {
     }
   };
 
+  // Check if a valid cluster is selected
+  const hasValidCluster = state.currentClusterId && state.clusters.some(c => c.id === state.currentClusterId);
+
   return (
     <div className="flex h-screen w-screen bg-gray-950 text-gray-100 overflow-hidden font-sans selection:bg-blue-500/30 relative">
         <ErrorBanner />
         <ClusterHotbar />
-        <Sidebar currentView={state.view} onViewChange={(v) => dispatch({ type: 'SET_VIEW', payload: v })} />
+        
+        {/* Show sidebar only when a cluster is selected */}
+        {hasValidCluster && <Sidebar currentView={state.view} onViewChange={(v) => dispatch({ type: 'SET_VIEW', payload: v })} />}
 
         <div className="flex-1 flex flex-col min-w-0">
-            {/* Top Bar */}
+            {/* Top Bar - Only show namespace selector when cluster is selected */}
             <div className="h-14 bg-gray-900 border-b border-gray-800 flex items-center justify-between px-6 shadow-sm flex-shrink-0">
                 <div className="flex items-center gap-4">
                    <h2 className="font-bold text-lg tracking-tight">Kubectl<span className="text-blue-500 font-light">-UI</span></h2>
-                   <div className="h-6 w-px bg-gray-800 mx-2"></div>
-                   <NamespaceSelector />
+                   {hasValidCluster && (
+                     <>
+                       <div className="h-6 w-px bg-gray-800 mx-2"></div>
+                       <NamespaceSelector />
+                     </>
+                   )}
                 </div>
 
                 <div className="flex items-center gap-4">
@@ -171,11 +180,13 @@ const MainLayout = () => {
                        </div>
                    </div>
                )}
-               {renderView()}
+               
+               {/* Show WelcomeScreen if no cluster selected, otherwise show the view */}
+               {!hasValidCluster ? <WelcomeScreen /> : renderView()}
             </div>
 
-            {/* Terminal Panel */}
-            <TerminalPanel />
+            {/* Terminal Panel - Only show when cluster is selected */}
+            {hasValidCluster && <TerminalPanel />}
         </div>
 
         {/* Overlays */}
