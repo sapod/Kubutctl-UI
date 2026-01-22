@@ -8,11 +8,15 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Now import everything else
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, screen } from 'electron';
 import { spawn, exec } from 'child_process';
 import http from 'http';
 import pkg from 'electron-updater';
 const { autoUpdater } = pkg;
+import Store from 'electron-store';
+
+// Initialize electron-store for window state persistence
+const store = new Store();
 
 // Simple MIME type mapping
 const mimeTypes = {
@@ -316,7 +320,7 @@ async function installMacOSUpdate(zipPath) {
     if (!fs.existsSync(appPath)) {
       throw new Error('App copy failed - file does not exist at destination');
     }
-    
+
     // Clean up temp directory
     try {
       await new Promise((resolve) => {
@@ -389,6 +393,56 @@ ipcMain.handle('get-app-version', () => {
   return app.getVersion();
 });
 
+// Window state management functions
+function getWindowState() {
+  const defaultState = {
+    width: 1400,
+    height: 900,
+    x: undefined,
+    y: undefined,
+    isMaximized: false,
+    isFullScreen: false
+  };
+
+  const savedState = store.get('windowState', defaultState);
+
+  // Ensure the window is visible on some display
+  const ensureVisibleOnSomeDisplay = () => {
+    const visible = screen.getAllDisplays().some(display => {
+      return (
+        savedState.x >= display.bounds.x &&
+        savedState.y >= display.bounds.y &&
+        savedState.x + savedState.width <= display.bounds.x + display.bounds.width &&
+        savedState.y + savedState.height <= display.bounds.y + display.bounds.height
+      );
+    });
+    if (!visible) {
+      // Reset to default if window would be off-screen
+      return defaultState;
+    }
+    return savedState;
+  };
+
+  return ensureVisibleOnSomeDisplay();
+}
+
+function saveWindowState() {
+  if (!mainWindow) return;
+
+  const bounds = mainWindow.getBounds();
+  const isMaximized = mainWindow.isMaximized();
+  const isFullScreen = mainWindow.isFullScreen();
+
+  store.set('windowState', {
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    isMaximized,
+    isFullScreen
+  });
+}
+
 
 function createWindow() {
   // Determine correct preload path for dev and production
@@ -396,9 +450,14 @@ function createWindow() {
     ? path.join(__dirname, 'preload.js')
     : path.join(__dirname, 'preload.js'); // In production, preload.js is in the same dir as main.js in app.asar
 
+  // Get saved window state
+  const windowState = getWindowState();
+
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
+    width: windowState.width,
+    height: windowState.height,
+    x: windowState.x,
+    y: windowState.y,
     show: false, // Don't show until ready
     webPreferences: {
       nodeIntegration: false,
@@ -407,6 +466,22 @@ function createWindow() {
     },
     title: 'Kubectl UI'
   });
+
+  // Restore maximized and fullscreen state
+  if (windowState.isMaximized) {
+    mainWindow.maximize();
+  }
+  if (windowState.isFullScreen) {
+    mainWindow.setFullScreen(true);
+  }
+
+  // Save window state on various events
+  mainWindow.on('resize', saveWindowState);
+  mainWindow.on('move', saveWindowState);
+  mainWindow.on('maximize', saveWindowState);
+  mainWindow.on('unmaximize', saveWindowState);
+  mainWindow.on('enter-full-screen', saveWindowState);
+  mainWindow.on('leave-full-screen', saveWindowState);
 
   // Use the actual port that frontend is running on (may have changed if original port was taken)
   const actualFrontendPort = process.env.FRONTEND_PORT || FRONTEND_PORT;
@@ -433,6 +508,10 @@ function createWindow() {
   };
 
   setTimeout(loadWindow, 3000);
+
+  mainWindow.on('close', () => {
+    saveWindowState();
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -465,23 +544,23 @@ function startBackend(port = BACKEND_PORT, retryCount = 0) {
     // Set up error handlers
     uncaughtHandler = (error) => {
       if (resolved) return;
-      
-      const isPortError = error.code === 'EADDRINUSE' || 
+
+      const isPortError = error.code === 'EADDRINUSE' ||
                          (error.message && error.message.includes('EADDRINUSE'));
-      
+
       if (isPortError) {
         log(`Port ${port} is in use`);
-        
+
         // Try up to 5 different ports
         if (retryCount < 5) {
           const nextPort = port + 1;
           log(`Retrying with port ${nextPort}...`);
           resolved = true;
-          
+
           // Clean up handlers
           process.removeListener('uncaughtException', uncaughtHandler);
           process.removeListener('unhandledRejection', unhandledHandler);
-          
+
           // Retry with next port
           startBackend(nextPort, retryCount + 1)
             .then(resolve)
@@ -525,15 +604,15 @@ function startBackend(port = BACKEND_PORT, retryCount = 0) {
       })
       .catch((err) => {
         if (resolved) return;
-        
+
         resolved = true;
         process.removeListener('uncaughtException', uncaughtHandler);
         process.removeListener('unhandledRejection', unhandledHandler);
-        
+
         // Check if this is a port conflict error
-        const isPortError = err.code === 'EADDRINUSE' || 
+        const isPortError = err.code === 'EADDRINUSE' ||
                            (err.message && err.message.includes('EADDRINUSE'));
-        
+
         if (isPortError && retryCount < 5) {
           const nextPort = port + 1;
           log(`Port ${port} is in use, retrying with port ${nextPort}...`);

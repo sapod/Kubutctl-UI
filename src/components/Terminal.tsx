@@ -26,6 +26,9 @@ export const TerminalPanel: React.FC = () => {
     const [showAutoRefreshPanel, setShowAutoRefreshPanel] = useState(false);
     const refreshButtonRef = useRef<HTMLButtonElement>(null);
     const [panelPosition, setPanelPosition] = useState({ top: 0, left: 0 });
+    const autoRefreshHideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const isMouseInButtonRef = useRef(false);
+    const isMouseInPanelRef = useRef(false);
     const [selectedDeployment, setSelectedDeployment] = useState<string>(''); // Start empty - user must select
     const [selectedPod, setSelectedPod] = useState<string>(''); // Start empty
     const [selectedContainer, setSelectedContainer] = useState<string>('');
@@ -604,6 +607,69 @@ export const TerminalPanel: React.FC = () => {
         }
     }, [searchQuery]);
 
+    // Helper functions for forgiving hover behavior on auto-refresh panel
+    const handleRefreshButtonMouseEnter = () => {
+        // Clear any pending hide timeout
+        if (autoRefreshHideTimeoutRef.current) {
+            clearTimeout(autoRefreshHideTimeoutRef.current);
+            autoRefreshHideTimeoutRef.current = null;
+        }
+
+        isMouseInButtonRef.current = true;
+
+        // Show panel and set its position
+        if (refreshButtonRef.current) {
+            const rect = refreshButtonRef.current.getBoundingClientRect();
+            setPanelPosition({
+                top: rect.top - 14, // 14px above button
+                left: rect.left
+            });
+        }
+        setShowAutoRefreshPanel(true);
+    };
+
+    const handleRefreshButtonMouseLeave = () => {
+        isMouseInButtonRef.current = false;
+
+        // Set a timeout to hide the panel
+        // If user moves to panel before timeout, it will be cleared
+        autoRefreshHideTimeoutRef.current = setTimeout(() => {
+            if (!isMouseInButtonRef.current && !isMouseInPanelRef.current) {
+                setShowAutoRefreshPanel(false);
+            }
+        }, 300); // 300ms grace period
+    };
+
+    const handlePanelMouseEnter = () => {
+        // Clear any pending hide timeout
+        if (autoRefreshHideTimeoutRef.current) {
+            clearTimeout(autoRefreshHideTimeoutRef.current);
+            autoRefreshHideTimeoutRef.current = null;
+        }
+
+        isMouseInPanelRef.current = true;
+    };
+
+    const handlePanelMouseLeave = () => {
+        isMouseInPanelRef.current = false;
+
+        // Set a timeout to hide the panel
+        autoRefreshHideTimeoutRef.current = setTimeout(() => {
+            if (!isMouseInButtonRef.current && !isMouseInPanelRef.current) {
+                setShowAutoRefreshPanel(false);
+            }
+        }, 200); // 200ms grace period
+    };
+
+    // Cleanup timeout on unmount
+    useEffect(() => {
+        return () => {
+            if (autoRefreshHideTimeoutRef.current) {
+                clearTimeout(autoRefreshHideTimeoutRef.current);
+            }
+        };
+    }, []);
+
     return (
       <>
       <div
@@ -771,17 +837,8 @@ export const TerminalPanel: React.FC = () => {
                 <div className="flex flex-wrap items-center gap-2">
                 <div
                   className="relative"
-                  onMouseEnter={() => {
-                    if (refreshButtonRef.current) {
-                      const rect = refreshButtonRef.current.getBoundingClientRect();
-                      setPanelPosition({
-                        top: rect.top - 14, // 14px above button
-                        left: rect.left
-                      });
-                    }
-                    setShowAutoRefreshPanel(true);
-                  }}
-                  onMouseLeave={() => setShowAutoRefreshPanel(false)}
+                  onMouseEnter={handleRefreshButtonMouseEnter}
+                  onMouseLeave={handleRefreshButtonMouseLeave}
                 >
                   <button
                     ref={refreshButtonRef}
@@ -1036,8 +1093,8 @@ export const TerminalPanel: React.FC = () => {
             left: `${panelPosition.left}px`,
             zIndex: 9999
           }}
-          onMouseEnter={() => setShowAutoRefreshPanel(true)}
-          onMouseLeave={() => setShowAutoRefreshPanel(false)}
+          onMouseEnter={handlePanelMouseEnter}
+          onMouseLeave={handlePanelMouseLeave}
         >
           <div className="text-xs font-medium text-gray-300 mb-2">Auto-Refresh</div>
 

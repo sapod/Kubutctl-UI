@@ -231,6 +231,7 @@ export interface AppState {
   isContextSwitching: boolean; // Lock UI during context switch
   error: string | null; // Added global error state
   awsSsoLoginRequired: boolean; // Block UI when AWS SSO login is needed
+  externalContextMismatch: boolean; // Block UI when kubectl context was changed externally
   currentClusterId: string;
   selectedNamespace: string; // 'All Namespaces' or specific name
   clusters: Cluster[];
@@ -318,4 +319,5 @@ export type Action =
   | { type: 'CLOSE_CONFIRMATION_MODAL' }
   | { type: 'SET_LOGS_TARGET'; payload: AppState['logsTarget'] }
   | { type: 'SET_AWS_SSO_LOGIN_REQUIRED'; payload: boolean }
+  | { type: 'SET_EXTERNAL_CONTEXT_MISMATCH'; payload: boolean }
   | { type: 'UPDATE_RESOURCE'; payload: { id: string; type: string; data: any } };
