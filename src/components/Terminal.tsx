@@ -708,11 +708,6 @@ export const TerminalPanel: React.FC = () => {
               <FileText size={12} className="mr-2" /> Logs
             </button>
           </div>
-          <div className="flex space-x-1.5">
-            <div className="w-2.5 h-2.5 rounded-full bg-red-500/80"></div>
-            <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/80"></div>
-            <div className="w-2.5 h-2.5 rounded-full bg-green-500/80"></div>
-          </div>
         </div>
 
         {/* Terminal content */}
