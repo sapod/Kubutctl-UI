@@ -444,9 +444,9 @@ export const TerminalPanel: React.FC = () => {
         }
     }, [activeTab, selectedDeployment, selectedPod, selectedContainer, showPrevious, searchQuery, appliedDateFrom, appliedDateTo]);
 
-    // Auto-refresh logs when enabled and not searching/filtering
+    // Auto-refresh logs when enabled
     useEffect(() => {
-        if (autoRefreshEnabled && activeTab === 'logs' && selectedDeployment && (selectedPod === 'all-pods' || (selectedPod && selectedContainer)) && !searchQuery && !appliedDateFrom && !appliedDateTo) {
+        if (autoRefreshEnabled && activeTab === 'logs' && selectedDeployment && (selectedPod === 'all-pods' || (selectedPod && selectedContainer))) {
             const intervalId = setInterval(() => {
                 fetchLogs();
             }, autoRefreshInterval);
