@@ -114,7 +114,12 @@ export const ClusterHotbar: React.FC = () => {
           onDragOver={(e) => handleDragOver(e, index)}
           onDragLeave={handleDragLeave}
           onDrop={(e) => handleDrop(e, index)}
-          onClick={() => dispatch({ type: 'SELECT_CLUSTER', payload: cluster.id })}
+          onClick={() => {
+            // Only dispatch if selecting a different cluster
+            if (state.currentClusterId !== cluster.id) {
+              dispatch({ type: 'SELECT_CLUSTER', payload: cluster.id });
+            }
+          }}
           className={`relative group w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs transition-all duration-200 overflow-hidden px-0.5 cursor-pointer ${
             state.currentClusterId === cluster.id 
               ? `text-white shadow-lg shadow-blue-900/50 scale-110 border-2 border-white` 

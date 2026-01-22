@@ -29,7 +29,7 @@ const MainLayout = () => {
       // automatically retry the connection
       dispatch({ type: 'SET_AWS_SSO_LOGIN_REQUIRED', payload: false });
       dispatch({ type: 'SET_ERROR', payload: null });
-      
+
       // Small delay to ensure the login has completed
       setTimeout(() => {
         window.location.reload();
@@ -69,7 +69,7 @@ const MainLayout = () => {
     <div className="flex h-screen w-screen bg-gray-950 text-gray-100 overflow-hidden font-sans selection:bg-blue-500/30 relative">
         <ErrorBanner />
         <ClusterHotbar />
-        
+
         {/* Show sidebar only when a cluster is selected */}
         {hasValidCluster && <Sidebar currentView={state.view} onViewChange={(v) => dispatch({ type: 'SET_VIEW', payload: v })} />}
 
@@ -134,7 +134,7 @@ const MainLayout = () => {
                                <button
                                    onClick={async () => {
                                        const electron = (window as any).electron;
-                                       
+
                                        if (electron && typeof electron.executeCommand === 'function') {
                                            try {
                                                dispatch({ type: 'ADD_LOG', payload: 'Running: aws sso login...' });
@@ -169,7 +169,29 @@ const MainLayout = () => {
                        </div>
                    </div>
                )}
-               
+
+               {/* External Context Mismatch - Blocks entire main content */}
+               {state.externalContextMismatch && (
+                   <div className="absolute inset-0 bg-gray-950/95 backdrop-blur-md z-50 flex items-center justify-center">
+                       <div className="text-center max-w-2xl px-8">
+                           <div className="mb-6">
+                               <svg className="w-24 h-24 mx-auto text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                               </svg>
+                           </div>
+                           <h3 className="text-2xl font-bold text-gray-100 mb-4">Cluster Context Changed Externally</h3>
+                           <p className="text-base text-gray-300 mb-6">
+                               The kubectl context was changed outside of Kubectl-UI.
+                           </p>
+                           <div className="text-center">
+                               <p className="text-xl text-blue-400 font-medium">
+                                   Please select a cluster
+                               </p>
+                           </div>
+                       </div>
+                   </div>
+               )}
+
                {/* Context Switching Lock - Only covers main content area */}
                {state.isContextSwitching && (
                    <div className="absolute inset-0 bg-gray-950/95 backdrop-blur-md z-40 flex items-center justify-center">
@@ -180,7 +202,7 @@ const MainLayout = () => {
                        </div>
                    </div>
                )}
-               
+
                {/* Show WelcomeScreen if no cluster selected, otherwise show the view */}
                {!hasValidCluster ? <WelcomeScreen /> : renderView()}
             </div>
@@ -221,7 +243,7 @@ const MainLayout = () => {
                 kubectl.startPortForward(id, data.resourceType, data.resourceName, data.namespace, localPort, data.port).then(async (result) => {
                      // Use captured port from backend if available (random port case), otherwise use requested port
                      const actualLocalPort = result.localPort || localPort;
-                     
+
                      dispatch({ type: 'ADD_PORT_FORWARD', payload: {
                          id: id,
                          pid: result.pid,
@@ -232,11 +254,11 @@ const MainLayout = () => {
                          remotePort: data.port,
                          status: 'Active'
                      }});
-                     
+
                      // Open in default browser if requested
                      if (openInBrowser && actualLocalPort !== 0) {
                          const url = `http://localhost:${actualLocalPort}/`;
-                         
+
                          // Use system open command to open in default browser
                          const electron = (window as any).electron;
                          if (electron && typeof electron.executeCommand === 'function') {
@@ -251,7 +273,7 @@ const MainLayout = () => {
                                  } else {
                                      command = `xdg-open "${url}"`;
                                  }
-                                 
+
                                  await electron.executeCommand(command);
                                  dispatch({ type: 'ADD_LOG', payload: `Opened ${url} in default browser` });
                              } catch (err: any) {

@@ -20,7 +20,7 @@ const initialClusterId = getStoredCurrentClusterId(storedClusters);
 const initialClusterState = loadClusterState(initialClusterId);
 
 const initialState: AppState = {
-  view: initialClusterState.view, isLoading: false, isContextSwitching: false, error: null, awsSsoLoginRequired: false, currentClusterId: initialClusterId, selectedNamespace: getStoredNamespace(initialClusterId), clusters: storedClusters, nodes: [], pods: [], deployments: [], replicaSets: [], jobs: [], cronJobs: [], services: [], ingresses: [], configMaps: [], namespaces: [], events: [], resourceQuotas: [], portForwards: [], routines: getStoredRoutines(), terminalOutput: ['Welcome to Kubectl-UI', 'Initializing application...'], selectedResourceId: initialClusterState.selectedResourceId, selectedResourceType: initialClusterState.selectedResourceType, resourceHistory: initialClusterState.resourceHistory || [], drawerOpen: initialClusterState.drawerOpen, isAddClusterModalOpen: false, isCatalogOpen: false, isPortForwardModalOpen: false, portForwardModalData: null, isRoutineModalOpen: false, routineModalData: null, isShellModalOpen: false, shellModalData: null, isConfirmationModalOpen: false, confirmationModalData: null, logsTarget: null,
+  view: initialClusterState.view, isLoading: false, isContextSwitching: false, error: null, awsSsoLoginRequired: false, externalContextMismatch: false, currentClusterId: initialClusterId, selectedNamespace: getStoredNamespace(initialClusterId), clusters: storedClusters, nodes: [], pods: [], deployments: [], replicaSets: [], jobs: [], cronJobs: [], services: [], ingresses: [], configMaps: [], namespaces: [], events: [], resourceQuotas: [], portForwards: [], routines: getStoredRoutines(), terminalOutput: ['Welcome to Kubectl-UI', 'Initializing application...'], selectedResourceId: initialClusterState.selectedResourceId, selectedResourceType: initialClusterState.selectedResourceType, resourceHistory: initialClusterState.resourceHistory || [], drawerOpen: initialClusterState.drawerOpen, isAddClusterModalOpen: false, isCatalogOpen: false, isPortForwardModalOpen: false, portForwardModalData: null, isRoutineModalOpen: false, routineModalData: null, isShellModalOpen: false, shellModalData: null, isConfirmationModalOpen: false, confirmationModalData: null, logsTarget: null,
 };
 
 // Simplified reducer signature using updated Action type
@@ -37,6 +37,8 @@ function reducer(state: AppState, action: Action): AppState {
       } catch {}
       const nextNs = getStoredNamespace(action.payload);
       const nextState = loadClusterState(action.payload);
+      const isActualSwitch = state.currentClusterId !== action.payload;
+
       return {
         ...state,
         currentClusterId: action.payload,
@@ -48,7 +50,11 @@ function reducer(state: AppState, action: Action): AppState {
         selectedResourceType: null,
         resourceHistory: [],
         terminalOutput: [...state.terminalOutput, `Context switch: ${state.clusters.find(c => c.id === action.payload)?.name}`],
-        error: null
+        error: null,
+        // Clear external context mismatch when user selects a cluster
+        externalContextMismatch: false,
+        // Only set isContextSwitching if actually switching clusters
+        isContextSwitching: isActualSwitch
       };
     }
     case 'DISCONNECT_CLUSTER': { const updated = state.clusters.map(c => c.id === action.payload ? { ...c, status: 'Disconnected' } : c); localStorage.setItem('kube_clusters', JSON.stringify(updated)); return { ...state, clusters: updated as Cluster[] }; }
@@ -85,6 +91,13 @@ function reducer(state: AppState, action: Action): AppState {
     case 'CLOSE_CONFIRMATION_MODAL': return { ...state, isConfirmationModalOpen: false, confirmationModalData: null };
     case 'SET_LOGS_TARGET': return { ...state, logsTarget: action.payload };
     case 'SET_AWS_SSO_LOGIN_REQUIRED': return { ...state, awsSsoLoginRequired: action.payload };
+    case 'SET_EXTERNAL_CONTEXT_MISMATCH': {
+      // When external context mismatch is detected, unselect cluster and show overlay
+      if (action.payload) {
+        return { ...state, externalContextMismatch: true, currentClusterId: '' };
+      }
+      return { ...state, externalContextMismatch: action.payload };
+    }
     case 'UPDATE_RESOURCE': { const { id, type, data } = action.payload; if (!data) return state; const update = (list: any[]) => list.map(item => (item.id === id || item.name === data.name) ? (type === 'pod' ? { ...data, cpuUsage: item.cpuUsage, memoryUsage: item.memoryUsage } : data) : item); let k: keyof AppState | undefined; if (type === 'pod') k = 'pods'; else if (type === 'deployment') k = 'deployments'; else if (type === 'replicaset') k = 'replicaSets'; else if (type === 'job') k = 'jobs'; else if (type === 'cronjob') k = 'cronJobs'; else if (type === 'node') k = 'nodes'; else if (type === 'service') k = 'services'; else if (type === 'ingress') k = 'ingresses'; else if (type === 'configmap') k = 'configMaps'; else if (type === 'namespace') k = 'namespaces'; else if (type === 'resourcequota') k = 'resourceQuotas'; if (k) return { ...state, [k]: update((state as any)[k]) }; return state; }
     default: return state;
   }
@@ -113,6 +126,22 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const previousClusterRef = useRef<string | null>(initialClusterId);
   const lastActivityRef = useRef(Date.now());
   const currentPodsRef = useRef<Pod[]>(state.pods);
+
+  // Ref to always get the latest isContextSwitching value
+  const isContextSwitchingRef = useRef(state.isContextSwitching);
+
+  // Ref to track when externalContextMismatch was just cleared
+  const previousExternalMismatchRef = useRef(state.externalContextMismatch);
+
+  // Update ref whenever state changes
+  useEffect(() => {
+    isContextSwitchingRef.current = state.isContextSwitching;
+  }, [state.isContextSwitching]);
+
+  // Track when externalContextMismatch changes from true to false
+  useEffect(() => {
+    previousExternalMismatchRef.current = state.externalContextMismatch;
+  }, [state.externalContextMismatch]);
 
   // Cluster data cache - stores data for last 3 visited clusters
   // Uses cluster name (kubectl context name) as key for stability
@@ -183,9 +212,62 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   useEffect(() => {
     const update = () => { lastActivityRef.current = Date.now(); };
-    window.addEventListener('mousedown', update); window.addEventListener('keydown', update); window.addEventListener('focus', update);
-    return () => { window.removeEventListener('mousedown', update); window.removeEventListener('keydown', update); window.removeEventListener('focus', update); };
+    window.addEventListener('mousedown', update); window.addEventListener('keydown', update);
+    return () => { window.removeEventListener('mousedown', update); window.removeEventListener('keydown', update); };
   }, []);
+
+
+  // Validate context on app start and when window regains focus
+  useEffect(() => {
+    // Only validate if we have a cluster selected
+    if (!state.currentClusterId) {
+      return;
+    }
+
+    const checkContext = async () => {
+      // Get the CURRENT value of isContextSwitching, not the stale closure value
+      const currentIsContextSwitching = isContextSwitchingRef.current;
+
+      // Skip validation if we're in the middle of a cluster switch
+      if (currentIsContextSwitching) {
+        return;
+      }
+
+      const selectedCluster = state.clusters.find(c => c.id === state.currentClusterId);
+      if (selectedCluster) {
+        try {
+          const currentContext = await kubectl.getCurrentContext();
+
+          // If external kubectl context changed, show overlay and unselect cluster
+          if (currentContext && currentContext !== selectedCluster.name) {
+            dispatch({ type: 'SET_EXTERNAL_CONTEXT_MISMATCH', payload: true });
+            previousClusterRef.current = '';
+          }
+        } catch (e) {
+          // Ignore errors
+        }
+      }
+    };
+
+    // Validate on mount with delay to ensure context switch completes
+    const mountTimer = setTimeout(() => {
+      checkContext();
+    }, 500);
+
+    // Validate when window regains focus with delay
+    const handleFocus = () => {
+      setTimeout(() => {
+        checkContext();
+        lastActivityRef.current = Date.now();
+      }, 500);
+    };
+
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      clearTimeout(mountTimer);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [state.currentClusterId, state.clusters]);
 
   // Load cached data immediately on page load for instant display
   useEffect(() => {
@@ -623,15 +705,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               dispatch({ type: 'CLOSE_DRAWER_SILENTLY' });
             }
 
-            dispatch({ type: 'SET_CONTEXT_SWITCHING', payload: true });
-
             // Check if we have cached data for this cluster
             const cachedData = getCachedClusterData(state.currentClusterId);
             if (cachedData) {
               // Immediately load cached data for instant UI update
               dispatch({ type: 'SET_DATA', payload: cachedData });
               dispatch({ type: 'SET_LOADING', payload: false });
-              dispatch({ type: 'SET_CONTEXT_SWITCHING', payload: false });
+              // Don't clear isContextSwitching yet - wait for fresh data
               isOfflineRef.current = false;
 
               // Continue to fetch fresh data in background to update the cache
@@ -671,7 +751,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 setCachedClusterData(state.currentClusterId, fullData);
 
                 dispatch({ type: 'SET_LOADING', payload: false });
-                if (wasContextSwitching || isClusterSwitch) {
+                // Clear isContextSwitching on foreground fetches if:
+                // 1. It was set (wasContextSwitching), OR
+                // 2. This is a cluster switch (isClusterSwitch)
+                if (!isBackground && (wasContextSwitching || isClusterSwitch)) {
                     dispatch({ type: 'SET_CONTEXT_SWITCHING', payload: false });
                 }
                 isOfflineRef.current = false;
@@ -687,7 +770,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             if (!isOfflineRef.current) {
                 console.error("Fetch error:", error);
             }
-            if (isMounted && (wasContextSwitching || isClusterSwitch)) {
+            // Only clear isContextSwitching if this was a foreground cluster switch
+            if (isMounted && (wasContextSwitching || isClusterSwitch) && !isBackground) {
                 dispatch({ type: 'SET_CONTEXT_SWITCHING', payload: false });
             }
         } finally {

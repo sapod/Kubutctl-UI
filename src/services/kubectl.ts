@@ -115,6 +115,7 @@ export const KUBECTL_COMMANDS: Record<string, CommandDefinition> = {
   }, shouldVerify: false },
   exec: { command: (name: string, ns: string, container: string, cmd: string) => `kubectl exec ${name} -n ${ns} -c ${container} -- ${cmd}`, shouldVerify: false },
   configView: { command: () => `kubectl config view -o json`, shouldVerify: false },
+  currentContext: { command: () => `kubectl config current-context`, shouldVerify: false },
   useContext: { command: (context: string) => `kubectl config use-context ${context}`, shouldVerify: false },
   topPods: { command: (ns: string) => `kubectl top pods ${ns === 'All Namespaces' ? '--all-namespaces' : `-n ${ns}`} --no-headers`, shouldVerify: false },
   getPod: { command: (name: string, ns: string) => `kubectl get pod ${name} -n ${ns} -o json`, shouldVerify: false },
@@ -265,7 +266,7 @@ const transformResourceQuota = (raw: any): ResourceQuota => ({
 });
 
 const execute = async (command: string, notifyOnError: boolean = true): Promise<any> => {
-    const isSpam = (command.includes('get ') || command.includes('top ')) && !command.includes(' --watch') && !command.includes('logs');
+    const isSpam = (command.includes('get ') || command.includes('top ') || command.includes('current-context')) && !command.includes(' --watch') && !command.includes('logs');
     if (logToTerminal && !isSpam) logToTerminal(`> ${command}`);
     try {
         const response = await fetch(`${BACKEND_BASE_URL}/api/kubectl`, {
@@ -331,6 +332,14 @@ export const kubectl = {
   getConnectableContexts: async (notify = true): Promise<{name: string}[]> => {
      try { const data = await executeWithVerification(KUBECTL_COMMANDS.configView, [], notify); return data.contexts || []; } catch (e) { return []; }
   },
+  getCurrentContext: async (): Promise<string | null> => {
+      try {
+          const result = await executeWithVerification(KUBECTL_COMMANDS.currentContext, [], false);
+          return result.trim();
+      } catch (e) {
+          return null;
+      }
+  },
   setContext: async (contextName: string): Promise<void> => {
       try { await executeWithVerification(KUBECTL_COMMANDS.useContext, [contextName], true); } catch (e) {}
   },
@@ -338,8 +347,13 @@ export const kubectl = {
       try {
           await executeWithVerification(KUBECTL_COMMANDS.deleteResource, [type, name, namespace]);
           if (storeDispatch) {
-               if (resourceId) { storeDispatch({ type: 'DELETE_RESOURCE', payload: { id: resourceId, type } }); storeDispatch({ type: 'CLOSE_DRAWER' }); }
-               else { storeDispatch({ type: 'ADD_LOG', payload: `${type} ${name} deleted` }); }
+               if (resourceId) {
+                   storeDispatch({ type: 'DELETE_RESOURCE', payload: { id: resourceId, type } });
+                   storeDispatch({ type: 'CLOSE_DRAWER' });
+               }
+               else {
+                   storeDispatch({ type: 'ADD_LOG', payload: `${type} ${name} deleted` });
+               }
           }
       } catch (e) {}
   },
@@ -358,13 +372,18 @@ export const kubectl = {
   rolloutRestart: async (type: string, name: string, namespace: string, resourceId?: string): Promise<void> => {
       try {
           await executeWithVerification(KUBECTL_COMMANDS.rolloutRestart, [type, name, namespace]);
-          if (storeDispatch) { storeDispatch({ type: 'ROLLOUT_RESTART', payload: { id: resourceId || '', type } }); storeDispatch({ type: 'ADD_LOG', payload: `${type} ${name} restarted` }); }
+          if (storeDispatch) {
+              storeDispatch({ type: 'ROLLOUT_RESTART', payload: { id: resourceId || '', type } });
+              storeDispatch({ type: 'ADD_LOG', payload: `${type} ${name} restarted` });
+          }
       } catch (e) {}
   },
   triggerCronJob: async (name: string, namespace: string): Promise<void> => {
       try {
           await executeWithVerification(KUBECTL_COMMANDS.triggerCronJob, [name, namespace]);
-          if (storeDispatch) { storeDispatch({ type: 'ADD_LOG', payload: `CronJob ${name} triggered manually` }); }
+          if (storeDispatch) {
+              storeDispatch({ type: 'ADD_LOG', payload: `CronJob ${name} triggered manually` });
+          }
       } catch (e) {}
   },
   applyYaml: async (yaml: string, namespace: string): Promise<void> => {
@@ -378,7 +397,8 @@ export const kubectl = {
               throw new Error(err.error || "Failed to apply YAML");
           }
           const result = await response.json();
-          if (storeDispatch) storeDispatch({ type: 'ADD_LOG', payload: `Apply success: ${result.data.trim()}` });
+          if (storeDispatch)
+              storeDispatch({ type: 'ADD_LOG', payload: `Apply success: ${result.data.trim()}` });
       } catch (e: any) {
           if (globalErrorHandler) globalErrorHandler(e.message);
           throw e;
