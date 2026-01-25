@@ -15,12 +15,36 @@ const getStoredCurrentClusterId = (clusters: Cluster[]): string => { try { const
 const saveClusterState = (clusterId: string, data: any) => { try { localStorage.setItem(`kube_state_${clusterId}`, JSON.stringify(data)); } catch (e) {} };
 const loadClusterState = (clusterId: string) => { try { const raw = localStorage.getItem(`kube_state_${clusterId}`); if (raw) return JSON.parse(raw); } catch {} return { view: 'overview' as View, drawerOpen: false, selectedResourceId: null, selectedResourceType: null, resourceHistory: [] }; };
 
+// Helper functions for logsState persistence
+const saveLogsState = (logsState: any) => { try { localStorage.setItem('kube_logs_state', JSON.stringify(logsState)); } catch (e) {} };
+const getStoredLogsState = () => { 
+  try { 
+    const stored = localStorage.getItem('kube_logs_state'); 
+    if (stored) return JSON.parse(stored);
+  } catch {} 
+  return {
+    selectedDeployment: '',
+    selectedPod: '',
+    selectedContainer: '',
+    showPrevious: false,
+    searchQuery: '',
+    showSearch: false,
+    dateFrom: '',
+    dateTo: '',
+    appliedDateFrom: '',
+    appliedDateTo: '',
+    autoRefreshEnabled: true,
+    autoRefreshInterval: 5000,
+  };
+};
+
 const storedClusters = getStoredClusters();
 const initialClusterId = getStoredCurrentClusterId(storedClusters);
 const initialClusterState = loadClusterState(initialClusterId);
 
 const initialState: AppState = {
   view: initialClusterState.view, isLoading: false, isContextSwitching: false, error: null, awsSsoLoginRequired: false, externalContextMismatch: false, currentClusterId: initialClusterId, selectedNamespace: getStoredNamespace(initialClusterId), clusters: storedClusters, nodes: [], pods: [], deployments: [], replicaSets: [], jobs: [], cronJobs: [], services: [], ingresses: [], configMaps: [], namespaces: [], events: [], resourceQuotas: [], portForwards: [], routines: getStoredRoutines(), terminalOutput: ['Welcome to Kubectl-UI', 'Initializing application...'], selectedResourceId: initialClusterState.selectedResourceId, selectedResourceType: initialClusterState.selectedResourceType, resourceHistory: initialClusterState.resourceHistory || [], drawerOpen: initialClusterState.drawerOpen, isAddClusterModalOpen: false, isCatalogOpen: false, isPortForwardModalOpen: false, portForwardModalData: null, isRoutineModalOpen: false, routineModalData: null, isShellModalOpen: false, shellModalData: null, isConfirmationModalOpen: false, confirmationModalData: null, logsTarget: null,
+  logsState: getStoredLogsState(),
 };
 
 // Simplified reducer signature using updated Action type
@@ -90,6 +114,11 @@ function reducer(state: AppState, action: Action): AppState {
     case 'CLOSE_DRAWER_SILENTLY': return { ...state, drawerOpen: false };
     case 'CLOSE_CONFIRMATION_MODAL': return { ...state, isConfirmationModalOpen: false, confirmationModalData: null };
     case 'SET_LOGS_TARGET': return { ...state, logsTarget: action.payload };
+    case 'UPDATE_LOGS_STATE': { 
+      const newLogsState = { ...state.logsState, ...action.payload };
+      saveLogsState(newLogsState);
+      return { ...state, logsState: newLogsState };
+    }
     case 'SET_AWS_SSO_LOGIN_REQUIRED': return { ...state, awsSsoLoginRequired: action.payload };
     case 'SET_EXTERNAL_CONTEXT_MISMATCH': {
       // When external context mismatch is detected, unselect cluster and show overlay
@@ -152,6 +181,48 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     currentPodsRef.current = state.pods;
   }, [state.pods]);
+
+  // Sync logsState across windows via localStorage
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'kube_logs_state' && e.newValue) {
+        try {
+          const newLogsState = JSON.parse(e.newValue);
+          // Only update if the state is actually different to avoid infinite loops
+          if (JSON.stringify(state.logsState) !== e.newValue) {
+            dispatch({ type: 'SET_DATA', payload: { logsState: newLogsState } });
+          }
+        } catch (err) {
+          console.error('Failed to sync logsState from localStorage:', err);
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [state.logsState]);
+
+  // Clear logs state and active tab on fresh app start (not refresh)
+  // Check for a quit flag that only gets set when app actually quits
+  useEffect(() => {
+    const quitFlag = localStorage.getItem('app-did-quit');
+    
+    if (quitFlag === 'true') {
+      // App was properly closed last time, clear the state
+      localStorage.removeItem('kube_logs_state');
+      localStorage.removeItem('terminalActiveTab');
+      localStorage.removeItem('app-did-quit');
+    }
+    
+    // Listen for Electron quit event to set the flag
+    const electron = (window as any).electron;
+    if (electron?.onAppWillQuit) {
+      electron.onAppWillQuit(() => {
+        localStorage.setItem('app-did-quit', 'true');
+      });
+    }
+  }, []);
+
 
   // Clean up cache when clusters are removed
   useEffect(() => {

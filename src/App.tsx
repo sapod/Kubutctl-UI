@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { StoreProvider, useStore } from './store';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ThemeToggle } from './components/ThemeToggle';
+import { LogsPanel } from './components/LogsPanel';
 import {
     Sidebar, TerminalPanel, ResourceDrawer, ClusterHotbar, AddClusterModal,
     NamespaceSelector, ClusterCatalogModal, PortForwardModal, ShellModal, ConfirmationModal,
@@ -16,6 +17,12 @@ import { kubectl } from './services/kubectl';
 
 // Get current version from package.json
 // const CURRENT_VERSION = packageJson.version;
+
+// Check if running in logs-only mode (separate window)
+const isLogsOnlyMode = () => {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('logsOnly') === 'true';
+};
 
 const MainLayout = () => {
   const { state, dispatch } = useStore();
@@ -303,7 +310,32 @@ const MainLayout = () => {
   );
 };
 
+// Logs-only mode component with title update
+const LogsOnlyMode = () => {
+  useEffect(() => {
+    document.title = 'Kubectl UI - Logs';
+  }, []);
+
+  return (
+    <div className="h-screen flex flex-col bg-gray-950">
+      <LogsPanel standalone={true} />
+    </div>
+  );
+};
+
 const App = () => {
+  // Check if we're in logs-only mode (separate window)
+  if (isLogsOnlyMode()) {
+    return (
+      <ThemeProvider>
+        <StoreProvider>
+          <LogsOnlyMode />
+        </StoreProvider>
+      </ThemeProvider>
+    );
+  }
+
+  // Normal full app mode
   return (
     <ThemeProvider>
       <StoreProvider>

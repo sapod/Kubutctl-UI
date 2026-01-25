@@ -443,6 +443,107 @@ function saveWindowState() {
   });
 }
 
+// Logs window management
+let logsWindow = null;
+
+ipcMain.handle('open-logs-window', async (event, { width, height }) => {
+  // If window already exists, focus it
+  if (logsWindow && !logsWindow.isDestroyed()) {
+    logsWindow.focus();
+    return { success: true, exists: true };
+  }
+
+  // Get main window position to offset the logs window
+  const mainBounds = mainWindow ? mainWindow.getBounds() : { x: 0, y: 0 };
+
+  const preloadPath = isDev
+    ? path.join(__dirname, 'preload.js')
+    : path.join(__dirname, 'preload.js');
+
+  const windowWidth = width || 1000;
+  const windowHeight = height || 400;
+
+  const windowOptions = {
+    width: windowWidth,
+    height: windowHeight,
+    x: mainBounds.x + 50,
+    y: mainBounds.y + 50,
+    minWidth: 600,
+    minHeight: 300,
+    maxWidth: undefined,
+    maxHeight: undefined,
+    fullscreen: false,
+    fullscreenable: true,
+    resizable: true,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: preloadPath
+    },
+    title: 'Kubectl UI - Logs',
+    backgroundColor: '#030712', // gray-950
+    show: false,
+    autoHideMenuBar: true
+  };
+
+  // Add macOS-specific options
+  if (process.platform === 'darwin') {
+    windowOptions.titleBarStyle = 'default';
+    windowOptions.simpleFullscreen = false;
+  }
+
+  logsWindow = new BrowserWindow(windowOptions);
+
+  // Use the same URL as main window but with a query parameter to indicate logs-only mode
+  const actualFrontendPort = process.env.FRONTEND_PORT || FRONTEND_PORT;
+  const frontendUrl = `http://localhost:${actualFrontendPort}?logsOnly=true`;
+
+  logsWindow.loadURL(frontendUrl);
+
+  logsWindow.once('ready-to-show', () => {
+    // Double-check the window size before showing
+    const currentBounds = logsWindow.getBounds();
+
+    // Explicitly set size again if needed
+    if (currentBounds.width !== windowWidth || currentBounds.height !== windowHeight) {
+      logsWindow.setSize(windowWidth, windowHeight);
+    }
+
+    logsWindow.show();
+  });
+
+  logsWindow.on('closed', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('logs-window-closed');
+    }
+    logsWindow = null;
+  });
+
+  return { success: true, exists: false };
+});
+
+ipcMain.handle('close-logs-window', async () => {
+  if (logsWindow && !logsWindow.isDestroyed()) {
+    logsWindow.close();
+    logsWindow = null;
+  }
+  return { success: true };
+});
+
+// Clear logs state from localStorage (called on app quit)
+ipcMain.handle('clear-logs-state', async () => {
+  try {
+    // Only need to execute in main window since localStorage is shared across windows
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      await mainWindow.webContents.executeJavaScript('localStorage.removeItem("kube_logs_state");');
+    }
+    return { success: true };
+  } catch (error) {
+    log('Error clearing logs state: ' + error.message);
+    return { success: false, error: error.message };
+  }
+});
+
 
 function createWindow() {
   // Determine correct preload path for dev and production
@@ -731,7 +832,13 @@ function startFrontend() {
   });
 }
 
-function cleanup() {
+let hasCleanedUp = false;
+
+async function cleanup() {
+  if (hasCleanedUp) return;
+  hasCleanedUp = true;
+  
+
   if (frontendServer) {
     try {
       frontendServer.close();
@@ -776,7 +883,16 @@ app.on('window-all-closed', () => {
   }
 });
 
-app.on('before-quit', cleanup);
+app.on('will-quit', (event) => {
+  // Notify all windows that app is quitting so they can set the quit flag
+  const allWindows = BrowserWindow.getAllWindows();
+  allWindows.forEach(win => {
+    if (!win.isDestroyed()) {
+      win.webContents.send('app-will-quit');
+    }
+  });
+  cleanup();
+});
 
 process.on('uncaughtException', (error) => {
   console.error('Uncaught exception:', error);
