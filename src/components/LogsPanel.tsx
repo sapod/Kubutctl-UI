@@ -244,16 +244,37 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
         }
     }, [state.logsTarget, state.pods, state.deployments, state.replicaSets, availableDeployments]);
 
-    // Fetch logs function
-    const fetchLogs = async () => {
-        if (!selectedDeployment) return;
-
-        // Capture the current fetch context at the start
-        const currentFetchContext = {
-            tabId: currentTabId,
+    // Refs to track the latest selection values (to avoid stale closures in auto-refresh)
+    const latestSelectionRef = useRef({
+        deployment: selectedDeployment,
+        pod: selectedPod,
+        container: selectedContainer,
+        tabId: currentTabId,
+    });
+    
+    // Keep the ref updated with latest values
+    useEffect(() => {
+        latestSelectionRef.current = {
             deployment: selectedDeployment,
             pod: selectedPod,
             container: selectedContainer,
+            tabId: currentTabId,
+        };
+    }, [selectedDeployment, selectedPod, selectedContainer, currentTabId]);
+
+    // Fetch logs function
+    const fetchLogs = async () => {
+        // Use the latest values from ref to avoid stale closures
+        const latest = latestSelectionRef.current;
+        
+        if (!latest.deployment) return;
+
+        // Capture the current fetch context at the start
+        const currentFetchContext = {
+            tabId: latest.tabId,
+            deployment: latest.deployment,
+            pod: latest.pod,
+            container: latest.container,
         };
         fetchContextRef.current = currentFetchContext;
 
@@ -266,7 +287,6 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
         };
 
         // Track if this fetch should control loading state
-        // Only clear loading if context is still valid when fetch completes
         let shouldClearLoading = true;
 
         setLoadingLogs(true);
@@ -281,160 +301,46 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
             scrollPositionBeforeFetchRef.current = null;
         }
 
-        const [namespace, depName] = selectedDeployment.split('/');
+        const [namespace, depName] = latest.deployment.split('/');
 
-        // Check if we're fetching all pods logs
-        if (selectedPod === 'all-pods') {
-            try {
-                const lines = await kubectl.getDeploymentLogs(depName, namespace, searchQuery, appliedDateFrom, appliedDateTo);
-
-                // Check if context is still valid before updating state
-                if (!isContextStillValid()) {
-                    // Context changed, discard these logs but don't change loading state
-                    // The new fetch will handle setting loading to false
-                    shouldClearLoading = false;
-                    return;
-                }
-
-                // If we have existing logs and new logs, append only truly new ones
-                if (hasInitializedLogs() && !isContextLoading && getLastSeenLogLine()) {
-                    // Find the index where we should start taking new logs
-                    // Since logs are sorted oldest to newest, find the last log we've seen and take everything after it
-                    const lastSeenIndex = lines.findIndex(line => line === getLastSeenLogLine());
-
-                    let newLines: string[] = [];
-                    if (lastSeenIndex >= 0) {
-                        // Take all logs after the last one we've seen
-                        newLines = lines.slice(lastSeenIndex + 1);
-                    } else {
-                        // Couldn't find our last log - this means we might have missed some logs
-                        // Take all new logs
-                        newLines = lines;
-                    }
-
-                    if (newLines.length > 0) {
-                        // Store the scroll info before state update
-                        const savedScrollInfo = scrollPositionBeforeFetchRef.current;
-
-                        // Append new logs to the END (they're newest, so they go at bottom)
-                        setLogLines(prev => {
-                            const combined = [...prev, ...newLines];
-                            // Trim old logs if we exceed the limit
-                            if (combined.length > MAX_LOG_LINES) {
-                                const trimmed = combined.slice(combined.length - MAX_LOG_LINES);
-                                return trimmed;
-                            }
-                            return combined;
-                        });
-
-                        // Update the last seen log line
-                        setLastSeenLogLine(newLines[newLines.length - 1]);
-
-                        // Maintain scroll position if user was scrolled up
-                        if (savedScrollInfo && logsContainerRef.current) {
-                            // Disable smooth scrolling temporarily
-                            const container = logsContainerRef.current;
-                            const oldBehavior = container.style.scrollBehavior;
-                            container.style.scrollBehavior = 'auto';
-
-                            // Use single requestAnimationFrame
-                            requestAnimationFrame(() => {
-                                if (logsContainerRef.current && savedScrollInfo) {
-                                    logsContainerRef.current.scrollTop = savedScrollInfo.scrollTop;
-                                    logsContainerRef.current.style.scrollBehavior = oldBehavior;
-                                }
-                            });
-                        }
-                    }
-                } else {
-                    // First load or context change - replace all logs
-                    setLogLines(lines);
-                    setHasInitializedLogs(true);
-                    // Store the last log line
-                    if (lines.length > 0) {
-                        setLastSeenLogLine(lines[lines.length - 1]);
-                    }
-                }
-
-                // Only scroll to bottom if user is already at the bottom and we're not restoring scroll position
-                if (isScrolledToBottomRef.current && !isRestoringScrollRef.current) {
-                    setTimeout(() => {
-                        if (logsContainerRef.current) {
-                            logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight;
-                        }
-                    }, 100);
-                }
-            } catch (e) {
-                if (isContextStillValid()) {
-                    setLogLines(['Failed to fetch deployment logs: ' + (e as Error).message]);
-                }
-            } finally {
-                if (shouldClearLoading) {
-                    setLoadingLogs(false);
-                    setIsContextLoading(false);
-                }
-            }
-            return;
-        }
-
-        // Regular pod logs
-        if (!selectedPod || !selectedContainer) return;
-
-        const [podNamespace, podName] = selectedPod.split('/');
-
-        try {
-            const lines = await kubectl.getLogs(podName, podNamespace, selectedContainer, showPrevious, searchQuery, appliedDateFrom, appliedDateTo);
-
+        // Helper function to process fetched logs (common logic for both cases)
+        const processLogs = (lines: string[]) => {
             // Check if context is still valid before updating state
             if (!isContextStillValid()) {
-                // Context changed, discard these logs but don't change loading state
-                // The new fetch will handle setting loading to false
                 shouldClearLoading = false;
-                return;
+                return false;
             }
 
             // If we have existing logs and new logs, append only truly new ones
             if (hasInitializedLogs() && !isContextLoading && getLastSeenLogLine()) {
-                // Find the index where we should start taking new logs
-                // Since logs are sorted oldest to newest, find the last log we've seen and take everything after it
                 const lastSeenIndex = lines.findIndex(line => line === getLastSeenLogLine());
 
                 let newLines: string[] = [];
                 if (lastSeenIndex >= 0) {
-                    // Take all logs after the last one we've seen
                     newLines = lines.slice(lastSeenIndex + 1);
                 } else {
-                    // Couldn't find our last log - this means we might have missed some logs
-                    // Take all new logs
                     newLines = lines;
                 }
 
                 if (newLines.length > 0) {
-                    // Store the scroll info before state update
                     const savedScrollInfo = scrollPositionBeforeFetchRef.current;
 
-                    // Append new logs to the END (they're newest, so they go at bottom)
                     setLogLines(prev => {
                         const combined = [...prev, ...newLines];
-                        // Trim old logs if we exceed the limit
                         if (combined.length > MAX_LOG_LINES) {
-                            const trimmed = combined.slice(combined.length - MAX_LOG_LINES);
-                            return trimmed;
+                            return combined.slice(combined.length - MAX_LOG_LINES);
                         }
                         return combined;
                     });
 
-                    // Update the last seen log line
                     setLastSeenLogLine(newLines[newLines.length - 1]);
 
                     // Maintain scroll position if user was scrolled up
                     if (savedScrollInfo && logsContainerRef.current) {
-                        // Disable smooth scrolling temporarily
                         const container = logsContainerRef.current;
                         const oldBehavior = container.style.scrollBehavior;
                         container.style.scrollBehavior = 'auto';
 
-                        // Use single requestAnimationFrame
                         requestAnimationFrame(() => {
                             if (logsContainerRef.current && savedScrollInfo) {
                                 logsContainerRef.current.scrollTop = savedScrollInfo.scrollTop;
@@ -447,13 +353,12 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
                 // First load or context change - replace all logs
                 setLogLines(lines);
                 setHasInitializedLogs(true);
-                // Store the last log line
                 if (lines.length > 0) {
                     setLastSeenLogLine(lines[lines.length - 1]);
                 }
             }
 
-            // Only scroll to bottom if user is already at the bottom and we're not restoring scroll position
+            // Only scroll to bottom if user is already at the bottom
             if (isScrolledToBottomRef.current && !isRestoringScrollRef.current) {
                 setTimeout(() => {
                     if (logsContainerRef.current) {
@@ -461,9 +366,30 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
                     }
                 }, 100);
             }
+
+            return true;
+        };
+
+        try {
+            let lines: string[];
+
+            if (latest.pod === 'all-pods') {
+                // Fetch all pods logs for deployment
+                lines = await kubectl.getDeploymentLogs(depName, namespace, searchQuery, appliedDateFrom, appliedDateTo);
+            } else {
+                // Regular pod logs
+                if (!latest.pod || !latest.container) return;
+                const [podNamespace, podName] = latest.pod.split('/');
+                lines = await kubectl.getLogs(podName, podNamespace, latest.container, showPrevious, searchQuery, appliedDateFrom, appliedDateTo);
+            }
+
+            processLogs(lines);
         } catch (e) {
             if (isContextStillValid()) {
-                setLogLines(['Failed to fetch logs: ' + (e as Error).message]);
+                const errorPrefix = latest.pod === 'all-pods' ? 'Failed to fetch deployment logs: ' : 'Failed to fetch logs: ';
+                setLogLines([errorPrefix + (e as Error).message]);
+            } else {
+                shouldClearLoading = false;
             }
         } finally {
             if (shouldClearLoading) {
