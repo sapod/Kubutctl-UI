@@ -43,7 +43,7 @@ const initialClusterId = getStoredCurrentClusterId(storedClusters);
 const initialClusterState = loadClusterState(initialClusterId);
 
 const initialState: AppState = {
-  view: initialClusterState.view, isLoading: false, isContextSwitching: false, error: null, awsSsoLoginRequired: false, externalContextMismatch: false, currentClusterId: initialClusterId, selectedNamespace: getStoredNamespace(initialClusterId), clusters: storedClusters, nodes: [], pods: [], deployments: [], replicaSets: [], jobs: [], cronJobs: [], services: [], ingresses: [], configMaps: [], namespaces: [], events: [], resourceQuotas: [], portForwards: [], routines: getStoredRoutines(), terminalOutput: ['Welcome to Kubectl-UI', 'Initializing application...'], selectedResourceId: initialClusterState.selectedResourceId, selectedResourceType: initialClusterState.selectedResourceType, resourceHistory: initialClusterState.resourceHistory || [], drawerOpen: initialClusterState.drawerOpen, isAddClusterModalOpen: false, isCatalogOpen: false, isPortForwardModalOpen: false, portForwardModalData: null, isRoutineModalOpen: false, routineModalData: null, isShellModalOpen: false, shellModalData: null, isConfirmationModalOpen: false, confirmationModalData: null, logsTarget: null,
+  view: initialClusterState.view, isLoading: false, isContextSwitching: false, error: null, awsSsoLoginRequired: false, externalContextMismatch: false, currentClusterId: initialClusterId, selectedNamespace: getStoredNamespace(initialClusterId), clusters: storedClusters, nodes: [], pods: [], deployments: [], replicaSets: [], jobs: [], cronJobs: [], services: [], ingresses: [], configMaps: [], namespaces: [], events: [], resourceQuotas: [], portForwards: [], routines: getStoredRoutines(), terminalOutput: ['Welcome to Kubectl-UI', 'Initializing application...'], selectedResourceId: null, selectedResourceType: null, resourceHistory: [], drawerOpen: false, isAddClusterModalOpen: false, isCatalogOpen: false, isPortForwardModalOpen: false, portForwardModalData: null, isRoutineModalOpen: false, routineModalData: null, isShellModalOpen: false, shellModalData: null, isConfirmationModalOpen: false, confirmationModalData: null, logsTarget: null,
   logsState: getStoredLogsState(),
   isStoreInitialized: false,
 };
@@ -204,7 +204,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => window.removeEventListener('storage', handleStorageChange);
   }, [state.logsState]);
 
-  // Clear logs state and active tab on fresh app start (not refresh)
+  // Clear logs state, active tab, and drawer state on fresh app start (not refresh)
   // Use Electron's app session ID which is unique per app launch but same across refreshes
   useEffect(() => {
     const checkSessionAndClearIfNeeded = async () => {
@@ -213,14 +213,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         try {
           const currentSessionId = await electron.getAppSessionId();
           const storedSessionId = localStorage.getItem('app-session-id');
-          
-          if (storedSessionId !== currentSessionId) {
-            // New app session - clear logs state and active tab
-            localStorage.removeItem('kube_logs_state');
-            localStorage.removeItem('terminalActiveTab');
-            localStorage.setItem('app-session-id', currentSessionId);
 
-            // Also reset the state in memory
+          if (storedSessionId !== currentSessionId) {
+            // New app session - reset logs state in memory
             dispatch({ type: 'UPDATE_LOGS_STATE', payload: {
               selectedDeployment: '',
               selectedPod: '',
@@ -235,8 +230,35 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               autoRefreshEnabled: true,
               autoRefreshInterval: 5000,
             }});
+
+            // Clear logs state and active tab from localStorage
+            localStorage.removeItem('kube_logs_state');
+            localStorage.removeItem('terminalActiveTab');
+            localStorage.setItem('app-session-id', currentSessionId);
+
+            // Clear drawer state from all cluster states
+            const clusters = getStoredClusters();
+            clusters.forEach(cluster => {
+              const clusterState = loadClusterState(cluster.id);
+              saveClusterState(cluster.id, {
+                ...clusterState,
+                drawerOpen: false,
+                selectedResourceId: null,
+                selectedResourceType: null,
+                resourceHistory: [],
+              });
+            });
+            // Drawer already starts closed in initial state, no dispatch needed
+          } else {
+            // Same session (refresh) - restore drawer state from cluster state
+            const clusterState = loadClusterState(state.currentClusterId);
+            if (clusterState.drawerOpen && clusterState.selectedResourceId && clusterState.selectedResourceType) {
+              dispatch({ type: 'SELECT_RESOURCE', payload: {
+                id: clusterState.selectedResourceId,
+                type: clusterState.selectedResourceType
+              }});
+            }
           }
-          // If same session ID, it's a refresh - keep everything
         } catch (err) {
           console.error('Failed to check app session:', err);
         }
