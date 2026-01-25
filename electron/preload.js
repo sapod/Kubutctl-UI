@@ -31,6 +31,10 @@ try {
     getAppVersion: async () => {
       return await ipcRenderer.invoke('get-app-version');
     },
+    // Get unique session ID per app launch (same across refreshes, different on new launch)
+    getAppSessionId: async () => {
+      return await ipcRenderer.invoke('get-app-session-id');
+    },
     onUpdateAvailable: (callback) => {
       ipcRenderer.on('update-available', (event, info) => callback(info));
     },

@@ -389,8 +389,17 @@ open "/Applications/Kubectl-UI.app"
   }
 }
 
+// Unique session ID generated once per app launch (not per window/refresh)
+const appSessionId = Date.now().toString();
+
 ipcMain.handle('get-app-version', () => {
   return app.getVersion();
+});
+
+// Get the current app session ID - this is unique per app launch
+// A page refresh will get the same session ID, but a new app launch will get a new one
+ipcMain.handle('get-app-session-id', () => {
+  return appSessionId;
 });
 
 // Window state management functions

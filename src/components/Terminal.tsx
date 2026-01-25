@@ -7,11 +7,13 @@ export const TerminalPanel: React.FC = () => {
     const { state, dispatch } = useStore();
     const bottomRef = React.useRef<HTMLDivElement>(null);
 
-    // Tab state - persist across refreshes
-    const [activeTab, setActiveTab] = useState<'terminal' | 'logs'>(() => {
-        const saved = localStorage.getItem('terminalActiveTab');
-        return (saved === 'logs' || saved === 'terminal') ? saved : 'terminal';
-    });
+    // Tab state - persist across refreshes but reset on fresh app start
+    const [activeTab, setActiveTab] = useState<'terminal' | 'logs'>('terminal');
+    
+    // Track if we've completed initial restoration (to prevent saving during init)
+    const hasRestoredRef = useRef(false);
+    // Track previous logsTarget to detect NEW clicks vs existing state
+    const prevLogsTargetRef = useRef<typeof state.logsTarget>(null);
 
     // Logs window state
     const [isLogsMode, setIsLogsMode] = useState<'docked' | 'window'>('docked');
@@ -26,9 +28,24 @@ export const TerminalPanel: React.FC = () => {
     const startYRef = useRef(0);
     const startHeightRef = useRef(0);
 
-    // Save activeTab to localStorage whenever it changes
+    // Restore activeTab from localStorage after store is initialized
     useEffect(() => {
-        localStorage.setItem('terminalActiveTab', activeTab);
+        if (!state.isStoreInitialized) {
+            return;
+        }
+        
+        const saved = localStorage.getItem('terminalActiveTab');
+        if (saved === 'logs' || saved === 'terminal') {
+            setActiveTab(saved);
+        }
+        hasRestoredRef.current = true;
+    }, [state.isStoreInitialized]);
+
+    // Save activeTab to localStorage whenever it changes (but only after restoration)
+    useEffect(() => {
+        if (hasRestoredRef.current) {
+            localStorage.setItem('terminalActiveTab', activeTab);
+        }
     }, [activeTab]);
 
     useEffect(() => {
@@ -36,16 +53,31 @@ export const TerminalPanel: React.FC = () => {
     }, [state.terminalOutput]);
 
     // Handle logs target from state (when LOGS button is clicked in drawer)
+    // Only react to NEW logsTarget clicks, not existing state on refresh
+    const isFirstMountRef = useRef(true);
+    
     useEffect(() => {
-        if (state.logsTarget) {
+        // Skip on first mount - we only want to react to user clicks after page load
+        if (isFirstMountRef.current) {
+            isFirstMountRef.current = false;
+            prevLogsTargetRef.current = state.logsTarget;
+            return;
+        }
+        
+        // Check if this is a NEW logsTarget (different from previous)
+        const isNewTarget = state.logsTarget !== null && 
+                           state.logsTarget !== prevLogsTargetRef.current;
+        
+        if (isNewTarget) {
             setActiveTab('logs');
-            setIsLogsMode('docked'); // Show docked by default
+            setIsLogsMode('docked');
 
-            // Close the drawer to give more space for viewing logs
             if (state.drawerOpen) {
                 dispatch({ type: 'CLOSE_DRAWER' });
             }
         }
+        
+        prevLogsTargetRef.current = state.logsTarget;
     }, [state.logsTarget]);
 
     // Handle opening logs window

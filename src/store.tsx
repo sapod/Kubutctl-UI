@@ -17,11 +17,11 @@ const loadClusterState = (clusterId: string) => { try { const raw = localStorage
 
 // Helper functions for logsState persistence
 const saveLogsState = (logsState: any) => { try { localStorage.setItem('kube_logs_state', JSON.stringify(logsState)); } catch (e) {} };
-const getStoredLogsState = () => { 
-  try { 
-    const stored = localStorage.getItem('kube_logs_state'); 
+const getStoredLogsState = () => {
+  try {
+    const stored = localStorage.getItem('kube_logs_state');
     if (stored) return JSON.parse(stored);
-  } catch {} 
+  } catch {}
   return {
     selectedDeployment: '',
     selectedPod: '',
@@ -45,11 +45,13 @@ const initialClusterState = loadClusterState(initialClusterId);
 const initialState: AppState = {
   view: initialClusterState.view, isLoading: false, isContextSwitching: false, error: null, awsSsoLoginRequired: false, externalContextMismatch: false, currentClusterId: initialClusterId, selectedNamespace: getStoredNamespace(initialClusterId), clusters: storedClusters, nodes: [], pods: [], deployments: [], replicaSets: [], jobs: [], cronJobs: [], services: [], ingresses: [], configMaps: [], namespaces: [], events: [], resourceQuotas: [], portForwards: [], routines: getStoredRoutines(), terminalOutput: ['Welcome to Kubectl-UI', 'Initializing application...'], selectedResourceId: initialClusterState.selectedResourceId, selectedResourceType: initialClusterState.selectedResourceType, resourceHistory: initialClusterState.resourceHistory || [], drawerOpen: initialClusterState.drawerOpen, isAddClusterModalOpen: false, isCatalogOpen: false, isPortForwardModalOpen: false, portForwardModalData: null, isRoutineModalOpen: false, routineModalData: null, isShellModalOpen: false, shellModalData: null, isConfirmationModalOpen: false, confirmationModalData: null, logsTarget: null,
   logsState: getStoredLogsState(),
+  isStoreInitialized: false,
 };
 
 // Simplified reducer signature using updated Action type
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
+    case 'SET_STORE_INITIALIZED': return { ...state, isStoreInitialized: true };
     case 'SET_DATA': return { ...state, ...action.payload };
     case 'SET_VIEW': { const newState = { ...state, view: action.payload, drawerOpen: false, selectedResourceId: null, selectedResourceType: null, resourceHistory: [], error: null }; saveClusterState(state.currentClusterId, { view: newState.view, drawerOpen: false, selectedResourceId: null, selectedResourceType: null, resourceHistory: [] }); return newState; }
     case 'SET_LOADING': return { ...state, isLoading: action.payload };
@@ -114,7 +116,7 @@ function reducer(state: AppState, action: Action): AppState {
     case 'CLOSE_DRAWER_SILENTLY': return { ...state, drawerOpen: false };
     case 'CLOSE_CONFIRMATION_MODAL': return { ...state, isConfirmationModalOpen: false, confirmationModalData: null };
     case 'SET_LOGS_TARGET': return { ...state, logsTarget: action.payload };
-    case 'UPDATE_LOGS_STATE': { 
+    case 'UPDATE_LOGS_STATE': {
       const newLogsState = { ...state.logsState, ...action.payload };
       saveLogsState(newLogsState);
       return { ...state, logsState: newLogsState };
@@ -203,24 +205,46 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [state.logsState]);
 
   // Clear logs state and active tab on fresh app start (not refresh)
-  // Check for a quit flag that only gets set when app actually quits
+  // Use Electron's app session ID which is unique per app launch but same across refreshes
   useEffect(() => {
-    const quitFlag = localStorage.getItem('app-did-quit');
-    
-    if (quitFlag === 'true') {
-      // App was properly closed last time, clear the state
-      localStorage.removeItem('kube_logs_state');
-      localStorage.removeItem('terminalActiveTab');
-      localStorage.removeItem('app-did-quit');
-    }
-    
-    // Listen for Electron quit event to set the flag
-    const electron = (window as any).electron;
-    if (electron?.onAppWillQuit) {
-      electron.onAppWillQuit(() => {
-        localStorage.setItem('app-did-quit', 'true');
-      });
-    }
+    const checkSessionAndClearIfNeeded = async () => {
+      const electron = (window as any).electron;
+      if (electron?.getAppSessionId) {
+        try {
+          const currentSessionId = await electron.getAppSessionId();
+          const storedSessionId = localStorage.getItem('app-session-id');
+          
+          if (storedSessionId !== currentSessionId) {
+            // New app session - clear logs state and active tab
+            localStorage.removeItem('kube_logs_state');
+            localStorage.removeItem('terminalActiveTab');
+            localStorage.setItem('app-session-id', currentSessionId);
+
+            // Also reset the state in memory
+            dispatch({ type: 'UPDATE_LOGS_STATE', payload: {
+              selectedDeployment: '',
+              selectedPod: '',
+              selectedContainer: '',
+              showPrevious: false,
+              searchQuery: '',
+              showSearch: false,
+              dateFrom: '',
+              dateTo: '',
+              appliedDateFrom: '',
+              appliedDateTo: '',
+              autoRefreshEnabled: true,
+              autoRefreshInterval: 5000,
+            }});
+          }
+          // If same session ID, it's a refresh - keep everything
+        } catch (err) {
+          console.error('Failed to check app session:', err);
+        }
+      }
+    };
+
+    checkSessionAndClearIfNeeded();
+    dispatch({ type: 'SET_STORE_INITIALIZED', payload: true });
   }, []);
 
 
