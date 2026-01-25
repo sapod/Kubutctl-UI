@@ -31,6 +31,10 @@ try {
     getAppVersion: async () => {
       return await ipcRenderer.invoke('get-app-version');
     },
+    // Get unique session ID per app launch (same across refreshes, different on new launch)
+    getAppSessionId: async () => {
+      return await ipcRenderer.invoke('get-app-session-id');
+    },
     onUpdateAvailable: (callback) => {
       ipcRenderer.on('update-available', (event, info) => callback(info));
     },
@@ -42,6 +46,30 @@ try {
     },
     onUpdateError: (callback) => {
       ipcRenderer.on('update-error', (event, error) => callback(error));
+    },
+    // Logs window management
+    openLogsWindow: async (width, height) => {
+      return await ipcRenderer.invoke('open-logs-window', { width, height });
+    },
+    closeLogsWindow: async () => {
+      return await ipcRenderer.invoke('close-logs-window');
+    },
+    onLogsWindowClosed: (callback) => {
+      ipcRenderer.on('logs-window-closed', () => callback());
+    },
+    // Listen for app quit event
+    onAppWillQuit: (callback) => {
+      ipcRenderer.on('app-will-quit', () => callback());
+    },
+    // Cleanup on quit
+    cleanupOnQuit: () => {
+      try {
+        localStorage.removeItem('kube_logs_state');
+        localStorage.removeItem('terminalActiveTab');
+        return true;
+      } catch (e) {
+        return false;
+      }
     },
   });
 } catch (error) {

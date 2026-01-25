@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { StoreProvider, useStore } from './store';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ThemeToggle } from './components/ThemeToggle';
+import { LogsPanel } from './components/LogsPanel';
 import {
     Sidebar, TerminalPanel, ResourceDrawer, ClusterHotbar, AddClusterModal,
     NamespaceSelector, ClusterCatalogModal, PortForwardModal, ShellModal, ConfirmationModal,
@@ -10,12 +11,18 @@ import {
     JobsPage, CronJobsPage, ServicesPage, IngressesPage, ConfigMapsPage,
     NamespacesPage, ResourceQuotasPage, PortForwardingPage
 } from './components/UI';
-import { Loader2, Plus } from 'lucide-react';
+import { Loader2, Plus, FileText, X } from 'lucide-react';
 import { kubectl } from './services/kubectl';
 // import packageJson from '../package.json';
 
 // Get current version from package.json
 // const CURRENT_VERSION = packageJson.version;
+
+// Check if running in logs-only mode (separate window)
+const isLogsOnlyMode = () => {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('logsOnly') === 'true';
+};
 
 const MainLayout = () => {
   const { state, dispatch } = useStore();
@@ -303,7 +310,83 @@ const MainLayout = () => {
   );
 };
 
+// Logs-only mode component with title update and tabs
+const LogsOnlyMode = () => {
+  const { state, dispatch } = useStore();
+  
+  useEffect(() => {
+    document.title = 'Kubectl UI - Logs';
+  }, []);
+
+  return (
+    <div className="h-screen flex flex-col bg-gray-950">
+      {/* Tabs header */}
+      <div className="flex items-center gap-1 px-4 py-1.5 bg-gray-900 border-b border-gray-800">
+        {state.logsTabs.map((tab, index) => (
+          <div key={tab.id} className="flex items-center">
+            <button
+              onClick={() => dispatch({ type: 'SET_ACTIVE_LOGS_TAB', payload: tab.id })}
+              className={`flex items-center text-xs font-bold uppercase tracking-wider transition-colors px-2 py-1 rounded-l ${
+                state.activeLogsTabId === tab.id 
+                  ? 'text-blue-400 bg-gray-800' 
+                  : 'text-gray-400 hover:text-gray-300 hover:bg-gray-800/50'
+              }`}
+              title={tab.selectedDeployment || `Logs ${index === 0 ? '' : index + 1}`.trim()}
+            >
+              <FileText size={12} className="mr-1" />
+              {index === 0 ? 'Logs' : `Logs ${index + 1}`}
+            </button>
+            {/* Close button for extra tabs */}
+            {state.logsTabs.length > 1 && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  dispatch({ type: 'REMOVE_LOGS_TAB', payload: tab.id });
+                }}
+                className={`p-1 text-gray-500 hover:text-red-400 hover:bg-gray-800 rounded-r transition-colors ${
+                  state.activeLogsTabId === tab.id ? 'bg-gray-800' : ''
+                }`}
+                title="Close this logs tab"
+              >
+                <X size={10} />
+              </button>
+            )}
+          </div>
+        ))}
+        
+        {/* Add new logs tab button (max 3) */}
+        {state.logsTabs.length < 3 && (
+          <button
+            onClick={() => dispatch({ type: 'ADD_LOGS_TAB' })}
+            className="p-1 text-gray-400 hover:text-white hover:bg-gray-800 rounded transition-colors ml-1"
+            title="Add new logs tab (max 3)"
+          >
+            <Plus size={12} />
+          </button>
+        )}
+      </div>
+      
+      {/* Logs panel for active tab */}
+      <div className="flex-1 overflow-hidden">
+        <LogsPanel standalone={true} tabId={state.activeLogsTabId} />
+      </div>
+    </div>
+  );
+};
+
 const App = () => {
+  // Check if we're in logs-only mode (separate window)
+  if (isLogsOnlyMode()) {
+    return (
+      <ThemeProvider>
+        <StoreProvider>
+          <LogsOnlyMode />
+        </StoreProvider>
+      </ThemeProvider>
+    );
+  }
+
+  // Normal full app mode
   return (
     <ThemeProvider>
       <StoreProvider>

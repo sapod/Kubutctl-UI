@@ -2,7 +2,7 @@
 import React, { createContext, useContext, useReducer, useEffect, useRef } from 'react';
 import { AppState, Action, Cluster,
     Pod,
-    View, PortForwardRoutine } from './types';
+    View, PortForwardRoutine, LogsTabState } from './types';
 import { kubectl } from './services/kubectl';
 
 const DEFAULT_CLUSTERS: Cluster[] = [];
@@ -15,17 +15,61 @@ const getStoredCurrentClusterId = (clusters: Cluster[]): string => { try { const
 const saveClusterState = (clusterId: string, data: any) => { try { localStorage.setItem(`kube_state_${clusterId}`, JSON.stringify(data)); } catch (e) {} };
 const loadClusterState = (clusterId: string) => { try { const raw = localStorage.getItem(`kube_state_${clusterId}`); if (raw) return JSON.parse(raw); } catch {} return { view: 'overview' as View, drawerOpen: false, selectedResourceId: null, selectedResourceType: null, resourceHistory: [] }; };
 
+// Helper to create a new empty logs tab
+const createEmptyLogsTab = (id?: string): LogsTabState => ({
+  id: id || `logs-${Date.now()}`,
+  selectedDeployment: '',
+  selectedPod: '',
+  selectedContainer: '',
+  showPrevious: false,
+  searchQuery: '',
+  showSearch: false,
+  dateFrom: '',
+  dateTo: '',
+  appliedDateFrom: '',
+  appliedDateTo: '',
+  autoRefreshEnabled: true,
+  autoRefreshInterval: 5000,
+});
+
+// Helper functions for logsTabs persistence
+const saveLogsTabs = (logsTabs: LogsTabState[], activeLogsTabId: string) => { 
+  try { 
+    localStorage.setItem('kube_logs_tabs', JSON.stringify({ tabs: logsTabs, activeTabId: activeLogsTabId })); 
+  } catch (e) {} 
+};
+
+const getStoredLogsTabs = (): { tabs: LogsTabState[]; activeTabId: string } => {
+  try {
+    const stored = localStorage.getItem('kube_logs_tabs');
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (parsed.tabs && parsed.tabs.length > 0) {
+        return parsed;
+      }
+    }
+  } catch {}
+  // Default: one empty tab
+  const defaultTab = createEmptyLogsTab('logs-1');
+  return { tabs: [defaultTab], activeTabId: defaultTab.id };
+};
+
 const storedClusters = getStoredClusters();
 const initialClusterId = getStoredCurrentClusterId(storedClusters);
 const initialClusterState = loadClusterState(initialClusterId);
+const storedLogsTabs = getStoredLogsTabs();
 
 const initialState: AppState = {
-  view: initialClusterState.view, isLoading: false, isContextSwitching: false, error: null, awsSsoLoginRequired: false, externalContextMismatch: false, currentClusterId: initialClusterId, selectedNamespace: getStoredNamespace(initialClusterId), clusters: storedClusters, nodes: [], pods: [], deployments: [], replicaSets: [], jobs: [], cronJobs: [], services: [], ingresses: [], configMaps: [], namespaces: [], events: [], resourceQuotas: [], portForwards: [], routines: getStoredRoutines(), terminalOutput: ['Welcome to Kubectl-UI', 'Initializing application...'], selectedResourceId: initialClusterState.selectedResourceId, selectedResourceType: initialClusterState.selectedResourceType, resourceHistory: initialClusterState.resourceHistory || [], drawerOpen: initialClusterState.drawerOpen, isAddClusterModalOpen: false, isCatalogOpen: false, isPortForwardModalOpen: false, portForwardModalData: null, isRoutineModalOpen: false, routineModalData: null, isShellModalOpen: false, shellModalData: null, isConfirmationModalOpen: false, confirmationModalData: null, logsTarget: null,
+  view: initialClusterState.view, isLoading: false, isContextSwitching: false, error: null, awsSsoLoginRequired: false, externalContextMismatch: false, currentClusterId: initialClusterId, selectedNamespace: getStoredNamespace(initialClusterId), clusters: storedClusters, nodes: [], pods: [], deployments: [], replicaSets: [], jobs: [], cronJobs: [], services: [], ingresses: [], configMaps: [], namespaces: [], events: [], resourceQuotas: [], portForwards: [], routines: getStoredRoutines(), terminalOutput: ['Welcome to Kubectl-UI', 'Initializing application...'], selectedResourceId: null, selectedResourceType: null, resourceHistory: [], drawerOpen: false, isAddClusterModalOpen: false, isCatalogOpen: false, isPortForwardModalOpen: false, portForwardModalData: null, isRoutineModalOpen: false, routineModalData: null, isShellModalOpen: false, shellModalData: null, isConfirmationModalOpen: false, confirmationModalData: null, logsTarget: null,
+  logsTabs: storedLogsTabs.tabs,
+  activeLogsTabId: storedLogsTabs.activeTabId,
+  isStoreInitialized: false,
 };
 
 // Simplified reducer signature using updated Action type
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
+    case 'SET_STORE_INITIALIZED': return { ...state, isStoreInitialized: true };
     case 'SET_DATA': return { ...state, ...action.payload };
     case 'SET_VIEW': { const newState = { ...state, view: action.payload, drawerOpen: false, selectedResourceId: null, selectedResourceType: null, resourceHistory: [], error: null }; saveClusterState(state.currentClusterId, { view: newState.view, drawerOpen: false, selectedResourceId: null, selectedResourceType: null, resourceHistory: [] }); return newState; }
     case 'SET_LOADING': return { ...state, isLoading: action.payload };
@@ -90,6 +134,40 @@ function reducer(state: AppState, action: Action): AppState {
     case 'CLOSE_DRAWER_SILENTLY': return { ...state, drawerOpen: false };
     case 'CLOSE_CONFIRMATION_MODAL': return { ...state, isConfirmationModalOpen: false, confirmationModalData: null };
     case 'SET_LOGS_TARGET': return { ...state, logsTarget: action.payload };
+    case 'UPDATE_LOGS_TAB': {
+      const newTabs = state.logsTabs.map(tab => 
+        tab.id === action.payload.tabId 
+          ? { ...tab, ...action.payload.updates }
+          : tab
+      );
+      saveLogsTabs(newTabs, state.activeLogsTabId);
+      return { ...state, logsTabs: newTabs };
+    }
+    case 'ADD_LOGS_TAB': {
+      if (state.logsTabs.length >= 3) return state; // Max 3 tabs
+      const newTab = action.payload || createEmptyLogsTab();
+      const newTabs = [...state.logsTabs, newTab];
+      saveLogsTabs(newTabs, newTab.id);
+      return { ...state, logsTabs: newTabs, activeLogsTabId: newTab.id };
+    }
+    case 'REMOVE_LOGS_TAB': {
+      if (state.logsTabs.length <= 1) return state; // Keep at least 1 tab
+      const newTabs = state.logsTabs.filter(tab => tab.id !== action.payload);
+      const newActiveId = state.activeLogsTabId === action.payload 
+        ? newTabs[0].id 
+        : state.activeLogsTabId;
+      saveLogsTabs(newTabs, newActiveId);
+      return { ...state, logsTabs: newTabs, activeLogsTabId: newActiveId };
+    }
+    case 'SET_ACTIVE_LOGS_TAB': {
+      saveLogsTabs(state.logsTabs, action.payload);
+      return { ...state, activeLogsTabId: action.payload };
+    }
+    case 'RESET_LOGS_TABS': {
+      const defaultTab = createEmptyLogsTab('logs-1');
+      saveLogsTabs([defaultTab], defaultTab.id);
+      return { ...state, logsTabs: [defaultTab], activeLogsTabId: defaultTab.id };
+    }
     case 'SET_AWS_SSO_LOGIN_REQUIRED': return { ...state, awsSsoLoginRequired: action.payload };
     case 'SET_EXTERNAL_CONTEXT_MISMATCH': {
       // When external context mismatch is detected, unselect cluster and show overlay
@@ -152,6 +230,78 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     currentPodsRef.current = state.pods;
   }, [state.pods]);
+
+  // Sync logsTabs across windows via localStorage
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'kube_logs_tabs' && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (parsed.tabs && parsed.tabs.length > 0) {
+            dispatch({ type: 'SET_DATA', payload: { logsTabs: parsed.tabs, activeLogsTabId: parsed.activeTabId } });
+          }
+        } catch (err) {
+          console.error('Failed to sync logsTabs from localStorage:', err);
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
+  // Clear logs state, active tab, and drawer state on fresh app start (not refresh)
+  // Use Electron's app session ID which is unique per app launch but same across refreshes
+  useEffect(() => {
+    const checkSessionAndClearIfNeeded = async () => {
+      const electron = (window as any).electron;
+      if (electron?.getAppSessionId) {
+        try {
+          const currentSessionId = await electron.getAppSessionId();
+          const storedSessionId = localStorage.getItem('app-session-id');
+
+          if (storedSessionId !== currentSessionId) {
+            // New app session - reset logs tabs to single empty tab
+            dispatch({ type: 'RESET_LOGS_TABS' });
+
+            // Clear logs state and active tab from localStorage
+            localStorage.removeItem('kube_logs_tabs');
+            localStorage.removeItem('terminalActiveTab');
+            localStorage.setItem('app-session-id', currentSessionId);
+
+            // Clear drawer state from all cluster states
+            const clusters = getStoredClusters();
+            clusters.forEach(cluster => {
+              const clusterState = loadClusterState(cluster.id);
+              saveClusterState(cluster.id, {
+                ...clusterState,
+                drawerOpen: false,
+                selectedResourceId: null,
+                selectedResourceType: null,
+                resourceHistory: [],
+              });
+            });
+            // Drawer already starts closed in initial state, no dispatch needed
+          } else {
+            // Same session (refresh) - restore drawer state from cluster state
+            const clusterState = loadClusterState(state.currentClusterId);
+            if (clusterState.drawerOpen && clusterState.selectedResourceId && clusterState.selectedResourceType) {
+              dispatch({ type: 'SELECT_RESOURCE', payload: {
+                id: clusterState.selectedResourceId,
+                type: clusterState.selectedResourceType
+              }});
+            }
+          }
+        } catch (err) {
+          console.error('Failed to check app session:', err);
+        }
+      }
+    };
+
+    checkSessionAndClearIfNeeded();
+    dispatch({ type: 'SET_STORE_INITIALIZED', payload: true });
+  }, []);
+
 
   // Clean up cache when clusters are removed
   useEffect(() => {

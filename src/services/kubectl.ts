@@ -266,7 +266,7 @@ const transformResourceQuota = (raw: any): ResourceQuota => ({
 });
 
 const execute = async (command: string, notifyOnError: boolean = true): Promise<any> => {
-    const isSpam = (command.includes('get ') || command.includes('top ') || command.includes('current-context')) && !command.includes(' --watch') && !command.includes('logs');
+    const isSpam = (command.includes('get ') || command.includes('top ') || command.includes('current-context') || command.includes('logs')) && !command.includes(' --watch');
     if (logToTerminal && !isSpam) logToTerminal(`> ${command}`);
     try {
         const response = await fetch(`${BACKEND_BASE_URL}/api/kubectl`, {
