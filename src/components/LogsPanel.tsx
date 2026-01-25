@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useState, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { useStore } from '../store';
 import { RefreshCw, Search, X, AlertTriangle, Calendar, Download, Play, Pause } from 'lucide-react';
@@ -10,12 +10,19 @@ const MAX_LOG_LINES = 5000;
 interface LogsPanelProps {
     /** If true, shows as standalone mode (for window). If false, docked in terminal panel */
     standalone?: boolean;
+    /** The tab ID to use for this logs panel. If not provided, uses activeLogsTabId from state */
+    tabId?: string;
 }
 
-export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false }) => {
+export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId }) => {
     const { state, dispatch } = useStore();
 
-    // Get logs state from global store
+    // Get the current tab ID (either from prop or from active tab in state)
+    const currentTabId = tabId || state.activeLogsTabId;
+
+    // Get logs state from the specific tab in global store
+    const currentTab = state.logsTabs.find(tab => tab.id === currentTabId) || state.logsTabs[0];
+
     const {
         selectedDeployment,
         selectedPod,
@@ -29,20 +36,58 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false }) => {
         appliedDateTo,
         autoRefreshEnabled,
         autoRefreshInterval,
-    } = state.logsState;
-
-    // Helper to update logs state in store
-    const updateLogsState = (updates: Partial<typeof state.logsState>) => {
-        dispatch({ type: 'UPDATE_LOGS_STATE', payload: updates });
+    } = currentTab || {
+        selectedDeployment: '',
+        selectedPod: '',
+        selectedContainer: '',
+        showPrevious: false,
+        searchQuery: '',
+        showSearch: false,
+        dateFrom: '',
+        dateTo: '',
+        appliedDateFrom: '',
+        appliedDateTo: '',
+        autoRefreshEnabled: true,
+        autoRefreshInterval: 5000,
     };
 
-    // Logs state (still local as they're temporary)
-    const [logLines, setLogLines] = useState<string[]>([]);
+    // Helper to update logs state in store for this specific tab
+    const updateLogsState = (updates: Partial<typeof currentTab>) => {
+        dispatch({ type: 'UPDATE_LOGS_TAB', payload: { tabId: currentTabId, updates } });
+    };
+
+    // Logs state - use a Map to store logs per tab, so each tab has its own logs
+    const [logsPerTab, setLogsPerTab] = useState<Map<string, string[]>>(new Map());
+    const logLines = logsPerTab.get(currentTabId) || [];
+
+    // Helper to set log lines for the current tab
+    const setLogLines = (lines: string[] | ((prev: string[]) => string[])) => {
+        setLogsPerTab(prev => {
+            const newMap = new Map(prev);
+            if (typeof lines === 'function') {
+                const currentLines = prev.get(currentTabId) || [];
+                newMap.set(currentTabId, lines(currentLines));
+            } else {
+                newMap.set(currentTabId, lines);
+            }
+            return newMap;
+        });
+    };
+
     const [loadingLogs, setLoadingLogs] = useState(false);
     const [isContextLoading, setIsContextLoading] = useState(false);
     const [downloadingLogs, setDownloadingLogs] = useState(false);
-    const lastSeenLogLineRef = useRef<string>('');
-    const hasInitializedLogsRef = useRef(false);
+
+    // Use Maps for refs that need to be per-tab
+    const lastSeenLogLinePerTab = useRef<Map<string, string>>(new Map());
+    const hasInitializedLogsPerTab = useRef<Map<string, boolean>>(new Map());
+
+    // Helpers to get/set per-tab ref values
+    const getLastSeenLogLine = () => lastSeenLogLinePerTab.current.get(currentTabId) || '';
+    const setLastSeenLogLine = (value: string) => lastSeenLogLinePerTab.current.set(currentTabId, value);
+    const hasInitializedLogs = () => hasInitializedLogsPerTab.current.get(currentTabId) || false;
+    const setHasInitializedLogs = (value: boolean) => hasInitializedLogsPerTab.current.set(currentTabId, value);
+
     const [showAutoRefreshPanel, setShowAutoRefreshPanel] = useState(false);
     const refreshButtonRef = useRef<HTMLButtonElement>(null);
     const [panelPosition, setPanelPosition] = useState({ top: 0, left: 0 });
@@ -50,6 +95,14 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false }) => {
     const isMouseInButtonRef = useRef(false);
     const isMouseInPanelRef = useRef(false);
     const [availableDeployments, setAvailableDeployments] = useState<Array<{ name: string; namespace: string }>>([]);
+
+    // Track fetch context to avoid appending logs from stale requests
+    const fetchContextRef = useRef<{
+        tabId: string;
+        deployment: string;
+        pod: string;
+        container: string;
+    } | null>(null);
 
     // Search state for logs
     const [regexError, setRegexError] = useState<string>('');
@@ -64,6 +117,9 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false }) => {
     const isScrolledToBottomRef = useRef(true);
     const scrollPositionBeforeFetchRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null);
 
+    // Track scroll position per tab
+    const scrollPositionPerTab = useRef<Map<string, { scrollTop: number; scrollLeft: number }>>(new Map());
+
     // Update available deployments when state changes
     useEffect(() => {
         const deployments = state.deployments.map(dep => ({
@@ -73,21 +129,49 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false }) => {
         setAvailableDeployments(deployments);
     }, [state.pods, state.deployments, state.replicaSets]);
 
+    // Track previous deployment to detect changes for pod auto-selection
+    const prevSelectedDeploymentRef = useRef(selectedDeployment);
+
+    // Track if we're currently restoring scroll position (to prevent auto-scroll interference)
+    const isRestoringScrollRef = useRef(false);
+
+    // Track previous tab ID to handle tab switching
+    const prevTabIdRef = useRef(currentTabId);
+
+    // Detect tab switch and update refs
+    useEffect(() => {
+        if (prevTabIdRef.current !== currentTabId) {
+            prevTabIdRef.current = currentTabId;
+            prevSelectedDeploymentRef.current = selectedDeployment;
+        }
+    }, [currentTabId, selectedDeployment]);
+
+    // Restore scroll position after content renders for the new tab
+    useLayoutEffect(() => {
+        const savedPosition = scrollPositionPerTab.current.get(currentTabId);
+        if (savedPosition && logsContainerRef.current) {
+            isRestoringScrollRef.current = true;
+            // Use requestAnimationFrame to ensure DOM is fully updated
+            requestAnimationFrame(() => {
+                if (logsContainerRef.current) {
+                    logsContainerRef.current.scrollTop = savedPosition.scrollTop;
+                    logsContainerRef.current.scrollLeft = savedPosition.scrollLeft;
+                }
+                setTimeout(() => {
+                    isRestoringScrollRef.current = false;
+                }, 50);
+            });
+        }
+    }, [currentTabId]);
+
     // Track previous cluster ID to detect actual cluster switches (not just component mount/unmount)
     const prevClusterIdRef = useRef(state.currentClusterId);
-    
+
     // Reset selectors ONLY when cluster actually changes (not on mount/unmount)
     useEffect(() => {
         if (prevClusterIdRef.current !== state.currentClusterId && prevClusterIdRef.current !== '') {
-            // Cluster actually switched, reset logs state
-            updateLogsState({
-                selectedDeployment: '',
-                selectedPod: '',
-                selectedContainer: '',
-                showPrevious: false,
-                searchQuery: '',
-                showSearch: false,
-            });
+            // Cluster actually switched, reset all tabs
+            dispatch({ type: 'RESET_LOGS_TABS' });
             setLogLines([]);
         }
         prevClusterIdRef.current = state.currentClusterId;
@@ -102,7 +186,7 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false }) => {
 
                 let deploymentFound = false;
                 let foundDeployment = '';
-                
+
                 if (pod && pod.labels) {
                     // Find deployment that matches this pod's labels
                     const matchingDeployment = state.deployments.find(dep => {
@@ -164,6 +248,27 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false }) => {
     const fetchLogs = async () => {
         if (!selectedDeployment) return;
 
+        // Capture the current fetch context at the start
+        const currentFetchContext = {
+            tabId: currentTabId,
+            deployment: selectedDeployment,
+            pod: selectedPod,
+            container: selectedContainer,
+        };
+        fetchContextRef.current = currentFetchContext;
+
+        // Helper to check if context is still valid (hasn't changed during fetch)
+        const isContextStillValid = () => {
+            return fetchContextRef.current?.tabId === currentFetchContext.tabId &&
+                   fetchContextRef.current?.deployment === currentFetchContext.deployment &&
+                   fetchContextRef.current?.pod === currentFetchContext.pod &&
+                   fetchContextRef.current?.container === currentFetchContext.container;
+        };
+
+        // Track if this fetch should control loading state
+        // Only clear loading if context is still valid when fetch completes
+        let shouldClearLoading = true;
+
         setLoadingLogs(true);
 
         // Save scroll position before fetching (if not at bottom)
@@ -183,11 +288,19 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false }) => {
             try {
                 const lines = await kubectl.getDeploymentLogs(depName, namespace, searchQuery, appliedDateFrom, appliedDateTo);
 
+                // Check if context is still valid before updating state
+                if (!isContextStillValid()) {
+                    // Context changed, discard these logs but don't change loading state
+                    // The new fetch will handle setting loading to false
+                    shouldClearLoading = false;
+                    return;
+                }
+
                 // If we have existing logs and new logs, append only truly new ones
-                if (hasInitializedLogsRef.current && !isContextLoading && lastSeenLogLineRef.current) {
+                if (hasInitializedLogs() && !isContextLoading && getLastSeenLogLine()) {
                     // Find the index where we should start taking new logs
                     // Since logs are sorted oldest to newest, find the last log we've seen and take everything after it
-                    const lastSeenIndex = lines.findIndex(line => line === lastSeenLogLineRef.current);
+                    const lastSeenIndex = lines.findIndex(line => line === getLastSeenLogLine());
 
                     let newLines: string[] = [];
                     if (lastSeenIndex >= 0) {
@@ -215,7 +328,7 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false }) => {
                         });
 
                         // Update the last seen log line
-                        lastSeenLogLineRef.current = newLines[newLines.length - 1];
+                        setLastSeenLogLine(newLines[newLines.length - 1]);
 
                         // Maintain scroll position if user was scrolled up
                         if (savedScrollInfo && logsContainerRef.current) {
@@ -236,22 +349,30 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false }) => {
                 } else {
                     // First load or context change - replace all logs
                     setLogLines(lines);
-                    hasInitializedLogsRef.current = true;
+                    setHasInitializedLogs(true);
                     // Store the last log line
                     if (lines.length > 0) {
-                        lastSeenLogLineRef.current = lines[lines.length - 1];
+                        setLastSeenLogLine(lines[lines.length - 1]);
                     }
                 }
 
-                // Only scroll to bottom if user is already at the bottom
-                if (isScrolledToBottomRef.current) {
-                    setTimeout(() => logsBottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+                // Only scroll to bottom if user is already at the bottom and we're not restoring scroll position
+                if (isScrolledToBottomRef.current && !isRestoringScrollRef.current) {
+                    setTimeout(() => {
+                        if (logsContainerRef.current) {
+                            logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight;
+                        }
+                    }, 100);
                 }
             } catch (e) {
-                setLogLines(['Failed to fetch deployment logs: ' + (e as Error).message]);
+                if (isContextStillValid()) {
+                    setLogLines(['Failed to fetch deployment logs: ' + (e as Error).message]);
+                }
             } finally {
-                setLoadingLogs(false);
-                setIsContextLoading(false);
+                if (shouldClearLoading) {
+                    setLoadingLogs(false);
+                    setIsContextLoading(false);
+                }
             }
             return;
         }
@@ -264,11 +385,19 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false }) => {
         try {
             const lines = await kubectl.getLogs(podName, podNamespace, selectedContainer, showPrevious, searchQuery, appliedDateFrom, appliedDateTo);
 
+            // Check if context is still valid before updating state
+            if (!isContextStillValid()) {
+                // Context changed, discard these logs but don't change loading state
+                // The new fetch will handle setting loading to false
+                shouldClearLoading = false;
+                return;
+            }
+
             // If we have existing logs and new logs, append only truly new ones
-            if (hasInitializedLogsRef.current && !isContextLoading && lastSeenLogLineRef.current) {
+            if (hasInitializedLogs() && !isContextLoading && getLastSeenLogLine()) {
                 // Find the index where we should start taking new logs
                 // Since logs are sorted oldest to newest, find the last log we've seen and take everything after it
-                const lastSeenIndex = lines.findIndex(line => line === lastSeenLogLineRef.current);
+                const lastSeenIndex = lines.findIndex(line => line === getLastSeenLogLine());
 
                 let newLines: string[] = [];
                 if (lastSeenIndex >= 0) {
@@ -296,7 +425,7 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false }) => {
                     });
 
                     // Update the last seen log line
-                    lastSeenLogLineRef.current = newLines[newLines.length - 1];
+                    setLastSeenLogLine(newLines[newLines.length - 1]);
 
                     // Maintain scroll position if user was scrolled up
                     if (savedScrollInfo && logsContainerRef.current) {
@@ -317,22 +446,30 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false }) => {
             } else {
                 // First load or context change - replace all logs
                 setLogLines(lines);
-                hasInitializedLogsRef.current = true;
+                setHasInitializedLogs(true);
                 // Store the last log line
                 if (lines.length > 0) {
-                    lastSeenLogLineRef.current = lines[lines.length - 1];
+                    setLastSeenLogLine(lines[lines.length - 1]);
                 }
             }
 
-            // Only scroll to bottom if user is already at the bottom
-            if (isScrolledToBottomRef.current) {
-                setTimeout(() => logsBottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+            // Only scroll to bottom if user is already at the bottom and we're not restoring scroll position
+            if (isScrolledToBottomRef.current && !isRestoringScrollRef.current) {
+                setTimeout(() => {
+                    if (logsContainerRef.current) {
+                        logsContainerRef.current.scrollTop = logsContainerRef.current.scrollHeight;
+                    }
+                }, 100);
             }
         } catch (e) {
-            setLogLines(['Failed to fetch logs: ' + (e as Error).message]);
+            if (isContextStillValid()) {
+                setLogLines(['Failed to fetch logs: ' + (e as Error).message]);
+            }
         } finally {
-            setLoadingLogs(false);
-            setIsContextLoading(false);
+            if (shouldClearLoading) {
+                setLoadingLogs(false);
+                setIsContextLoading(false);
+            }
         }
     };
 
@@ -386,9 +523,34 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false }) => {
     const prevAppliedDateFromRef = useRef(appliedDateFrom);
     const prevAppliedDateToRef = useRef(appliedDateTo);
     const prevSearchQueryRef = useRef(searchQuery);
+    const prevTabIdForFetchRef = useRef(currentTabId);
 
     // Fetch logs when selection changes
     useEffect(() => {
+        // Check if this is just a tab switch (not a filter change within the same tab)
+        const isTabSwitch = prevTabIdForFetchRef.current !== currentTabId;
+
+        if (isTabSwitch) {
+            // Tab switched - update all refs to new tab's values without triggering reload
+            prevDeploymentRef.current = selectedDeployment;
+            prevPodRef.current = selectedPod;
+            prevContainerRef.current = selectedContainer;
+            prevShowPreviousRef.current = showPrevious;
+            prevAppliedDateFromRef.current = appliedDateFrom;
+            prevAppliedDateToRef.current = appliedDateTo;
+            prevSearchQueryRef.current = searchQuery;
+            prevTabIdForFetchRef.current = currentTabId;
+
+            // If this tab already has logs, don't reload - just continue with auto-refresh
+            // If no logs yet and has a deployment selected, start fresh fetch
+            if (logLines.length === 0 && selectedDeployment && (selectedPod === 'all-pods' || (selectedPod && selectedContainer))) {
+                setIsContextLoading(true);
+                setLoadingLogs(true);
+                fetchLogs();
+            }
+            return;
+        }
+
         if (selectedDeployment) {
             if (selectedPod === 'all-pods' || (selectedPod && selectedContainer)) {
                 // Check if this is a context change (deployment/pod/container changed) vs just a search query change
@@ -422,16 +584,20 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false }) => {
                     setIsContextLoading(true);
                     setLoadingLogs(true);
                     isScrolledToBottomRef.current = true; // Reset to auto-scroll on context change
-                    lastSeenLogLineRef.current = ''; // Reset last seen log on context change
-                    hasInitializedLogsRef.current = false; // Reset initialization flag
+                    setLastSeenLogLine(''); // Reset last seen log on context change
+                    setHasInitializedLogs(false); // Reset initialization flag
+                    // Invalidate any in-flight fetch by clearing the context
+                    fetchContextRef.current = null;
                 } else if (isDateFilterChange || isSearchQueryChange) {
                     // For filter changes, clear logs and fetch fresh
                     setLogLines([]);
                     setIsContextLoading(false);
                     setLoadingLogs(true);
                     isScrolledToBottomRef.current = true; // Reset to auto-scroll on filter change
-                    lastSeenLogLineRef.current = ''; // Reset last seen log on filter change
-                    hasInitializedLogsRef.current = false; // Reset initialization flag
+                    setLastSeenLogLine(''); // Reset last seen log on filter change
+                    setHasInitializedLogs(false); // Reset initialization flag
+                    // Invalidate any in-flight fetch by clearing the context
+                    fetchContextRef.current = null;
                 }
 
                 // Debounce search query changes to avoid too many requests
@@ -442,7 +608,7 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false }) => {
                 return () => clearTimeout(timeoutId);
             }
         }
-    }, [selectedDeployment, selectedPod, selectedContainer, showPrevious, searchQuery, appliedDateFrom, appliedDateTo]);
+    }, [selectedDeployment, selectedPod, selectedContainer, showPrevious, searchQuery, appliedDateFrom, appliedDateTo, currentTabId]);
 
     // Auto-refresh logs when enabled
     useEffect(() => {
@@ -455,13 +621,10 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false }) => {
         }
     }, [autoRefreshEnabled, autoRefreshInterval, selectedDeployment, selectedPod, selectedContainer, searchQuery, appliedDateFrom, appliedDateTo, showPrevious]);
 
-    // Track previous deployment to detect changes for pod auto-selection
-    const prevSelectedDeploymentRef = useRef(selectedDeployment);
-    
     // Update pod selection when deployment changes (but not when logsTarget is being set or on initial mount)
     useEffect(() => {
-        if (selectedDeployment && 
-            !state.logsTarget && 
+        if (selectedDeployment &&
+            !state.logsTarget &&
             prevSelectedDeploymentRef.current !== selectedDeployment &&
             prevSelectedDeploymentRef.current !== '') {
             // Deployment changed manually (not from mount or drawer)
@@ -518,6 +681,14 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false }) => {
         const threshold = 50; // pixels from bottom to consider "at bottom"
         const isAtBottom = target.scrollHeight - target.scrollTop - target.clientHeight < threshold;
         isScrolledToBottomRef.current = isAtBottom;
+
+        // Save scroll position for tab tracking
+        if (!isRestoringScrollRef.current) {
+            scrollPositionPerTab.current.set(currentTabId, {
+                scrollTop: target.scrollTop,
+                scrollLeft: target.scrollLeft,
+            });
+        }
     };
 
     // Highlight search matches in log line (always uses regex with fallback)
@@ -748,7 +919,7 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false }) => {
                 <button
                   onClick={() => {
                     const newShowSearch = !showSearch;
-                    updateLogsState({ 
+                    updateLogsState({
                       showSearch: newShowSearch,
                       searchQuery: newShowSearch ? searchQuery : '',
                     });
@@ -879,7 +1050,7 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false }) => {
                   {(dateFrom || dateTo || appliedDateFrom || appliedDateTo) && (
                     <button
                       onClick={() => {
-                        updateLogsState({ 
+                        updateLogsState({
                           dateFrom: '',
                           dateTo: '',
                           appliedDateFrom: '',
@@ -974,7 +1145,7 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false }) => {
                 <div
                     className="fixed bg-gray-800 border border-gray-700 rounded shadow-lg p-2 w-48"
                     style={{
-                        top: `${panelPosition.top - 60}px`,
+                        top: standalone ? `${panelPosition.top + 44}px` : `${panelPosition.top - 60}px`,
                         left: `${panelPosition.left}px`,
                         zIndex: 9999
                     }}

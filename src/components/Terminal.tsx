@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useStore } from '../store';
-import { Terminal, FileText, ExternalLink } from 'lucide-react';
+import { Terminal, FileText, ExternalLink, Plus, X } from 'lucide-react';
 import { LogsPanel } from './LogsPanel';
 
 export const TerminalPanel: React.FC = () => {
@@ -180,33 +180,79 @@ export const TerminalPanel: React.FC = () => {
 
         {/* Header with tabs */}
         <div className="flex items-center justify-between px-4 py-1.5 bg-gray-900 border-b border-gray-800 z-[100]">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
             <button
               onClick={() => setActiveTab('terminal')}
               className={`flex items-center text-xs font-bold uppercase tracking-wider transition-colors ${
-                activeTab === 'terminal' ? 'text-blue-400' : 'text-gray-400 hover:text-gray-300'
+                activeTab === 'terminal' || isLogsMode === 'window' ? 'text-blue-400' : 'text-gray-400 hover:text-gray-300'
               }`}
               title="Terminal output"
             >
               <Terminal size={12} className="mr-2" /> Terminal
             </button>
-            {/* Only show Logs tab when in docked mode */}
+
+            {/* Logs tabs - only show when docked (not when logs are in separate window) */}
             {isLogsMode === 'docked' && (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setActiveTab('logs')}
-                  className={`flex items-center text-xs font-bold uppercase tracking-wider transition-colors ${
-                    activeTab === 'logs' ? 'text-blue-400' : 'text-gray-400 hover:text-gray-300'
-                  }`}
-                  title="Pod logs viewer"
-                >
-                  <FileText size={12} className="mr-2" /> Logs
-                </button>
-                {/* Undock button next to Logs header */}
+              <div className="flex items-stretch gap-1 ml-2 bg-gray-700 rounded-md px-1 py-0.5">
+                {state.logsTabs.map((tab, index) => (
+                  <div key={tab.id} className="flex items-stretch">
+                    <button
+                      onClick={() => {
+                        setActiveTab('logs');
+                        dispatch({ type: 'SET_ACTIVE_LOGS_TAB', payload: tab.id });
+                      }}
+                      className={`flex items-center text-xs font-bold uppercase tracking-wider transition-colors px-2 ${
+                        state.logsTabs.length > 1 ? 'rounded-l' : 'rounded'
+                      } ${
+                        activeTab === 'logs' && state.activeLogsTabId === tab.id 
+                          ? 'text-blue-400 bg-gray-900' 
+                          : 'text-gray-400 hover:text-gray-300 hover:bg-gray-600'
+                      }`}
+                      title={tab.selectedDeployment || `Logs ${index === 0 ? '' : index + 1}`.trim()}
+                    >
+                      <FileText size={12} className="mr-1" />
+                      {index === 0 ? 'Logs' : `Logs ${index + 1}`}
+                    </button>
+                    {/* Close button for extra tabs */}
+                    {state.logsTabs.length > 1 && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          dispatch({ type: 'REMOVE_LOGS_TAB', payload: tab.id });
+                          if (state.activeLogsTabId === tab.id) {
+                            setActiveTab('logs');
+                          }
+                        }}
+                        className={`flex items-center px-1 text-gray-500 hover:text-red-400 hover:bg-gray-600 rounded-r transition-colors ${
+                          activeTab === 'logs' && state.activeLogsTabId === tab.id ? 'bg-gray-900' : ''
+                        }`}
+                        title="Close this logs tab"
+                      >
+                        <X size={10} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+
+                {/* Add new logs tab button (max 3) */}
+                {state.logsTabs.length < 3 && (
+                  <button
+                    onClick={() => {
+                      dispatch({ type: 'ADD_LOGS_TAB' });
+                      setActiveTab('logs');
+                    }}
+                    className="flex items-center px-1 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
+                    title="Add new logs tab (max 3)"
+                  >
+                    <Plus size={12} />
+                  </button>
+                )}
+
+                {/* Undock button when logs tab is active */}
                 {activeTab === 'logs' && (
                   <button
                     onClick={handleUndockLogs}
-                    className="p-1 text-gray-400 hover:text-white hover:bg-gray-800 rounded transition-colors"
+                    className="flex items-center px-1 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors ml-1 border-l border-gray-600 pl-2"
                     title="Open logs in separate window"
                   >
                     <ExternalLink size={12} />
@@ -230,9 +276,9 @@ export const TerminalPanel: React.FC = () => {
           </div>
         )}
 
-        {/* Logs content */}
+        {/* Logs content - render active tab's LogsPanel */}
         {activeTab === 'logs' && isLogsMode === 'docked' && (
-          <LogsPanel />
+          <LogsPanel tabId={state.activeLogsTabId} />
         )}
       </div>
     );

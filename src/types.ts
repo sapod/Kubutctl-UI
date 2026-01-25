@@ -277,21 +277,26 @@ export interface AppState {
     namespace: string;
     container?: string;
   } | null;
-  // Logs Panel State (persisted across docked/undocked modes)
-  logsState: {
-    selectedDeployment: string;
-    selectedPod: string;
-    selectedContainer: string;
-    showPrevious: boolean;
-    searchQuery: string;
-    showSearch: boolean;
-    dateFrom: string;
-    dateTo: string;
-    appliedDateFrom: string;
-    appliedDateTo: string;
-    autoRefreshEnabled: boolean;
-    autoRefreshInterval: number;
-  };
+  // Logs Panel State (persisted across docked/undocked modes) - now an array of tabs
+  logsTabs: LogsTabState[];
+  activeLogsTabId: string;
+}
+
+// Single logs tab state
+export interface LogsTabState {
+  id: string;
+  selectedDeployment: string;
+  selectedPod: string;
+  selectedContainer: string;
+  showPrevious: boolean;
+  searchQuery: string;
+  showSearch: boolean;
+  dateFrom: string;
+  dateTo: string;
+  appliedDateFrom: string;
+  appliedDateTo: string;
+  autoRefreshEnabled: boolean;
+  autoRefreshInterval: number;
 }
 
 export type Action =
@@ -335,7 +340,11 @@ export type Action =
   | { type: 'OPEN_CONFIRMATION_MODAL'; payload: { title: string; message: string; onConfirm: () => void; onCancel?: () => void } }
   | { type: 'CLOSE_CONFIRMATION_MODAL' }
   | { type: 'SET_LOGS_TARGET'; payload: AppState['logsTarget'] }
-  | { type: 'UPDATE_LOGS_STATE'; payload: Partial<AppState['logsState']> }
+  | { type: 'UPDATE_LOGS_TAB'; payload: { tabId: string; updates: Partial<LogsTabState> } }
+  | { type: 'ADD_LOGS_TAB'; payload?: LogsTabState }
+  | { type: 'REMOVE_LOGS_TAB'; payload: string }
+  | { type: 'SET_ACTIVE_LOGS_TAB'; payload: string }
+  | { type: 'RESET_LOGS_TABS' }
   | { type: 'SET_AWS_SSO_LOGIN_REQUIRED'; payload: boolean }
   | { type: 'SET_EXTERNAL_CONTEXT_MISMATCH'; payload: boolean }
   | { type: 'UPDATE_RESOURCE'; payload: { id: string; type: string; data: any } };
