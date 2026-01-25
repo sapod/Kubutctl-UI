@@ -9,7 +9,7 @@ export const TerminalPanel: React.FC = () => {
 
     // Tab state - persist across refreshes but reset on fresh app start
     const [activeTab, setActiveTab] = useState<'terminal' | 'logs'>('terminal');
-    
+
     // Track if we've completed initial restoration (to prevent saving during init)
     const hasRestoredRef = useRef(false);
     // Track previous logsTarget to detect NEW clicks vs existing state
@@ -33,7 +33,7 @@ export const TerminalPanel: React.FC = () => {
         if (!state.isStoreInitialized) {
             return;
         }
-        
+
         const saved = localStorage.getItem('terminalActiveTab');
         if (saved === 'logs' || saved === 'terminal') {
             setActiveTab(saved);
@@ -55,7 +55,7 @@ export const TerminalPanel: React.FC = () => {
     // Handle logs target from state (when LOGS button is clicked in drawer)
     // Only react to NEW logsTarget clicks, not existing state on refresh
     const isFirstMountRef = useRef(true);
-    
+
     useEffect(() => {
         // Skip on first mount - we only want to react to user clicks after page load
         if (isFirstMountRef.current) {
@@ -63,11 +63,11 @@ export const TerminalPanel: React.FC = () => {
             prevLogsTargetRef.current = state.logsTarget;
             return;
         }
-        
+
         // Check if this is a NEW logsTarget (different from previous)
-        const isNewTarget = state.logsTarget !== null && 
+        const isNewTarget = state.logsTarget !== null &&
                            state.logsTarget !== prevLogsTargetRef.current;
-        
+
         if (isNewTarget) {
             setActiveTab('logs');
             setIsLogsMode('docked');
@@ -76,7 +76,7 @@ export const TerminalPanel: React.FC = () => {
                 dispatch({ type: 'CLOSE_DRAWER' });
             }
         }
-        
+
         prevLogsTargetRef.current = state.logsTarget;
     }, [state.logsTarget]);
 
@@ -173,7 +173,7 @@ export const TerminalPanel: React.FC = () => {
           onMouseDown={handleMouseDown}
           className={`absolute top-0 left-0 h-0.5 cursor-ns-resize hover:bg-blue-500 transition-colors ${isResizing ? 'bg-blue-500' : 'bg-transparent'}`}
           style={{
-            zIndex: 51,
+            zIndex: 200,
             right: state.drawerOpen ? `${localStorage.getItem('drawerWidth') || '600'}px` : '0'
           }}
         />
