@@ -54,23 +54,35 @@ export const UpdateNotification: React.FC = () => {
     // Listen for update events
     if (electron.onUpdateAvailable) {
       electron.onUpdateAvailable((info: any) => {
-        // Check if user dismissed this version within the last 24 hours
-        const dismissedUntil = localStorage.getItem(`kubectl-ui-dismissed-${info.version}`);
-        if (dismissedUntil) {
-          const dismissedTimestamp = parseInt(dismissedUntil, 10);
-          const now = Date.now();
-          if (now < dismissedTimestamp) {
-            // Still within the 24-hour dismissal period
-            return;
-          } else {
-            // Expired, remove it
-            localStorage.removeItem(`kubectl-ui-dismissed-${info.version}`);
+        // Check if this is an auto-download request (from manual update check)
+        const isAutoDownload = info.autoDownload === true;
+
+        // Only check for dismissal if this is NOT an auto-download
+        if (!isAutoDownload) {
+          // Check if user dismissed this version within the last 24 hours
+          const dismissedUntil = localStorage.getItem(`kubectl-ui-dismissed-${info.version}`);
+          if (dismissedUntil) {
+            const dismissedTimestamp = parseInt(dismissedUntil, 10);
+            const now = Date.now();
+            if (now < dismissedTimestamp) {
+              // Still within the 24-hour dismissal period
+              return;
+            } else {
+              // Expired, remove it
+              localStorage.removeItem(`kubectl-ui-dismissed-${info.version}`);
+            }
           }
         }
 
         setUpdateInfo(info);
         setIsVisible(true);
         setDownloadError(null);
+
+        // If autoDownload flag is set, automatically start downloading
+        if (isAutoDownload) {
+          setIsDownloading(true);
+          setDownloadProgress(0);
+        }
       });
     }
 
@@ -86,6 +98,13 @@ export const UpdateNotification: React.FC = () => {
         setIsDownloaded(true);
         setIsDownloading(false);
         setDownloadError(null);
+      });
+    }
+
+    if (electron.onUpdateError) {
+      electron.onUpdateError((error: any) => {
+        setDownloadError(error.message || 'Update error occurred');
+        setIsDownloading(false);
       });
     }
 
