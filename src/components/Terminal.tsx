@@ -12,10 +12,12 @@ export const TerminalPanel: React.FC = () => {
 
     // Track if we've completed initial restoration (to prevent saving during init)
     const hasRestoredRef = useRef(false);
-    // Track previous logsTarget to detect NEW clicks vs existing state
-    const prevLogsTargetRef = useRef<typeof state.logsTarget>(null);
 
-    // Logs window state - start as 'window' to prevent flash of logs tabs
+    // Focus logs window when active logs tab changes (user clicked LOGS button)
+    const isFirstMountRef = useRef(true);
+    const prevActiveLogsTabIdRef = useRef(state.activeLogsTabId);
+    const prevActiveTabDeploymentRef = useRef(state.logsTabs.find(t => t.id === state.activeLogsTabId)?.selectedDeployment || '');
+    
     // Will be set to 'docked' if logs window is not actually open
     const [isLogsMode, setIsLogsMode] = useState<'docked' | 'window'>('window');
 
@@ -58,53 +60,44 @@ export const TerminalPanel: React.FC = () => {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [state.terminalOutput]);
 
-    // Handle logs target from state (when LOGS button is clicked in drawer)
-    // Only react to NEW logsTarget clicks, not existing state on refresh
-    const isFirstMountRef = useRef(true);
-    const lastProcessedLogsTargetRef = useRef<string>(''); // Track what we've processed
-
+    // Focus logs window when active logs tab changes or gets filled (user clicked LOGS button)
     useEffect(() => {
-        // Skip on first mount - we only want to react to user clicks after page load
+        const activeTab = state.logsTabs.find(t => t.id === state.activeLogsTabId);
+        const currentDeployment = activeTab?.selectedDeployment || '';
+        
+        // Check if active tab ID changed OR if the active tab's deployment changed (tab got filled)
+        const tabIdChanged = state.activeLogsTabId !== prevActiveLogsTabIdRef.current;
+        const tabContentChanged = currentDeployment !== prevActiveTabDeploymentRef.current && currentDeployment !== '';
+        const hasChanged = tabIdChanged || tabContentChanged;
+        
+        // Skip on first mount ONLY if nothing changed
         if (isFirstMountRef.current) {
             isFirstMountRef.current = false;
-            prevLogsTargetRef.current = state.logsTarget;
-            return;
-        }
-
-        // Skip if logsTarget is null
-        if (state.logsTarget === null) {
-            prevLogsTargetRef.current = null;
-            return;
-        }
-
-        // Check if this is a NEW logsTarget (different from previous)
-        // Use deep equality check to avoid reprocessing when synced via localStorage
-        const prevTargetStr = JSON.stringify(prevLogsTargetRef.current);
-        const currentTargetStr = JSON.stringify(state.logsTarget);
-
-        // Also check if we've already processed this exact logsTarget
-        if (currentTargetStr === lastProcessedLogsTargetRef.current) {
-            prevLogsTargetRef.current = state.logsTarget;
-            return;
-        }
-
-        const isNewTarget = state.logsTarget !== null &&
-                           prevTargetStr !== currentTargetStr;
-
-        if (isNewTarget) {
-            // Mark this logsTarget as processed IMMEDIATELY before any async operations
-            lastProcessedLogsTargetRef.current = currentTargetStr;
-
-            // If logs are undocked, don't switch tabs here - the undocked window handles it
-            // Note: All tab management (creation, modal, drawer control) is handled by OPEN_LOGS_FOR_RESOURCE in store
-            if (isLogsMode === 'docked') {
-                // Switch to logs tab to show the newly opened/updated logs
-                setActiveTab('logs');
+            if (!hasChanged) {
+                prevActiveLogsTabIdRef.current = state.activeLogsTabId;
+                prevActiveTabDeploymentRef.current = currentDeployment;
+                return;
             }
         }
 
-        prevLogsTargetRef.current = state.logsTarget;
-    }, [state.logsTarget, isLogsMode, dispatch]);
+        // Only proceed if something actually changed
+        if (!hasChanged) {
+            return;
+        }
+
+        // Focus logs window if undocked, or switch to logs tab if docked
+        if (isLogsMode === 'window') {
+            const electron = (window as any).electron;
+            electron?.focusLogsWindow?.().catch((err: Error) => {
+                console.error('Failed to focus logs window:', err);
+            });
+        } else {
+            setActiveTab('logs');
+        }
+
+        prevActiveLogsTabIdRef.current = state.activeLogsTabId;
+        prevActiveTabDeploymentRef.current = currentDeployment;
+    }, [state.activeLogsTabId, state.logsTabs]);
 
     // Handle opening logs window
     const handleUndockLogs = async () => {

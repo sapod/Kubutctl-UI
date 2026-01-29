@@ -722,6 +722,32 @@ ipcMain.handle('is-logs-window-open', async () => {
   return logsWindow && !logsWindow.isDestroyed();
 });
 
+// Focus the logs window (bring it to front)
+ipcMain.handle('focus-logs-window', async () => {
+  if (logsWindow && !logsWindow.isDestroyed()) {
+    // Use multiple methods to ensure window comes to front
+    if (logsWindow.isMinimized()) {
+      logsWindow.restore();
+    }
+
+    // Temporarily set always on top to force window to front
+    logsWindow.setAlwaysOnTop(true);
+    logsWindow.show();
+    logsWindow.focus();
+
+    // Remove always on top after a short delay
+    setTimeout(() => {
+      if (logsWindow && !logsWindow.isDestroyed()) {
+        logsWindow.setAlwaysOnTop(false);
+      }
+    }, 100);
+
+    return { success: true };
+  }
+
+  return { success: false };
+});
+
 // Clear logs state from localStorage (called on app quit)
 ipcMain.handle('clear-logs-state', async () => {
   try {
