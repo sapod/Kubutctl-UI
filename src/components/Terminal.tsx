@@ -12,11 +12,14 @@ export const TerminalPanel: React.FC = () => {
 
     // Track if we've completed initial restoration (to prevent saving during init)
     const hasRestoredRef = useRef(false);
-    // Track previous logsTarget to detect NEW clicks vs existing state
-    const prevLogsTargetRef = useRef<typeof state.logsTarget>(null);
 
-    // Logs window state
-    const [isLogsMode, setIsLogsMode] = useState<'docked' | 'window'>('docked');
+    // Focus logs window when active logs tab changes (user clicked LOGS button)
+    const isFirstMountRef = useRef(true);
+    const prevActiveLogsTabIdRef = useRef(state.activeLogsTabId);
+    const prevActiveTabDeploymentRef = useRef(state.logsTabs.find(t => t.id === state.activeLogsTabId)?.selectedDeployment || '');
+    
+    // Will be set to 'docked' if logs window is not actually open
+    const [isLogsMode, setIsLogsMode] = useState<'docked' | 'window'>('window');
 
     // Terminal resizing
     const [terminalHeight, setTerminalHeight] = useState(() => {
@@ -48,43 +51,65 @@ export const TerminalPanel: React.FC = () => {
         }
     }, [activeTab]);
 
+    // Save isLogsMode to localStorage
+    useEffect(() => {
+        localStorage.setItem('logsMode', isLogsMode);
+    }, [isLogsMode]);
+
     useEffect(() => {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [state.terminalOutput]);
 
-    // Handle logs target from state (when LOGS button is clicked in drawer)
-    // Only react to NEW logsTarget clicks, not existing state on refresh
-    const isFirstMountRef = useRef(true);
-
+    // Focus logs window when active logs tab changes or gets filled (user clicked LOGS button)
     useEffect(() => {
-        // Skip on first mount - we only want to react to user clicks after page load
+        const activeTab = state.logsTabs.find(t => t.id === state.activeLogsTabId);
+        const currentDeployment = activeTab?.selectedDeployment || '';
+        
+        // Check if active tab ID changed OR if the active tab's deployment changed (tab got filled)
+        const tabIdChanged = state.activeLogsTabId !== prevActiveLogsTabIdRef.current;
+        const tabContentChanged = currentDeployment !== prevActiveTabDeploymentRef.current && currentDeployment !== '';
+        const hasChanged = tabIdChanged || tabContentChanged;
+        
+        // Skip on first mount ONLY if nothing changed
         if (isFirstMountRef.current) {
             isFirstMountRef.current = false;
-            prevLogsTargetRef.current = state.logsTarget;
-            return;
-        }
-
-        // Check if this is a NEW logsTarget (different from previous)
-        const isNewTarget = state.logsTarget !== null &&
-                           state.logsTarget !== prevLogsTargetRef.current;
-
-        if (isNewTarget) {
-            setActiveTab('logs');
-            setIsLogsMode('docked');
-
-            if (state.drawerOpen) {
-                dispatch({ type: 'CLOSE_DRAWER' });
+            if (!hasChanged) {
+                prevActiveLogsTabIdRef.current = state.activeLogsTabId;
+                prevActiveTabDeploymentRef.current = currentDeployment;
+                return;
             }
         }
 
-        prevLogsTargetRef.current = state.logsTarget;
-    }, [state.logsTarget]);
+        // Only proceed if something actually changed
+        if (!hasChanged) {
+            return;
+        }
+
+        // Focus logs window if undocked, or switch to logs tab if docked
+        if (isLogsMode === 'window') {
+            const electron = (window as any).electron;
+            electron?.focusLogsWindow?.().catch((err: Error) => {
+                console.error('Failed to focus logs window:', err);
+            });
+        } else {
+            setActiveTab('logs');
+        }
+
+        prevActiveLogsTabIdRef.current = state.activeLogsTabId;
+        prevActiveTabDeploymentRef.current = currentDeployment;
+    }, [state.activeLogsTabId, state.logsTabs]);
 
     // Handle opening logs window
     const handleUndockLogs = async () => {
         const electron = (window as any).electron;
         if (electron?.openLogsWindow) {
             try {
+                // Trigger event to save current logs to localStorage before undocking
+                window.dispatchEvent(new CustomEvent('save-logs-to-storage'));
+
+                // Small delay to ensure logs are saved
+                await new Promise(resolve => setTimeout(resolve, 100));
+
                 await electron.openLogsWindow(1000, 600);
                 setIsLogsMode('window');
                 setActiveTab('terminal'); // Switch to terminal tab when undocking
@@ -102,7 +127,29 @@ export const TerminalPanel: React.FC = () => {
             electron.onLogsWindowClosed(() => {
                 setIsLogsMode('docked');
                 setActiveTab('logs'); // Switch back to logs tab when window is closed
+
+                // Trigger event to load logs from localStorage (logs window saved before closing)
+                // Small delay to ensure the logs tab is rendered
+                setTimeout(() => {
+                    window.dispatchEvent(new CustomEvent('load-logs-from-storage'));
+                }, 100);
             });
+        }
+
+        // Check if logs window is actually open (after refresh)
+        // Start as 'window' mode, switch to 'docked' only if window is NOT open
+        if (electron?.isLogsWindowOpen) {
+            electron.isLogsWindowOpen().then((isOpen: boolean) => {
+                if (!isOpen) {
+                    // Window not open, switch to docked mode
+                    setIsLogsMode('docked');
+                    // Keep terminal tab active initially
+                }
+                // If isOpen is true, stay in 'window' mode
+            });
+        } else {
+            // No electron API, must be docked
+            setIsLogsMode('docked');
         }
     }, []);
 

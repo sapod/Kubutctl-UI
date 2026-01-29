@@ -6,7 +6,7 @@ import { LogsPanel } from './components/LogsPanel';
 import {
     Sidebar, TerminalPanel, ResourceDrawer, ClusterHotbar, AddClusterModal,
     NamespaceSelector, ClusterCatalogModal, PortForwardModal, ShellModal, ConfirmationModal,
-    RoutineModal, ErrorBanner, UpdateNotification, WelcomeScreen,
+    ReplaceLogsTabModal, RoutineModal, ErrorBanner, UpdateNotification, WelcomeScreen,
     OverviewPage, NodesPage, PodsPage, DeploymentsPage, ReplicaSetsPage,
     JobsPage, CronJobsPage, ServicesPage, IngressesPage, ConfigMapsPage,
     NamespacesPage, ResourceQuotasPage, PortForwardingPage
@@ -223,6 +223,7 @@ const MainLayout = () => {
         <AddClusterModal />
         <ClusterCatalogModal />
         <ResourceDrawer />
+        <ReplaceLogsTabModal />
         <ConfirmationModal
             isOpen={state.isConfirmationModalOpen}
             onClose={() => {

@@ -8,7 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Now import everything else
-import { app, BrowserWindow, ipcMain, screen } from 'electron';
+import { app, BrowserWindow, ipcMain, screen, Menu, dialog, shell } from 'electron';
 import { spawn, exec } from 'child_process';
 import http from 'http';
 import pkg from 'electron-updater';
@@ -452,6 +452,184 @@ function saveWindowState() {
   });
 }
 
+// Create application menu
+function createApplicationMenu() {
+  const isMac = process.platform === 'darwin';
+
+  const template = [
+    // App menu (macOS only)
+    ...(isMac ? [{
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' }
+      ]
+    }] : []),
+    // Edit menu
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        ...(isMac ? [
+          { role: 'pasteAndMatchStyle' },
+          { role: 'delete' },
+          { role: 'selectAll' },
+          { type: 'separator' },
+          {
+            label: 'Speech',
+            submenu: [
+              { role: 'startSpeaking' },
+              { role: 'stopSpeaking' }
+            ]
+          }
+        ] : [
+          { role: 'delete' },
+          { type: 'separator' },
+          { role: 'selectAll' }
+        ])
+      ]
+    },
+    // View menu
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' }
+      ]
+    },
+    // Window menu
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        ...(isMac ? [
+          { type: 'separator' },
+          { role: 'front' },
+          { type: 'separator' },
+          { role: 'window' }
+        ] : [
+          { role: 'close' }
+        ])
+      ]
+    },
+    // Help menu
+    {
+      label: 'Help',
+      submenu: [
+        {
+          label: 'Check for Updates...',
+          click: async () => {
+            await handleManualUpdateCheck();
+          }
+        },
+        { type: 'separator' },
+        {
+          label: 'Learn More',
+          click: async () => {
+            await shell.openExternal('https://github.com/sapod/Kubutctl-UI');
+          }
+        }
+      ]
+    }
+  ];
+
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+}
+
+// Handle manual update check from menu
+async function handleManualUpdateCheck() {
+  if (isDev) {
+    await dialog.showMessageBox({
+      type: 'info',
+      title: 'Updates',
+      message: 'Updates are not available in development mode.',
+      buttons: ['OK']
+    });
+    return;
+  }
+
+  try {
+    const result = await autoUpdater.checkForUpdates();
+
+    if (result && result.updateInfo && result.updateInfo.version !== app.getVersion()) {
+      // Update available - show dialog to let user decide
+      const response = await dialog.showMessageBox({
+        type: 'info',
+        title: 'Update Available',
+        message: `A new version of Kubectl UI is available!`,
+        detail: `Current version: ${app.getVersion()}\nNew version: ${result.updateInfo.version}\n\nWould you like to download and install this update?`,
+        buttons: ['Download and Install', 'Cancel'],
+        defaultId: 0,
+        cancelId: 1
+      });
+
+      if (response.response === 0) {
+        // User chose to update - send to renderer to show update UI with autoDownload flag
+        pendingUpdateInfo = result.updateInfo;
+
+        if (mainWindow && mainWindow.webContents) {
+          // Send update info with autoDownload flag to indicate download should start automatically
+          const updateData = {
+            ...result.updateInfo,
+            autoDownload: true
+          };
+          mainWindow.webContents.send('update-available', updateData);
+        }
+
+        // Automatically start the download
+        try {
+          await autoUpdater.downloadUpdate();
+        } catch (downloadError) {
+          log('Error starting download:', downloadError.message);
+          // The error will be shown in the UpdateNotification component
+          if (mainWindow && mainWindow.webContents) {
+            mainWindow.webContents.send('update-error', downloadError);
+          }
+        }
+      } else { }
+    } else {
+      // No update available
+      await dialog.showMessageBox({
+        type: 'info',
+        title: 'No Updates Available',
+        message: 'You are running the latest version of Kubectl UI.',
+        detail: `Current version: ${app.getVersion()}`,
+        buttons: ['OK']
+      });
+    }
+  } catch (error) {
+    log('Error checking for updates:', error.message);
+    await dialog.showMessageBox({
+      type: 'error',
+      title: 'Update Check Failed',
+      message: 'Failed to check for updates.',
+      detail: error.message,
+      buttons: ['OK']
+    });
+  }
+}
+
 // Logs window management
 let logsWindow = null;
 
@@ -539,6 +717,37 @@ ipcMain.handle('close-logs-window', async () => {
   return { success: true };
 });
 
+// Check if logs window is currently open
+ipcMain.handle('is-logs-window-open', async () => {
+  return logsWindow && !logsWindow.isDestroyed();
+});
+
+// Focus the logs window (bring it to front)
+ipcMain.handle('focus-logs-window', async () => {
+  if (logsWindow && !logsWindow.isDestroyed()) {
+    // Use multiple methods to ensure window comes to front
+    if (logsWindow.isMinimized()) {
+      logsWindow.restore();
+    }
+
+    // Temporarily set always on top to force window to front
+    logsWindow.setAlwaysOnTop(true);
+    logsWindow.show();
+    logsWindow.focus();
+
+    // Remove always on top after a short delay
+    setTimeout(() => {
+      if (logsWindow && !logsWindow.isDestroyed()) {
+        logsWindow.setAlwaysOnTop(false);
+      }
+    }, 100);
+
+    return { success: true };
+  }
+
+  return { success: false };
+});
+
 // Clear logs state from localStorage (called on app quit)
 ipcMain.handle('clear-logs-state', async () => {
   try {
@@ -617,9 +826,14 @@ function createWindow() {
     });
   };
 
-  setTimeout(loadWindow, 3000);
+  setTimeout(loadWindow, 500);
 
   mainWindow.on('close', () => {
+    // Close logs window if it's open
+    if (logsWindow && !logsWindow.isDestroyed()) {
+      logsWindow.close();
+      logsWindow = null;
+    }
     saveWindowState();
   });
 
@@ -846,7 +1060,7 @@ let hasCleanedUp = false;
 async function cleanup() {
   if (hasCleanedUp) return;
   hasCleanedUp = true;
-  
+
 
   if (frontendServer) {
     try {
@@ -862,6 +1076,16 @@ app.whenReady().then(async () => {
     await startBackend();
     await startFrontend();
     createWindow();
+
+    // Create application menu after window is created
+    try {
+      createApplicationMenu();
+    } catch (menuError) {
+      log('Error creating menu: ' + menuError.message);
+      log('Menu error stack: ' + menuError.stack);
+      // Continue even if menu creation fails
+    }
+
     log('Kubectl UI started successfully');
 
     // Check for updates after app starts (delay to let UI load)
