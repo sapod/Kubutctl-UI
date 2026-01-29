@@ -33,10 +33,10 @@ const createEmptyLogsTab = (id?: string): LogsTabState => ({
 });
 
 // Helper functions for logsTabs persistence
-const saveLogsTabs = (logsTabs: LogsTabState[], activeLogsTabId: string) => { 
-  try { 
-    localStorage.setItem('kube_logs_tabs', JSON.stringify({ tabs: logsTabs, activeTabId: activeLogsTabId })); 
-  } catch (e) {} 
+const saveLogsTabs = (logsTabs: LogsTabState[], activeLogsTabId: string) => {
+  try {
+    localStorage.setItem('kube_logs_tabs', JSON.stringify({ tabs: logsTabs, activeTabId: activeLogsTabId }));
+  } catch (e) {}
 };
 
 const getStoredLogsTabs = (): { tabs: LogsTabState[]; activeTabId: string } => {
@@ -59,8 +59,28 @@ const initialClusterId = getStoredCurrentClusterId(storedClusters);
 const initialClusterState = loadClusterState(initialClusterId);
 const storedLogsTabs = getStoredLogsTabs();
 
+// Load resources from localStorage (for logs window)
+const getStoredResourcesForLogs = () => {
+  try {
+    const stored = localStorage.getItem('kube_resources_for_logs');
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      return {
+        deployments: parsed.deployments || [],
+        pods: parsed.pods || [],
+        replicaSets: parsed.replicaSets || []
+      };
+    }
+  } catch (err) {
+    console.error('Failed to load resources from localStorage:', err);
+  }
+  return { deployments: [], pods: [], replicaSets: [] };
+};
+
+const storedResources = getStoredResourcesForLogs();
+
 const initialState: AppState = {
-  view: initialClusterState.view, isLoading: false, isContextSwitching: false, error: null, awsSsoLoginRequired: false, externalContextMismatch: false, currentClusterId: initialClusterId, selectedNamespace: getStoredNamespace(initialClusterId), clusters: storedClusters, nodes: [], pods: [], deployments: [], replicaSets: [], jobs: [], cronJobs: [], services: [], ingresses: [], configMaps: [], namespaces: [], events: [], resourceQuotas: [], portForwards: [], routines: getStoredRoutines(), terminalOutput: ['Welcome to Kubectl-UI', 'Initializing application...'], selectedResourceId: null, selectedResourceType: null, resourceHistory: [], drawerOpen: false, isAddClusterModalOpen: false, isCatalogOpen: false, isPortForwardModalOpen: false, portForwardModalData: null, isRoutineModalOpen: false, routineModalData: null, isShellModalOpen: false, shellModalData: null, isConfirmationModalOpen: false, confirmationModalData: null, logsTarget: null,
+  view: initialClusterState.view, isLoading: false, isContextSwitching: false, error: null, awsSsoLoginRequired: false, externalContextMismatch: false, currentClusterId: initialClusterId, selectedNamespace: getStoredNamespace(initialClusterId), clusters: storedClusters, nodes: [], pods: storedResources.pods, deployments: storedResources.deployments, replicaSets: storedResources.replicaSets, jobs: [], cronJobs: [], services: [], ingresses: [], configMaps: [], namespaces: [], events: [], resourceQuotas: [], portForwards: [], routines: getStoredRoutines(), terminalOutput: ['Welcome to Kubectl-UI', 'Initializing application...'], selectedResourceId: null, selectedResourceType: null, resourceHistory: [], drawerOpen: false, isAddClusterModalOpen: false, isCatalogOpen: false, isPortForwardModalOpen: false, portForwardModalData: null, isRoutineModalOpen: false, routineModalData: null, isShellModalOpen: false, shellModalData: null, isConfirmationModalOpen: false, confirmationModalData: null, isReplaceLogsTabModalOpen: false, replaceLogsTabModalData: null, logsTarget: null,
   logsTabs: storedLogsTabs.tabs,
   activeLogsTabId: storedLogsTabs.activeTabId,
   isStoreInitialized: false,
@@ -133,10 +153,135 @@ function reducer(state: AppState, action: Action): AppState {
     case 'OPEN_CONFIRMATION_MODAL': return { ...state, isConfirmationModalOpen: true, confirmationModalData: action.payload };
     case 'CLOSE_DRAWER_SILENTLY': return { ...state, drawerOpen: false };
     case 'CLOSE_CONFIRMATION_MODAL': return { ...state, isConfirmationModalOpen: false, confirmationModalData: null };
+    case 'OPEN_REPLACE_LOGS_TAB_MODAL': return { ...state, isReplaceLogsTabModalOpen: true, replaceLogsTabModalData: action.payload };
+    case 'CLOSE_REPLACE_LOGS_TAB_MODAL': return { ...state, isReplaceLogsTabModalOpen: false, replaceLogsTabModalData: null };
     case 'SET_LOGS_TARGET': return { ...state, logsTarget: action.payload };
+    case 'OPEN_LOGS_FOR_RESOURCE': {
+      // Centralized logic for opening logs - handles tab creation, replacement, and localStorage
+      const logsData = action.payload;
+
+      // Find which deployment owns this pod (if it's a pod)
+      let selectedDeployment = '';
+      let selectedPod = '';
+      let selectedContainer = '';
+
+      if (logsData.type === 'pod' && logsData.podName) {
+        const pod = state.pods.find(p => p.name === logsData.podName && p.namespace === logsData.namespace);
+
+        if (pod && pod.labels) {
+          // Find deployment by label matching
+          const matchingDeployment = state.deployments.find(dep => {
+            if (dep.namespace !== pod.namespace) return false;
+            if (!dep.selector || !pod.labels) return false;
+            return Object.entries(dep.selector).every(([key, value]) => pod.labels![key] === value);
+          });
+
+          if (matchingDeployment) {
+            selectedDeployment = `${matchingDeployment.namespace}/${matchingDeployment.name}`;
+          }
+        }
+
+        // Fallback to owner references
+        if (!selectedDeployment && pod?.ownerReferences) {
+          const owner = pod.ownerReferences.find(o => o.kind === 'ReplicaSet');
+          if (owner) {
+            const rs = state.replicaSets.find(r => r.name === owner.name && r.namespace === pod.namespace);
+            if (rs?.ownerReferences) {
+              const depOwner = rs.ownerReferences.find(o => o.kind === 'Deployment');
+              if (depOwner) {
+                selectedDeployment = `${pod.namespace}/${depOwner.name}`;
+              }
+            }
+          }
+        }
+
+        // Fallback to first deployment
+        if (!selectedDeployment && state.deployments.length > 0) {
+          selectedDeployment = `${state.deployments[0].namespace}/${state.deployments[0].name}`;
+        }
+
+        selectedPod = `${logsData.namespace}/${logsData.podName}`;
+        selectedContainer = logsData.container || '';
+      } else if (logsData.type === 'all-pods' && logsData.deploymentName) {
+        selectedDeployment = `${logsData.namespace}/${logsData.deploymentName}`;
+        selectedPod = 'all-pods';
+        selectedContainer = '';
+      }
+
+      // Determine which tab to use
+      // If targetTabId is specified, use that tab (from modal replacement)
+      // Otherwise, check if ANY tab is empty (not just the first one)
+      const targetTab = action.payload.targetTabId 
+        ? state.logsTabs.find(tab => tab.id === action.payload.targetTabId)
+        : state.logsTabs.find(tab => !tab.selectedDeployment && !tab.selectedPod);
+
+      let updatedTabs = state.logsTabs;
+      let newActiveId = state.activeLogsTabId;
+
+      if (targetTab) {
+        // Use the specified or empty tab
+        // If forceRefresh is true, add a timestamp to trigger log clearing
+        const updates = action.payload.forceRefresh
+          ? { selectedDeployment, selectedPod, selectedContainer, lastUpdated: Date.now() }
+          : { selectedDeployment, selectedPod, selectedContainer };
+          
+        updatedTabs = state.logsTabs.map(tab =>
+          tab.id === targetTab.id ? { ...tab, ...updates } : tab
+        );
+        newActiveId = targetTab.id;
+      } else if (state.logsTabs.length < 3) {
+        // No empty tabs and no target specified, but room for more - create new tab
+        const newTab = {
+          ...createEmptyLogsTab(),
+          selectedDeployment,
+          selectedPod,
+          selectedContainer
+        };
+        updatedTabs = [...state.logsTabs, newTab];
+        newActiveId = newTab.id;
+      } else {
+        // All tabs full - open modal for user to choose
+        return {
+          ...state,
+          isReplaceLogsTabModalOpen: true,
+          replaceLogsTabModalData: logsData
+        };
+      }
+
+      // Save to localStorage
+      saveLogsTabs(updatedTabs, newActiveId);
+
+      // Check if logs are undocked
+      const logsMode = localStorage.getItem('logsMode');
+      const isLogsUndocked = logsMode === 'window';
+
+      // Only close drawer if logs are docked (to see the logs in the terminal view)
+      // Keep drawer open if logs are undocked (so user can continue browsing resources)
+      const shouldCloseDrawer = !isLogsUndocked;
+
+      // Save cluster state
+      saveClusterState(state.currentClusterId, {
+        view: state.view,
+        drawerOpen: !shouldCloseDrawer,
+        selectedResourceId: shouldCloseDrawer ? null : state.selectedResourceId,
+        selectedResourceType: shouldCloseDrawer ? null : state.selectedResourceType,
+        resourceHistory: shouldCloseDrawer ? [] : state.resourceHistory
+      });
+
+      return {
+        ...state,
+        logsTabs: updatedTabs,
+        activeLogsTabId: newActiveId,
+        drawerOpen: !shouldCloseDrawer,
+        // Only clear selected resource if closing drawer (docked mode)
+        selectedResourceId: shouldCloseDrawer ? null : state.selectedResourceId,
+        selectedResourceType: shouldCloseDrawer ? null : state.selectedResourceType,
+        resourceHistory: shouldCloseDrawer ? [] : state.resourceHistory
+      };
+    }
     case 'UPDATE_LOGS_TAB': {
-      const newTabs = state.logsTabs.map(tab => 
-        tab.id === action.payload.tabId 
+      const newTabs = state.logsTabs.map(tab =>
+        tab.id === action.payload.tabId
           ? { ...tab, ...action.payload.updates }
           : tab
       );
@@ -153,8 +298,8 @@ function reducer(state: AppState, action: Action): AppState {
     case 'REMOVE_LOGS_TAB': {
       if (state.logsTabs.length <= 1) return state; // Keep at least 1 tab
       const newTabs = state.logsTabs.filter(tab => tab.id !== action.payload);
-      const newActiveId = state.activeLogsTabId === action.payload 
-        ? newTabs[0].id 
+      const newActiveId = state.activeLogsTabId === action.payload
+        ? newTabs[0].id
         : state.activeLogsTabId;
       saveLogsTabs(newTabs, newActiveId);
       return { ...state, logsTabs: newTabs, activeLogsTabId: newActiveId };
@@ -244,11 +389,90 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           console.error('Failed to sync logsTabs from localStorage:', err);
         }
       }
+      // Sync resources data for logs window
+      if (e.key === 'kube_resources_for_logs' && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          dispatch({ type: 'SET_DATA', payload: {
+            deployments: parsed.deployments || [],
+            pods: parsed.pods || [],
+            replicaSets: parsed.replicaSets || []
+          }});
+        } catch (err) {
+          console.error('Failed to sync resources from localStorage:', err);
+        }
+      }
+      // Sync logsTarget for cross-window communication (when clicking LOGS in drawer)
+      if (e.key === 'kube_logs_target' && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          // Only sync if it's a new target (has timestamp that's recent)
+          if (parsed && parsed.timestamp && (Date.now() - parsed.timestamp < 2000)) {
+            dispatch({ type: 'SET_LOGS_TARGET', payload: parsed.target });
+          }
+        } catch (err) {
+          console.error('Failed to sync logsTarget from localStorage:', err);
+        }
+      }
+      // Sync cluster changes for undocked window
+      if (e.key === 'kube_current_cluster_id' && e.newValue) {
+        try {
+          const newClusterId = e.newValue;
+          // Only sync if it's different from current
+          if (newClusterId !== state.currentClusterId) {
+            dispatch({ type: 'SELECT_CLUSTER', payload: newClusterId });
+          }
+        } catch (err) {
+          console.error('Failed to sync cluster change from localStorage:', err);
+        }
+      }
     };
 
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
-  }, []);
+  }, [state.currentClusterId]);
+
+  // Save resources to localStorage for logs window (only in main window, not logs-only mode)
+  useEffect(() => {
+    // Check if we're NOT in logs-only mode
+    const params = new URLSearchParams(window.location.search);
+    const isLogsOnly = params.get('logsOnly') === 'true';
+
+    if (!isLogsOnly && state.currentClusterId) {
+      try {
+        localStorage.setItem('kube_resources_for_logs', JSON.stringify({
+          deployments: state.deployments,
+          pods: state.pods,
+          replicaSets: state.replicaSets
+        }));
+      } catch (err) {
+        console.error('Failed to save resources to localStorage:', err);
+      }
+    }
+  }, [state.deployments, state.pods, state.replicaSets, state.currentClusterId]);
+
+  // Sync logsTarget to localStorage for cross-window communication
+  useEffect(() => {
+    if (state.logsTarget) {
+      try {
+        // Save with timestamp to ensure only recent targets are processed
+        const payload = {
+          target: state.logsTarget,
+          timestamp: Date.now()
+        };
+        localStorage.setItem('kube_logs_target', JSON.stringify(payload));
+      } catch (err) {
+        console.error('Failed to save logsTarget to localStorage:', err);
+      }
+    } else {
+      // Clear logsTarget from localStorage when it's null
+      try {
+        localStorage.removeItem('kube_logs_target');
+      } catch (err) {
+        console.error('Failed to clear logsTarget from localStorage:', err);
+      }
+    }
+  }, [state.logsTarget]);
 
   // Clear logs state, active tab, and drawer state on fresh app start (not refresh)
   // Use Electron's app session ID which is unique per app launch but same across refreshes

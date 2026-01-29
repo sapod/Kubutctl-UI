@@ -717,6 +717,11 @@ ipcMain.handle('close-logs-window', async () => {
   return { success: true };
 });
 
+// Check if logs window is currently open
+ipcMain.handle('is-logs-window-open', async () => {
+  return logsWindow && !logsWindow.isDestroyed();
+});
+
 // Clear logs state from localStorage (called on app quit)
 ipcMain.handle('clear-logs-state', async () => {
   try {
@@ -798,6 +803,11 @@ function createWindow() {
   setTimeout(loadWindow, 500);
 
   mainWindow.on('close', () => {
+    // Close logs window if it's open
+    if (logsWindow && !logsWindow.isDestroyed()) {
+      logsWindow.close();
+      logsWindow = null;
+    }
     saveWindowState();
   });
 

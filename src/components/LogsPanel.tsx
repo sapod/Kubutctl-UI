@@ -36,6 +36,7 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
         appliedDateTo,
         autoRefreshEnabled,
         autoRefreshInterval,
+        lastUpdated,
     } = currentTab || {
         selectedDeployment: '',
         selectedPod: '',
@@ -49,6 +50,7 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
         appliedDateTo: '',
         autoRefreshEnabled: true,
         autoRefreshInterval: 5000,
+        lastUpdated: undefined,
     };
 
     // Helper to update logs state in store for this specific tab
@@ -57,7 +59,24 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
     };
 
     // Logs state - use a Map to store logs per tab, so each tab has its own logs
-    const [logsPerTab, setLogsPerTab] = useState<Map<string, string[]>>(new Map());
+    // Initialize from localStorage if in undocked mode
+    const [logsPerTab, setLogsPerTab] = useState<Map<string, string[]>>(() => {
+        const logsMode = localStorage.getItem('logsMode');
+        if (logsMode === 'window') {
+            // Load logs from localStorage when undocked
+            try {
+                const storedLogs = localStorage.getItem('kube_logs_data');
+                if (storedLogs) {
+                    const parsed = JSON.parse(storedLogs) as Record<string, string[]>;
+                    return new Map<string, string[]>(Object.entries(parsed));
+                }
+            } catch (err) {
+                console.error('Failed to load logs from localStorage:', err);
+            }
+        }
+        return new Map<string, string[]>();
+    });
+
     const logLines = logsPerTab.get(currentTabId) || [];
 
     // Helper to set log lines for the current tab
@@ -102,7 +121,58 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
         deployment: string;
         pod: string;
         container: string;
+        version: number; // Add version to invalidate old fetches
     } | null>(null);
+
+    // Counter to track context changes
+    const contextVersionRef = useRef(0);
+
+    /**
+     * Validates if a pod exists in the current state.
+     * If the pod doesn't exist, it handles the error by:
+     * - Logging a warning to console
+     * - Showing a user-visible message in the logs panel
+     * - Auto-switching to all-pods mode (if autoSwitch is true)
+     * 
+     * @param podId - The pod identifier in format "namespace/podName"
+     * @param options - Configuration options
+     * @returns true if pod exists, false otherwise
+     */
+    const validatePodExists = (
+        podId: string, 
+        options: { 
+            autoSwitch?: boolean; 
+            userMessage?: string;
+            action?: string;
+        } = {}
+    ): boolean => {
+        const { autoSwitch = true, userMessage, action = 'operation' } = options;
+        
+        const [podNamespace, podName] = podId.split('/');
+        const podExists = state.pods.some(p => p.name === podName && p.namespace === podNamespace);
+
+        if (!podExists) {
+            const warningMsg = `Pod "${podName}" not found in namespace "${podNamespace}"`;
+            console.warn(`[LogsPanel] ${warningMsg}`);
+            
+            // Show user-visible message in logs
+            const displayMessage = userMessage || 
+                `⚠️ ${warningMsg}. ${autoSwitch ? 'Switching to all-pods mode...' : `Cannot perform ${action}.`}`;
+            setLogLines([displayMessage]);
+            
+            // Auto-switch to all-pods mode if enabled
+            if (autoSwitch) {
+                updateLogsState({
+                    selectedPod: 'all-pods',
+                    selectedContainer: '',
+                });
+            }
+            
+            return false;
+        }
+        
+        return true;
+    };
 
     // Search state for logs
     const [regexError, setRegexError] = useState<string>('');
@@ -164,6 +234,32 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
         }
     }, [currentTabId]);
 
+    // Ensure logsPerTab has entries for all tabs in state
+    useEffect(() => {
+        setLogsPerTab(prev => {
+            const newMap = new Map(prev);
+            let hasChanges = false;
+
+            // Add empty entries for any tabs that don't exist in the Map
+            for (const tab of state.logsTabs) {
+                if (!newMap.has(tab.id)) {
+                    newMap.set(tab.id, []);
+                    hasChanges = true;
+                }
+            }
+
+            // Remove entries for tabs that no longer exist in state
+            for (const key of newMap.keys()) {
+                if (!state.logsTabs.some(tab => tab.id === key)) {
+                    newMap.delete(key);
+                    hasChanges = true;
+                }
+            }
+
+            return hasChanges ? newMap : prev;
+        });
+    }, [state.logsTabs]);
+
     // Track previous cluster ID to detect actual cluster switches (not just component mount/unmount)
     const prevClusterIdRef = useRef(state.currentClusterId);
 
@@ -177,12 +273,100 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
         prevClusterIdRef.current = state.currentClusterId;
     }, [state.currentClusterId]);
 
-    // Handle logs target from state (when LOGS button is clicked in drawer)
+    // Handle save/load logs to/from localStorage on undock/dock
     useEffect(() => {
-        if (state.logsTarget) {
-            if (state.logsTarget.type === 'pod') {
+        const handleSaveToStorage = () => {
+            try {
+                const logsObject = Object.fromEntries(logsPerTab);
+                localStorage.setItem('kube_logs_data', JSON.stringify(logsObject));
+            } catch (err) {
+                console.error('Failed to save logs to localStorage:', err);
+            }
+        };
+
+        const handleLoadFromStorage = () => {
+            try {
+                const storedLogs = localStorage.getItem('kube_logs_data');
+                if (storedLogs) {
+                    const parsed = JSON.parse(storedLogs) as Record<string, string[]>;
+                    const newMap = new Map<string, string[]>(Object.entries(parsed));
+                    setLogsPerTab(newMap);
+
+                    // Clear localStorage after loading
+                    localStorage.removeItem('kube_logs_data');
+                }
+            } catch (err) {
+                console.error('Failed to load logs from localStorage:', err);
+            }
+        };
+
+        window.addEventListener('save-logs-to-storage', handleSaveToStorage);
+        window.addEventListener('load-logs-from-storage', handleLoadFromStorage);
+
+        return () => {
+            window.removeEventListener('save-logs-to-storage', handleSaveToStorage);
+            window.removeEventListener('load-logs-from-storage', handleLoadFromStorage);
+        };
+    }, [logsPerTab]);
+
+    // Save logs to localStorage before undocked window closes
+    useEffect(() => {
+        if (!standalone) return; // Only in standalone (undocked) mode
+
+        const handleBeforeUnload = () => {
+            try {
+                const logsObject = Object.fromEntries(logsPerTab);
+                localStorage.setItem('kube_logs_data', JSON.stringify(logsObject));
+            } catch (err) {
+                console.error('Failed to save logs before unload:', err);
+            }
+        };
+
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, [logsPerTab, standalone]);
+
+
+    // Handle logs target from state (when LOGS button is clicked in drawer)
+    // Track which logsTarget we've already processed to prevent loops
+    const processedLogsTargetRef = useRef<string>('');
+    const hasProcessedOnceRef = useRef(false);
+
+    useEffect(() => {
+        if (state.logsTarget && currentTabId === state.activeLogsTabId) {
+            // Check if we've already processed this exact logsTarget
+            const currentTargetStr = JSON.stringify(state.logsTarget);
+
+            // Only skip if we've processed at least once AND it's the same logsTarget
+            // This allows the first logsTarget to be processed in undocked window
+            if (hasProcessedOnceRef.current && currentTargetStr === processedLogsTargetRef.current) {
+                // Already processed, skip silently
+                return;
+            }
+
+            // Mark this logsTarget as processed immediately
+            processedLogsTargetRef.current = currentTargetStr;
+            hasProcessedOnceRef.current = true;
+
+            // Check if there's a specific target tab ID set (when creating new tab)
+            const targetTabId = (window as any).__logsTargetTabId;
+            if (targetTabId && targetTabId !== currentTabId) {
+                return;
+            }
+
+            // Small delay to ensure tab has fully switched before processing
+            const timer = setTimeout(() => {
+                // Double-check we're still the active tab after delay
+                if (currentTabId !== state.activeLogsTabId) {
+                    return;
+                }
+
+                const logsTarget = state.logsTarget;
+                if (!logsTarget) return;
+
+                if (logsTarget.type === 'pod') {
                 // For pod: find which deployment owns it using label matching
-                const pod = state.pods.find(p => p.name === state.logsTarget?.podName && p.namespace === state.logsTarget?.namespace);
+                const pod = state.pods.find(p => p.name === logsTarget.podName && p.namespace === logsTarget.namespace);
 
                 let deploymentFound = false;
                 let foundDeployment = '';
@@ -225,13 +409,13 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
 
                 updateLogsState({
                     selectedDeployment: foundDeployment,
-                    selectedPod: `${state.logsTarget.namespace}/${state.logsTarget.podName}`,
-                    selectedContainer: state.logsTarget.container || '',
+                    selectedPod: `${logsTarget.namespace}/${logsTarget.podName}`,
+                    selectedContainer: logsTarget.container || '',
                 });
-            } else if (state.logsTarget.type === 'all-pods' && state.logsTarget.deploymentName) {
+            } else if (logsTarget.type === 'all-pods' && logsTarget.deploymentName) {
                 // For deployment all-pods
                 updateLogsState({
-                    selectedDeployment: `${state.logsTarget.namespace}/${state.logsTarget.deploymentName}`,
+                    selectedDeployment: `${logsTarget.namespace}/${logsTarget.deploymentName}`,
                     selectedPod: 'all-pods',
                     selectedContainer: '',
                 });
@@ -240,9 +424,19 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
             // Clear the logs target after handling it (longer delay to ensure state updates complete)
             setTimeout(() => {
                 dispatch({ type: 'SET_LOGS_TARGET', payload: null });
+                // Clear the processed tracker when we clear the target
+                processedLogsTargetRef.current = '';
+                hasProcessedOnceRef.current = false;
             }, 500);
+            }, 100); // Small delay to ensure tab switching completes
+
+            return () => clearTimeout(timer);
+        } else if (!state.logsTarget) {
+            // Clear the tracker when logsTarget becomes null
+            processedLogsTargetRef.current = '';
+            hasProcessedOnceRef.current = false;
         }
-    }, [state.logsTarget, state.pods, state.deployments, state.replicaSets, availableDeployments]);
+    }, [state.logsTarget, state.pods, state.deployments, state.replicaSets, availableDeployments, currentTabId, state.activeLogsTabId]);
 
     // Refs to track the latest selection values (to avoid stale closures in auto-refresh)
     const latestSelectionRef = useRef({
@@ -251,7 +445,7 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
         container: selectedContainer,
         tabId: currentTabId,
     });
-    
+
     // Keep the ref updated with latest values
     useEffect(() => {
         latestSelectionRef.current = {
@@ -266,8 +460,20 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
     const fetchLogs = async () => {
         // Use the latest values from ref to avoid stale closures
         const latest = latestSelectionRef.current;
-        
+
         if (!latest.deployment) return;
+
+        // IMPORTANT: Validate pod exists BEFORE starting fetch
+        // This prevents errors when tab state has stale pod names
+        if (latest.pod && latest.pod !== 'all-pods') {
+            if (!validatePodExists(latest.pod, { 
+                autoSwitch: true,
+                action: 'fetch logs'
+            })) {
+                // Pod doesn't exist, validatePodExists already handled it
+                return;
+            }
+        }
 
         // Capture the current fetch context at the start
         const currentFetchContext = {
@@ -275,6 +481,7 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
             deployment: latest.deployment,
             pod: latest.pod,
             container: latest.container,
+            version: contextVersionRef.current, // Capture current version
         };
         fetchContextRef.current = currentFetchContext;
 
@@ -283,7 +490,9 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
             return fetchContextRef.current?.tabId === currentFetchContext.tabId &&
                    fetchContextRef.current?.deployment === currentFetchContext.deployment &&
                    fetchContextRef.current?.pod === currentFetchContext.pod &&
-                   fetchContextRef.current?.container === currentFetchContext.container;
+                   fetchContextRef.current?.container === currentFetchContext.container &&
+                   fetchContextRef.current?.version === currentFetchContext.version && // Check version!
+                   contextVersionRef.current === currentFetchContext.version; // Double-check against current version
         };
 
         // Track if this fetch should control loading state
@@ -380,14 +589,36 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
                 // Regular pod logs
                 if (!latest.pod || !latest.container) return;
                 const [podNamespace, podName] = latest.pod.split('/');
+
+                // Validate that the pod still exists
+                if (!validatePodExists(latest.pod, { 
+                    autoSwitch: true,
+                    action: 'fetch logs'
+                })) {
+                    // Pod doesn't exist, validatePodExists already handled it
+                    return;
+                }
+
                 lines = await kubectl.getLogs(podName, podNamespace, latest.container, showPrevious, searchQuery, appliedDateFrom, appliedDateTo);
             }
 
             processLogs(lines);
         } catch (e) {
             if (isContextStillValid()) {
-                const errorPrefix = latest.pod === 'all-pods' ? 'Failed to fetch deployment logs: ' : 'Failed to fetch logs: ';
-                setLogLines([errorPrefix + (e as Error).message]);
+                const errorMessage = (e as Error).message;
+
+                // Check if error is about pod not found
+                if (errorMessage.includes('not found') && latest.pod !== 'all-pods') {
+                    console.warn('Pod not found error, switching to all-pods mode');
+                    updateLogsState({
+                        selectedPod: 'all-pods',
+                        selectedContainer: '',
+                    });
+                    setLogLines(['Pod no longer exists. Switched to all-pods mode. Please wait...']);
+                } else {
+                    const errorPrefix = latest.pod === 'all-pods' ? 'Failed to fetch deployment logs: ' : 'Failed to fetch logs: ';
+                    setLogLines([errorPrefix + errorMessage]);
+                }
             } else {
                 shouldClearLoading = false;
             }
@@ -413,6 +644,18 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
                 lines = await kubectl.getDeploymentLogs(depName, namespace, searchQuery, appliedDateFrom, appliedDateTo, true);
             } else if (selectedPod && selectedContainer) {
                 const [podNamespace, podName] = selectedPod.split('/');
+
+                // Validate that the pod still exists
+                if (!validatePodExists(selectedPod, { 
+                    autoSwitch: false,
+                    userMessage: '⚠️ Cannot download logs: Pod no longer exists. Please select a different pod or use all-pods mode.',
+                    action: 'download logs'
+                })) {
+                    // Pod doesn't exist, validatePodExists already handled it
+                    setDownloadingLogs(false);
+                    return;
+                }
+
                 lines = await kubectl.getLogs(podName, podNamespace, selectedContainer, showPrevious, searchQuery, appliedDateFrom, appliedDateTo, true);
             } else {
                 return;
@@ -450,14 +693,31 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
     const prevAppliedDateToRef = useRef(appliedDateTo);
     const prevSearchQueryRef = useRef(searchQuery);
     const prevTabIdForFetchRef = useRef(currentTabId);
+    const prevLastUpdatedRef = useRef(lastUpdated);
+
+    // Track lastUpdated per tab to detect when it changes for a specific tab
+    const lastUpdatedPerTabRef = useRef<Map<string, number | undefined>>(new Map());
 
     // Fetch logs when selection changes
     useEffect(() => {
         // Check if this is just a tab switch (not a filter change within the same tab)
         const isTabSwitch = prevTabIdForFetchRef.current !== currentTabId;
 
-        if (isTabSwitch) {
-            // Tab switched - update all refs to new tab's values without triggering reload
+        // Check if lastUpdated changed FOR THIS SPECIFIC TAB
+        const previousLastUpdatedForThisTab = lastUpdatedPerTabRef.current.get(currentTabId);
+        const lastUpdatedChangedForThisTab = lastUpdated !== previousLastUpdatedForThisTab;
+
+        // Forced update: lastUpdated changed for the current tab (not just switching to a different tab)
+        const isForcedUpdate = lastUpdatedChangedForThisTab && lastUpdated !== undefined;
+
+        // Handle forced update FIRST (from tab replacement)
+        // This takes priority over normal tab switch logic
+        if (isForcedUpdate) {
+            // Update the per-tab tracking
+            lastUpdatedPerTabRef.current.set(currentTabId, lastUpdated);
+
+            // Update ALL refs to new values
+            prevLastUpdatedRef.current = lastUpdated;
             prevDeploymentRef.current = selectedDeployment;
             prevPodRef.current = selectedPod;
             prevContainerRef.current = selectedContainer;
@@ -467,7 +727,40 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
             prevSearchQueryRef.current = searchQuery;
             prevTabIdForFetchRef.current = currentTabId;
 
-            // If this tab already has logs, don't reload - just continue with auto-refresh
+            // Clear logs and increment version to invalidate pending fetches
+            contextVersionRef.current += 1;
+            setLogLines([]);
+            setIsContextLoading(true);
+            setLoadingLogs(true);
+            isScrolledToBottomRef.current = true;
+            setLastSeenLogLine('');
+            setHasInitializedLogs(false);
+            fetchContextRef.current = null;
+
+            // Trigger fetch with setTimeout to defer execution until after state updates complete
+            // Return cleanup function to cancel pending fetch if effect runs again (prevents race conditions)
+            const timeoutId = setTimeout(() => {
+                fetchLogs();
+            }, 0);
+
+            return () => clearTimeout(timeoutId);
+        }
+
+        if (isTabSwitch) {
+            // Update the per-tab tracking for the new tab
+            lastUpdatedPerTabRef.current.set(currentTabId, lastUpdated);
+            // Tab switched - update all refs to new tab's values without triggering reload
+            prevDeploymentRef.current = selectedDeployment;
+            prevPodRef.current = selectedPod;
+            prevContainerRef.current = selectedContainer;
+            prevShowPreviousRef.current = showPrevious;
+            prevAppliedDateFromRef.current = appliedDateFrom;
+            prevAppliedDateToRef.current = appliedDateTo;
+            prevSearchQueryRef.current = searchQuery;
+            prevTabIdForFetchRef.current = currentTabId;
+            prevLastUpdatedRef.current = lastUpdated;
+
+            // If this tab already has logs in memory, don't reload - just continue with auto-refresh
             // If no logs yet and has a deployment selected, start fresh fetch
             if (logLines.length === 0 && selectedDeployment && (selectedPod === 'all-pods' || (selectedPod && selectedContainer))) {
                 setIsContextLoading(true);
@@ -506,6 +799,8 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
                 // Clear logs and show "Loading logs..." text only on context change
                 // Show spinning icon for all changes
                 if (isContextChange) {
+                    // Increment version to invalidate ALL pending fetches
+                    contextVersionRef.current += 1;
                     setLogLines([]);
                     setIsContextLoading(true);
                     setLoadingLogs(true);
@@ -534,7 +829,7 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
                 return () => clearTimeout(timeoutId);
             }
         }
-    }, [selectedDeployment, selectedPod, selectedContainer, showPrevious, searchQuery, appliedDateFrom, appliedDateTo, currentTabId]);
+    }, [selectedDeployment, selectedPod, selectedContainer, showPrevious, searchQuery, appliedDateFrom, appliedDateTo, currentTabId, lastUpdated]);
 
     // Auto-refresh logs when enabled
     useEffect(() => {
@@ -549,11 +844,18 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
 
     // Update pod selection when deployment changes (but not when logsTarget is being set or on initial mount)
     useEffect(() => {
-        if (selectedDeployment &&
+        // Only auto-set to all-pods if:
+        // 1. Deployment changed
+        // 2. Not from logsTarget (drawer LOGS button)
+        // 3. Not initial mount
+        // 4. Pod is currently empty or all-pods (don't override if a specific pod is already set)
+        const shouldAutoSetAllPods = selectedDeployment &&
             !state.logsTarget &&
             prevSelectedDeploymentRef.current !== selectedDeployment &&
-            prevSelectedDeploymentRef.current !== '') {
-            // Deployment changed manually (not from mount or drawer)
+            prevSelectedDeploymentRef.current !== '' &&
+            (selectedPod === '' || selectedPod === 'all-pods' || !selectedPod);
+
+        if (shouldAutoSetAllPods) {
             updateLogsState({
                 selectedPod: 'all-pods',
                 selectedContainer: '',

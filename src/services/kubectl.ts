@@ -104,8 +104,9 @@ export const KUBECTL_COMMANDS: Record<string, CommandDefinition> = {
     }
 
     // Sort logs by timestamp (field 2 when using --prefix) to get chronological order across all containers
-    // This ensures logs are ordered by time, not grouped by container
-    cmd += ` | sort -k2,2`;
+    // Using -d (dictionary order) and -s (stable) to ensure proper chronological sorting
+    // ISO 8601 timestamps sort correctly alphabetically: 2026-01-26T13:30:45.123456789Z
+    cmd += ` | sort -k2,2 -d -s`;
 
     // Limit to 200 total lines only if not unlimited
     if (!unlimited) {
@@ -265,7 +266,7 @@ const transformResourceQuota = (raw: any): ResourceQuota => ({
     raw
 });
 
-const execute = async (command: string, notifyOnError: boolean = true): Promise<any> => {
+const execute = async (command: string, notifyOnError: boolean = true, retryCount = 0): Promise<any> => {
     const isSpam = (command.includes('get ') || command.includes('top ') || command.includes('current-context') || command.includes('logs')) && !command.includes(' --watch');
     if (logToTerminal && !isSpam) logToTerminal(`> ${command}`);
     try {
@@ -277,6 +278,15 @@ const execute = async (command: string, notifyOnError: boolean = true): Promise<
              const err = await response.json().catch(() => ({ error: "Backend execution failed" }));
              // Include stderr if available as it often contains AWS SSO error details
              const errorMsg = err.stderr ? `${err.error}\n${err.stderr}` : err.error;
+
+             // Check for config.lock error and retry
+             if (errorMsg && errorMsg.includes('config.lock: file exists') && retryCount < 3) {
+                 console.warn(`[kubectl] Config lock error, retrying (attempt ${retryCount + 1}/3)...`);
+                 // Exponential backoff: 100ms, 200ms, 400ms
+                 await new Promise(resolve => setTimeout(resolve, 100 * Math.pow(2, retryCount)));
+                 return execute(command, notifyOnError, retryCount + 1);
+             }
+
              throw new Error(errorMsg || "Backend execution failed");
         }
         const result = await response.json();
@@ -291,6 +301,13 @@ const execute = async (command: string, notifyOnError: boolean = true): Promise<
         }
         return result.data;
     } catch (e: any) {
+        // Check for config.lock error in exception message and retry
+        if (e.message && e.message.includes('config.lock: file exists') && retryCount < 3) {
+            console.warn(`[kubectl] Config lock error, retrying (attempt ${retryCount + 1}/3)...`);
+            await new Promise(resolve => setTimeout(resolve, 100 * Math.pow(2, retryCount)));
+            return execute(command, notifyOnError, retryCount + 1);
+        }
+
         if (notifyOnError && globalErrorHandler) {
             const isConnectionError = e.message?.includes('Failed to fetch') || e.message?.includes('NetworkError') || e.message?.includes('refused');
             const msg = e.name === 'TimeoutError' ? 'Kubectl operation timed out' : (isConnectionError ? `Cannot reach local backend (port ${BACKEND_PORT})` : e.message);

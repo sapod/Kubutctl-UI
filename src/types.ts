@@ -269,6 +269,15 @@ export interface AppState {
   // Confirmation Modal State
   isConfirmationModalOpen: boolean;
   confirmationModalData: { title: string; message: string; onConfirm: () => void; onCancel?: () => void } | null;
+  // Replace Logs Tab Modal State
+  isReplaceLogsTabModalOpen: boolean;
+  replaceLogsTabModalData: {
+    type: 'pod' | 'deployment' | 'all-pods';
+    podName?: string;
+    deploymentName?: string;
+    namespace: string;
+    container?: string;
+  } | null;
   // Logs Target State (for bottom panel)
   logsTarget: {
     type: 'pod' | 'deployment' | 'all-pods';
@@ -297,6 +306,7 @@ export interface LogsTabState {
   appliedDateTo: string;
   autoRefreshEnabled: boolean;
   autoRefreshInterval: number;
+  lastUpdated?: number; // Timestamp to track forced updates
 }
 
 export type Action =
@@ -339,7 +349,10 @@ export type Action =
   | { type: 'CLOSE_SHELL_MODAL' }
   | { type: 'OPEN_CONFIRMATION_MODAL'; payload: { title: string; message: string; onConfirm: () => void; onCancel?: () => void } }
   | { type: 'CLOSE_CONFIRMATION_MODAL' }
+  | { type: 'OPEN_REPLACE_LOGS_TAB_MODAL'; payload: AppState['replaceLogsTabModalData'] }
+  | { type: 'CLOSE_REPLACE_LOGS_TAB_MODAL' }
   | { type: 'SET_LOGS_TARGET'; payload: AppState['logsTarget'] }
+  | { type: 'OPEN_LOGS_FOR_RESOURCE'; payload: { type: 'pod' | 'all-pods'; podName?: string; deploymentName?: string; namespace: string; container?: string; targetTabId?: string; forceRefresh?: boolean } }
   | { type: 'UPDATE_LOGS_TAB'; payload: { tabId: string; updates: Partial<LogsTabState> } }
   | { type: 'ADD_LOGS_TAB'; payload?: LogsTabState }
   | { type: 'REMOVE_LOGS_TAB'; payload: string }

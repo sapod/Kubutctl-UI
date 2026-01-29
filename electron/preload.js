@@ -54,6 +54,9 @@ try {
     closeLogsWindow: async () => {
       return await ipcRenderer.invoke('close-logs-window');
     },
+    isLogsWindowOpen: async () => {
+      return await ipcRenderer.invoke('is-logs-window-open');
+    },
     onLogsWindowClosed: (callback) => {
       ipcRenderer.on('logs-window-closed', () => callback());
     },

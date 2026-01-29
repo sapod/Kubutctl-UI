@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Terminal, X, AlertTriangle, Plus, Trash2, Save, Edit2 } from 'lucide-react';
+import { Terminal, X, AlertTriangle, Plus, Trash2, Save, Edit2, FileText } from 'lucide-react';
 import { kubectl } from '../services/kubectl';
 import { useStore } from '../store';
 import { PortForwardRoutine, PortForwardRoutineItem } from '../types';
@@ -390,3 +390,158 @@ export const ShellModal: React.FC<{
       </div>
     );
 };
+
+export const ReplaceLogsTabModal: React.FC = () => {
+    const { state, dispatch } = useStore();
+    const [selectedTabId, setSelectedTabId] = useState<string>('');
+
+    const isOpen = state.isReplaceLogsTabModalOpen;
+    const newLogsData = state.replaceLogsTabModalData;
+
+    // Reset selection when modal opens
+    useEffect(() => {
+        if (isOpen) {
+            setSelectedTabId('');
+        }
+    }, [isOpen]);
+
+    if (!isOpen || !newLogsData) return null;
+
+    const handleClose = () => {
+        dispatch({ type: 'CLOSE_REPLACE_LOGS_TAB_MODAL' });
+    };
+
+    const handleConfirm = () => {
+        if (!selectedTabId || !newLogsData) return;
+
+        dispatch({
+            type: 'OPEN_LOGS_FOR_RESOURCE',
+            payload: {
+                ...newLogsData,
+                targetTabId: selectedTabId,
+                forceRefresh: true
+            }
+        });
+
+        handleClose();
+    };
+
+    const getTabDisplayInfo = (tab: typeof state.logsTabs[0]) => {
+        const deployment = tab.selectedDeployment.split('/')[1] || 'None';
+        const pod = tab.selectedPod === 'all-pods' ? 'All Pods' : (tab.selectedPod.split('/')[1] || 'None');
+        const container = tab.selectedContainer || 'None';
+
+        return { deployment, pod, container };
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[300]">
+            <div className="bg-gray-900 rounded-lg shadow-2xl border border-gray-700 w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col">
+                {/* Fixed Header */}
+                <div className="flex items-center justify-between p-4 border-b border-gray-800 flex-shrink-0">
+                    <div className="flex items-center gap-2">
+                        <FileText className="w-5 h-5 text-yellow-500" />
+                        <h2 className="text-lg font-semibold text-gray-100">All Logs Tabs Full</h2>
+                    </div>
+                    <button
+                        onClick={handleClose}
+                        className="text-gray-400 hover:text-gray-300 transition-colors"
+                    >
+                        <X className="w-5 h-5" />
+                    </button>
+                </div>
+
+                {/* Scrollable Content */}
+                <div className="px-6 pt-6 pb-4 overflow-y-auto flex-1">
+                    <p className="text-gray-300 mb-4">
+                        You've reached the maximum of 3 logs tabs. Please select a tab to replace with the new logs:
+                    </p>
+
+                    <div className="space-y-3">
+                        {state.logsTabs.map((tab, index) => {
+                            const info = getTabDisplayInfo(tab);
+                            const isSelected = selectedTabId === tab.id;
+
+                            return (
+                                <button
+                                    key={tab.id}
+                                    onClick={() => setSelectedTabId(tab.id)}
+                                    className={`w-full text-left p-4 rounded-lg border-2 transition-all ${
+                                        isSelected
+                                            ? 'border-blue-500 bg-blue-900/20'
+                                            : 'border-gray-700 bg-gray-800/50 hover:border-gray-600 hover:bg-gray-800'
+                                    }`}
+                                >
+                                    <div className="flex items-start justify-between">
+                                        <div className="flex-1">
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <span className={`font-semibold ${isSelected ? 'text-blue-400' : 'text-gray-200'}`}>
+                                                    {index === 0 ? 'Logs' : `Logs ${index + 1}`}
+                                                </span>
+                                                {tab.id === state.activeLogsTabId && (
+                                                    <span className="text-xs px-2 py-0.5 bg-green-900/30 text-green-400 rounded border border-green-700">
+                                                        Active
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="space-y-1.5 text-sm">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-gray-500 w-24">Deployment:</span>
+                                                    <span className={`font-mono ${info.deployment === 'None' ? 'text-gray-600 italic' : 'text-gray-300'}`}>
+                                                        {info.deployment}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-gray-500 w-24">Pod:</span>
+                                                    <span className={`font-mono ${info.pod === 'None' ? 'text-gray-600 italic' : 'text-gray-300'}`}>
+                                                        {info.pod}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-gray-500 w-24">Container:</span>
+                                                    <span className={`font-mono ${info.container === 'None' ? 'text-gray-600 italic' : 'text-gray-300'}`}>
+                                                        {info.container}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        {isSelected && (
+                                            <div className="ml-4">
+                                                <div className="w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center">
+                                                    <div className="w-2 h-2 bg-white rounded-full"></div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {/* Fixed Footer */}
+                <div className="px-6 py-4 border-t border-gray-800 flex gap-3 flex-shrink-0">
+                    <button
+                        onClick={handleClose}
+                        className="flex-1 px-4 py-2 text-gray-300 hover:bg-gray-800 rounded text-sm border border-gray-700 transition-colors"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        onClick={handleConfirm}
+                        disabled={!selectedTabId}
+                        className={`flex-1 px-4 py-2 rounded text-sm font-medium transition-all ${
+                            selectedTabId
+                                ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-900/20'
+                                : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                        }`}
+                    >
+                        Replace Selected Tab
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+

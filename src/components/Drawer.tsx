@@ -952,19 +952,19 @@ export const ResourceDrawer: React.FC = () => {
         // Handle null/undefined/invalid timestamps properly
         const timestampA = a.lastTimestamp || a.creationTimestamp;
         const timestampB = b.lastTimestamp || b.creationTimestamp;
-        
+
         if (!timestampA && !timestampB) return 0;
         if (!timestampA) return 1; // Push events without timestamps to the end
         if (!timestampB) return -1;
-        
+
         const timeA = new Date(timestampA).getTime();
         const timeB = new Date(timestampB).getTime();
-        
+
         // Handle invalid dates (NaN)
         if (isNaN(timeA) && isNaN(timeB)) return 0;
         if (isNaN(timeA)) return 1; // Push invalid dates to the end
         if (isNaN(timeB)) return -1;
-        
+
         return timeB - timeA; // Descending order (latest first)
     });
   };
@@ -1025,7 +1025,7 @@ export const ResourceDrawer: React.FC = () => {
                  <button
                    onClick={() => {
                      dispatch({
-                       type: 'SET_LOGS_TARGET',
+                       type: 'OPEN_LOGS_FOR_RESOURCE',
                        payload: {
                          type: 'all-pods',
                          deploymentName: resource.name,
@@ -1052,7 +1052,7 @@ export const ResourceDrawer: React.FC = () => {
                    <button
                      onClick={() => {
                        dispatch({
-                         type: 'SET_LOGS_TARGET',
+                         type: 'OPEN_LOGS_FOR_RESOURCE',
                          payload: {
                            type: 'pod',
                            podName: resource.name,
@@ -1089,7 +1089,7 @@ export const ResourceDrawer: React.FC = () => {
                            key={container.name}
                            onClick={() => {
                              dispatch({
-                               type: 'SET_LOGS_TARGET',
+                               type: 'OPEN_LOGS_FOR_RESOURCE',
                                payload: {
                                  type: 'pod',
                                  podName: resource.name,
@@ -1223,7 +1223,7 @@ export const ResourceDrawer: React.FC = () => {
                     // Use same timestamp logic as sorting
                     const displayTimestamp = e.lastTimestamp || e.creationTimestamp;
                     const ageText = displayTimestamp ? `${getAge(displayTimestamp)} ago` : 'Unknown';
-                    
+
                     return (
                     <div key={e.id} className="bg-gray-800/50 border border-gray-700/50 rounded p-3">
                         <div className="flex justify-between items-start mb-1">
