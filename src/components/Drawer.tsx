@@ -9,18 +9,19 @@ import yaml from 'js-yaml';
 import { BACKEND_WS_BASE_URL } from '../consts';
 
 // --- Drawer Table Component ---
-export const DrawerTable = ({ columns, data, onRowClick, storageKey }: {
+export const DrawerTable = ({ columns, data, onRowClick, storageKey, defaultSort }: {
     columns: { header: string, accessor: (item: any) => React.ReactNode, className?: string, sortValue?: (item: any) => any }[],
     data: any[],
     onRowClick?: (item: any) => void,
-    storageKey?: string
+    storageKey?: string,
+    defaultSort?: { key: number, direction: 'asc' | 'desc' }
 }) => {
     const [sortConfig, setSortConfig] = useState<{ key: number, direction: 'asc' | 'desc' } | null>(() => {
-        if (!storageKey) return null;
+        if (!storageKey) return defaultSort || null;
         try {
             const saved = localStorage.getItem(`kube_sort_${storageKey}`);
-            return saved ? JSON.parse(saved) : null;
-        } catch { return null; }
+            return saved ? JSON.parse(saved) : (defaultSort || null);
+        } catch { return defaultSort || null; }
     });
 
     const sortedData = React.useMemo(() => {
@@ -408,6 +409,7 @@ export const ResourceDrawer: React.FC = () => {
                 storageKey="drawer_deployments_rs"
                 data={rs}
                 onRowClick={(r) => handleLinkClick(r.id, 'replicaset')}
+                defaultSort={{ key: 1, direction: 'desc' }}
                 columns={[
                     { header: 'Name', accessor: (r) => <span className="text-blue-300 font-medium">{r.name}</span>, sortValue: (r) => r.name },
                     { header: 'Age', accessor: (r) => getAge(r.creationTimestamp), sortValue: (r) => r.creationTimestamp },
