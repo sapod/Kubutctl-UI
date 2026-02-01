@@ -135,10 +135,18 @@ function reducer(state: AppState, action: Action): AppState {
     case 'SCALE_DEPLOYMENT': return { ...state, deployments: state.deployments.map(d => d.id === action.payload.id ? { ...d, replicas: action.payload.replicas } : d) };
     case 'ROLLOUT_RESTART': return { ...state, terminalOutput: [...state.terminalOutput, `${action.payload.type} restarted.`] };
     case 'ADD_LOG': return { ...state, terminalOutput: [...state.terminalOutput, action.payload] };
-    case 'SELECT_RESOURCE': { const next = { ...state, selectedResourceId: action.payload.id, selectedResourceType: action.payload.type, resourceHistory: [], drawerOpen: true }; saveClusterState(state.currentClusterId, { view: next.view, drawerOpen: true, selectedResourceId: action.payload.id, selectedResourceType: action.payload.type, resourceHistory: [] }); return next; }
+    case 'SELECT_RESOURCE': {
+      const next = { ...state, selectedResourceId: action.payload.id, selectedResourceType: action.payload.type, resourceHistory: [], drawerOpen: true };
+      saveClusterState(state.currentClusterId, { view: next.view, drawerOpen: true, selectedResourceId: action.payload.id, selectedResourceType: action.payload.type, resourceHistory: [] });
+      return next;
+    }
     case 'DRILL_DOWN_RESOURCE': { const hist = [...state.resourceHistory]; if (state.selectedResourceId && state.selectedResourceType) hist.push({ id: state.selectedResourceId, type: state.selectedResourceType }); const next = { ...state, selectedResourceId: action.payload.id, selectedResourceType: action.payload.type, resourceHistory: hist, drawerOpen: true }; saveClusterState(state.currentClusterId, { view: next.view, drawerOpen: true, selectedResourceId: next.selectedResourceId, selectedResourceType: next.selectedResourceType, resourceHistory: hist }); return next; }
     case 'GO_BACK_RESOURCE': { const hist = [...state.resourceHistory]; const prev = hist.pop(); if (!prev) return state; const next = { ...state, selectedResourceId: prev.id, selectedResourceType: prev.type, resourceHistory: hist, drawerOpen: true }; saveClusterState(state.currentClusterId, { view: next.view, drawerOpen: true, selectedResourceId: next.selectedResourceId, selectedResourceType: next.selectedResourceType, resourceHistory: hist }); return next; }
-    case 'CLOSE_DRAWER': { const next = { ...state, drawerOpen: false, selectedResourceId: null, selectedResourceType: null, resourceHistory: [] }; saveClusterState(state.currentClusterId, { view: next.view, drawerOpen: false, selectedResourceId: null, selectedResourceType: null, resourceHistory: [] }); return next; }
+    case 'CLOSE_DRAWER': {
+      const next = { ...state, drawerOpen: false, selectedResourceId: null, selectedResourceType: null, resourceHistory: [] };
+      saveClusterState(state.currentClusterId, { view: next.view, drawerOpen: false, selectedResourceId: null, selectedResourceType: null, resourceHistory: [] });
+      return next;
+    }
     case 'UPDATE_POD_STATUS': return { ...state, pods: state.pods.map(p => p.id === action.payload.id ? { ...p, status: action.payload.status } : p) };
     case 'ADD_PORT_FORWARD': return { ...state, portForwards: [...state.portForwards, action.payload] };
     case 'REMOVE_PORT_FORWARD': return { ...state, portForwards: state.portForwards.filter(pf => pf.id !== action.payload) };
@@ -213,7 +221,7 @@ function reducer(state: AppState, action: Action): AppState {
       // Determine which tab to use
       // If targetTabId is specified, use that tab (from modal replacement)
       // Otherwise, check if ANY tab is empty (not just the first one)
-      const targetTab = action.payload.targetTabId 
+      const targetTab = action.payload.targetTabId
         ? state.logsTabs.find(tab => tab.id === action.payload.targetTabId)
         : state.logsTabs.find(tab => !tab.selectedDeployment && !tab.selectedPod);
 
@@ -226,7 +234,7 @@ function reducer(state: AppState, action: Action): AppState {
         const updates = action.payload.forceRefresh
           ? { selectedDeployment, selectedPod, selectedContainer, lastUpdated: Date.now() }
           : { selectedDeployment, selectedPod, selectedContainer };
-          
+
         updatedTabs = state.logsTabs.map(tab =>
           tab.id === targetTab.id ? { ...tab, ...updates } : tab
         );
@@ -706,7 +714,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               if (Date.now() - lastActivityRef.current > INACTIVITY_TIMEOUT) return;
               const type = state.selectedResourceType!; const id = state.selectedResourceId!;
               let res: any = null;
-              if (type === 'pod') res = state.pods.find(r => r.id === id); else if (type === 'deployment') res = state.deployments.find(r => r.id === id); else if (type === 'replicaset') res = state.replicaSets.find(r => r.id === id); else if (type === 'job') res = state.jobs.find(r => r.id === id); else if (type === 'cronjob') res = state.cronJobs.find(r => r.id === id); else if (type === 'node') res = state.nodes.find(r => r.id === id); else if (type === 'service') res = state.services.find(r => r.id === id); else if (type === 'ingress') res = state.ingresses.find(r => r.id === id); else if (type === 'configmap') res = state.configMaps.find(r => r.id === id); else if (type === 'namespace') res = state.namespaces.find(r => r.id === id); else if (type === 'resourcequota') res = state.resourceQuotas.find(r => r.id === id);
+              if (type === 'pod') res = state.pods.find(r => r.id === id);
+              else if (type === 'deployment') res = state.deployments.find(r => r.id === id);
+              else if (type === 'replicaset') res = state.replicaSets.find(r => r.id === id);
+              else if (type === 'job') res = state.jobs.find(r => r.id === id);
+              else if (type === 'cronjob') res = state.cronJobs.find(r => r.id === id);
+              else if (type === 'node') res = state.nodes.find(r => r.id === id);
+              else if (type === 'service') res = state.services.find(r => r.id === id);
+              else if (type === 'ingress') res = state.ingresses.find(r => r.id === id);
+              else if (type === 'configmap') res = state.configMaps.find(r => r.id === id);
+              else if (type === 'namespace') res = state.namespaces.find(r => r.id === id);
+              else if (type === 'event') res = state.events.find(r => r.id === id);
+              else if (type === 'resourcequota') res = state.resourceQuotas.find(r => r.id === id);
 
               if (res) {
                 try {

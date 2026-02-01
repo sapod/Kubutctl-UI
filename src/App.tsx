@@ -11,7 +11,7 @@ import {
     ReplaceLogsTabModal, RoutineModal, ErrorBanner, UpdateNotification, WelcomeScreen,
     OverviewPage, NodesPage, PodsPage, DeploymentsPage, ReplicaSetsPage,
     JobsPage, CronJobsPage, ServicesPage, IngressesPage, ConfigMapsPage,
-    NamespacesPage, ResourceQuotasPage, PortForwardingPage
+    NamespacesPage, ResourceQuotasPage, PortForwardingPage, EventsPage
 } from './components/UI';
 import { Loader2, Plus, FileText, X } from 'lucide-react';
 import { kubectl } from './services/kubectl';
@@ -124,6 +124,7 @@ const MainLayout = () => {
       case 'namespaces': return <NamespacesPage />;
       case 'resourcequotas': return <ResourceQuotasPage />;
       case 'port-forwarding': return <PortForwardingPage />;
+      case 'events': return <EventsPage />;
       default: return <OverviewPage />;
     }
   };

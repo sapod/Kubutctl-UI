@@ -1201,6 +1201,15 @@ export const ResourceDrawer: React.FC = () => {
                {'involvedObject' in resource && <DetailItem label="Object" value={`${(resource as any).involvedObject.kind}/${(resource as any).involvedObject.name}`} />}
             </div>
 
+            {state.selectedResourceType === 'event' && 'message' in resource && (
+              <div className="space-y-3">
+                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Message</h3>
+                <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
+                  <p className="text-sm text-gray-300 whitespace-pre-wrap break-words">{(resource as any).message}</p>
+                </div>
+              </div>
+            )}
+
             <div className="space-y-3">
               <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Labels</h3>
               <div className="flex flex-wrap gap-2">

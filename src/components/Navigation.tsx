@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../store';
-import { Layers, ChevronDown, Activity, Server, Box, Copy, PlayCircle, Clock, Globe, Anchor, Network, FileText, PieChart, LayoutGrid, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Layers, ChevronDown, Activity, Server, Box, Copy, PlayCircle, Clock, Globe, Anchor, Network, FileText, PieChart, LayoutGrid, ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
 
 // --- Namespace Selector ---
 export const NamespaceSelector: React.FC = () => {
@@ -199,7 +199,9 @@ export const Sidebar: React.FC<{ currentView: string; onViewChange: (view: any) 
     },
     {
       title: 'System',
-      items: []
+      items: [
+        { view: 'events', icon: Calendar, label: 'Events' },
+      ]
     }
   ];
 

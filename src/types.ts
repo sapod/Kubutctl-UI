@@ -223,7 +223,8 @@ export type View =
   | 'configmaps'
   | 'namespaces'
   | 'resourcequotas'
-  | 'port-forwarding';
+  | 'port-forwarding'
+  | 'events';
 
 export interface AppState {
   isStoreInitialized: boolean;
