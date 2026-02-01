@@ -11,5 +11,5 @@ export const INACTIVITY_THRESHOLD_MS = 60 * 60 * 1000;
 export const INACTIVITY_TIMEOUT = 5 * 60 * 1000;
 
 // Maximum items per resource type to cache (keeps cache size under control)
-export const MAX_CACHED_ITEMS_PER_TYPE = 50;
+export const MAX_CACHED_ITEMS_PER_TYPE = 35;
 

@@ -109,6 +109,14 @@ function reducer(state: AppState, action: Action): AppState {
       const nextState = loadClusterState(action.payload);
       const isActualSwitch = state.currentClusterId !== action.payload;
 
+      // Check if we have cached data for this cluster
+      const cluster = state.clusters.find(c => c.id === action.payload);
+      let hasCachedData = false;
+      if (cluster) {
+        const cache = loadClusterCache();
+        hasCachedData = cache.has(cluster.name);
+      }
+
       return {
         ...state,
         currentClusterId: action.payload,
@@ -119,12 +127,12 @@ function reducer(state: AppState, action: Action): AppState {
         selectedResourceId: null,
         selectedResourceType: null,
         resourceHistory: [],
-        terminalOutput: [...state.terminalOutput, `Context switch: ${state.clusters.find(c => c.id === action.payload)?.name}`],
+        terminalOutput: [...state.terminalOutput, `Context switch: ${cluster?.name || action.payload}`],
         error: null,
         // Clear external context mismatch when user selects a cluster
         externalContextMismatch: false,
-        // Only set isContextSwitching if actually switching clusters
-        isContextSwitching: isActualSwitch
+        // Only set isContextSwitching if switching to non-cached cluster
+        isContextSwitching: isActualSwitch && !hasCachedData
       };
     }
     case 'DISCONNECT_CLUSTER': { const updated = state.clusters.map(c => c.id === action.payload ? { ...c, status: 'Disconnected' } : c); localStorage.setItem('kube_clusters', JSON.stringify(updated)); return { ...state, clusters: updated as Cluster[] }; }
@@ -491,8 +499,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           const dataString = JSON.stringify(limitedData);
           const sizeInKB = new Blob([dataString]).size / 1024;
 
-          // Only save if under 500KB (well under localStorage limits)
-          if (sizeInKB < 500) {
+          // Only save if under 1000KB (well under localStorage limits)
+          if (sizeInKB < 1000) {
             localStorage.setItem('kube_resources_for_logs', dataString);
           } else {
             console.warn(`Resources data too large (${sizeInKB.toFixed(0)}KB), not caching for logs window`);
@@ -1175,17 +1183,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           dispatch({ type: 'SET_DATA', payload: bgData });
 
           // Update cache with background data to keep it fresh
-          // Use limitCacheData to ensure we don't exceed MAX_CACHED_ITEMS_PER_TYPE
+          // Limit bgData BEFORE merging to prevent cache growth
           // Only update if we're still on the same cluster (user might have switched)
           const currentCluster = state.clusters.find(c => c.id === state.currentClusterId);
           if (!currentCluster) return; // Cluster no longer exists
 
           const cachedData = getCachedClusterData(state.currentClusterId);
           if (cachedData) {
-            // Merge background data with existing cache and limit
-            const mergedData = { ...cachedData, ...bgData };
-            const limitedData = limitCacheData(mergedData);
-            setCachedClusterData(state.currentClusterId, limitedData);
+            const limitedBgData = limitCacheData(bgData);
+            const mergedData = { ...cachedData, ...limitedBgData };
+
+            setCachedClusterData(state.currentClusterId, mergedData);
           } else {
             // If no cache exists yet, create one with background data (limited)
             const limitedData = limitCacheData(bgData);
@@ -1216,17 +1224,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               dispatch({ type: 'CLOSE_DRAWER_SILENTLY' });
             }
 
-            // Check if we have cached data for this cluster
-            const cachedData = getCachedClusterData(state.currentClusterId);
-            if (cachedData) {
-              // Immediately load cached data for instant UI update
-              dispatch({ type: 'SET_DATA', payload: cachedData });
+            // If we have cached data, load it immediately for instant display
+            const cachedClusterData = getCachedClusterData(state.currentClusterId);
+            if (cachedClusterData) {
+              dispatch({ type: 'SET_DATA', payload: cachedClusterData });
               dispatch({ type: 'SET_LOADING', payload: false });
-              // Don't clear isContextSwitching yet - wait for fresh data
-              isOfflineRef.current = false;
-
-              // Continue to fetch fresh data in background to update the cache
-              // Don't set loading state for this refresh
+              // Fresh data will be fetched below and update smoothly
             }
 
             const cur = state.clusters.find(c => c.id === state.currentClusterId);
