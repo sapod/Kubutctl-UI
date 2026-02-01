@@ -80,7 +80,7 @@ const getStoredResourcesForLogs = () => {
 const storedResources = getStoredResourcesForLogs();
 
 const initialState: AppState = {
-  view: initialClusterState.view, isLoading: false, isContextSwitching: false, error: null, awsSsoLoginRequired: false, externalContextMismatch: false, currentClusterId: initialClusterId, selectedNamespace: getStoredNamespace(initialClusterId), clusters: storedClusters, nodes: [], pods: storedResources.pods, deployments: storedResources.deployments, replicaSets: storedResources.replicaSets, jobs: [], cronJobs: [], services: [], ingresses: [], configMaps: [], namespaces: [], events: [], resourceQuotas: [], portForwards: [], routines: getStoredRoutines(), terminalOutput: ['Welcome to Kubectl-UI', 'Initializing application...'], selectedResourceId: null, selectedResourceType: null, resourceHistory: [], drawerOpen: false, isAddClusterModalOpen: false, isCatalogOpen: false, isPortForwardModalOpen: false, portForwardModalData: null, isRoutineModalOpen: false, routineModalData: null, isShellModalOpen: false, shellModalData: null, isConfirmationModalOpen: false, confirmationModalData: null, isReplaceLogsTabModalOpen: false, replaceLogsTabModalData: null, logsTarget: null,
+  view: initialClusterState.view, isLoading: false, isContextSwitching: false, error: null, awsSsoLoginRequired: false, externalContextMismatch: false, isVerifyingConnection: false, lastActiveTimestamp: Date.now(), currentClusterId: initialClusterId, selectedNamespace: getStoredNamespace(initialClusterId), clusters: storedClusters, nodes: [], pods: storedResources.pods, deployments: storedResources.deployments, replicaSets: storedResources.replicaSets, jobs: [], cronJobs: [], services: [], ingresses: [], configMaps: [], namespaces: [], events: [], resourceQuotas: [], portForwards: [], routines: getStoredRoutines(), terminalOutput: ['Welcome to Kubectl-UI', 'Initializing application...'], selectedResourceId: null, selectedResourceType: null, resourceHistory: [], drawerOpen: false, isAddClusterModalOpen: false, isCatalogOpen: false, isPortForwardModalOpen: false, portForwardModalData: null, isRoutineModalOpen: false, routineModalData: null, isShellModalOpen: false, shellModalData: null, isConfirmationModalOpen: false, confirmationModalData: null, isReplaceLogsTabModalOpen: false, replaceLogsTabModalData: null, logsTarget: null,
   logsTabs: storedLogsTabs.tabs,
   activeLogsTabId: storedLogsTabs.activeTabId,
   isStoreInitialized: false,
@@ -95,6 +95,8 @@ function reducer(state: AppState, action: Action): AppState {
     case 'SET_LOADING': return { ...state, isLoading: action.payload };
     case 'SET_CONTEXT_SWITCHING': return { ...state, isContextSwitching: action.payload };
     case 'SET_ERROR': return { ...state, error: action.payload, isLoading: false };
+    case 'SET_VERIFYING_CONNECTION': return { ...state, isVerifyingConnection: action.payload };
+    case 'UPDATE_LAST_ACTIVE_TIMESTAMP': return { ...state, lastActiveTimestamp: action.payload };
     case 'SELECT_CLUSTER': {
       try {
         localStorage.setItem('kube_current_cluster_id', action.payload);
