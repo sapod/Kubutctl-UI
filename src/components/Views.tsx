@@ -93,10 +93,13 @@ const ResourceTable: React.FC<ResourceTableProps> = ({ title, data, columns, onS
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const storageKey = `main_table_${title.replace(/\s/g, '').replace(/\//g, '_').toLowerCase()}`;
 
-  // Filter state - single search saved to localStorage, cleared on view change
+  // Per-view search filter key - session-based persistence
+  const filterStorageKey = `kube_search_filter_${state.view}`;
+
+  // Filter state - saved to sessionStorage per view (clears on app reopen)
   const [filter, setFilter] = useState(() => {
     try {
-      const saved = localStorage.getItem('kube_search_filter');
+      const saved = sessionStorage.getItem(filterStorageKey);
       return saved || '';
     } catch {
       return '';
@@ -113,32 +116,43 @@ const ResourceTable: React.FC<ResourceTableProps> = ({ title, data, columns, onS
     }
   });
 
-  // Save filter to localStorage when it changes
+  // Save filter to sessionStorage when it changes
   const handleFilterChange = (value: string) => {
     setFilter(value);
     try {
-      localStorage.setItem('kube_search_filter', value);
+      sessionStorage.setItem(filterStorageKey, value);
     } catch {}
   };
 
-  // Clear filter when view changes (tab switch)
-  // Store the current view in localStorage to detect view changes across component remounts
+  // Clear all filters when context changes, load saved filter on view change
   useEffect(() => {
-    const lastView = localStorage.getItem('kube_last_view');
+    const lastContext = sessionStorage.getItem('kube_last_context');
+    const currentContext = state.currentClusterId;
 
-    if (lastView && lastView !== state.view) {
-      // View changed - clear filter
+    // Context changed - clear all search filters
+    if (lastContext && lastContext !== currentContext) {
       setFilter('');
       try {
-        localStorage.removeItem('kube_search_filter');
+        // Clear all view-specific filters
+        Object.keys(sessionStorage).forEach(key => {
+          if (key.startsWith('kube_search_filter_')) {
+            sessionStorage.removeItem(key);
+          }
+        });
+      } catch {}
+    } else {
+      // Same context - load saved filter for this view
+      try {
+        const saved = sessionStorage.getItem(filterStorageKey);
+        setFilter(saved || '');
       } catch {}
     }
 
-    // Update last view
+    // Update last context
     try {
-      localStorage.setItem('kube_last_view', state.view);
+      sessionStorage.setItem('kube_last_context', currentContext);
     } catch {}
-  }, [state.view]);
+  }, [state.currentClusterId, state.view, filterStorageKey]);
 
   const filteredData = useMemo(() => data.filter(item => { if (state.selectedNamespace !== 'All Namespaces' && item.namespace && item.namespace !== state.selectedNamespace) return false; const nameToCheck = item.name || item.resourceName || ''; const namespaceToCheck = item.namespace || ''; return nameToCheck.toLowerCase().includes(filter.toLowerCase()) || namespaceToCheck.toLowerCase().includes(filter.toLowerCase()); }), [data, filter, state.selectedNamespace]);
   const sortedData = useMemo(() => { if (!sortConfig) return filteredData; const col = columns[sortConfig.key]; return [...filteredData].sort((a, b) => { const getVal = (item: any) => { if (col.sortValue) return col.sortValue(item); const key = col.header.toLowerCase(); if (item[key] !== undefined) return item[key]; return ''; }; const valA = getVal(a); const valB = getVal(b); if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1; if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1; return 0; }); }, [filteredData, sortConfig, columns]);
