@@ -117,21 +117,24 @@ jobs:
           
           # Extract the section for the current version from RELEASE-NOTES.md
           if [ -f "RELEASE-NOTES.md" ]; then
-            # Extract content between "## Version X.Y.Z" and the next "## Version" or "---"
-            NOTES=$(awk "/## Version ${VERSION}/,/^## Version |^---/" RELEASE-NOTES.md | sed '1d;$d' | sed '/^---$/d' | sed '/^<!--/,/-->$/d')
+            # Extract content between "## Version X.Y.Z" and "---"
+            # Then remove the header line and separator line
+            awk "/## Version ${VERSION}/,/^---$/" RELEASE-NOTES.md | sed '1d;$d' > /tmp/release-notes.txt
             
-            if [ -z "$NOTES" ]; then
+            # Check if we got any content
+            if [ -s /tmp/release-notes.txt ]; then
+              echo "Release notes found for version ${VERSION}"
+              cat /tmp/release-notes.txt
+            else
               echo "No release notes found for version ${VERSION}, using default"
-              NOTES="Release version ${VERSION}"
+              echo "Release version ${VERSION}" > /tmp/release-notes.txt
             fi
           else
             echo "RELEASE-NOTES.md not found, using default"
-            NOTES="Release version ${VERSION}"
+            echo "Release version ${VERSION}" > /tmp/release-notes.txt
           fi
           
-          # Save to file for use in release body
-          echo "$NOTES" > /tmp/release-notes.txt
-          echo "Release notes extracted for version ${VERSION}"
+          echo "Release notes extraction complete"
 
       - name: Create GitHub Release
         if: steps.check-tag.outputs.tag_exists == 'false'
