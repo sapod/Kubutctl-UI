@@ -115,6 +115,12 @@ jobs:
         run: |
           VERSION="${{ steps.package-version.outputs.version }}"
           
+          # Start building the release body
+          cat > /tmp/release-body.md << 'EOF_HEADER'
+          ## What's New
+          
+          EOF_HEADER
+          
           # Extract the section for the current version from RELEASE-NOTES.md
           if [ -f "RELEASE-NOTES.md" ]; then
             # Extract content between "## Version X.Y.Z" and "---"
@@ -124,17 +130,69 @@ jobs:
             # Check if we got any content
             if [ -s /tmp/release-notes.txt ]; then
               echo "Release notes found for version ${VERSION}"
-              cat /tmp/release-notes.txt
+              cat /tmp/release-notes.txt >> /tmp/release-body.md
             else
               echo "No release notes found for version ${VERSION}, using default"
-              echo "Release version ${VERSION}" > /tmp/release-notes.txt
+              echo "Release version ${VERSION}" >> /tmp/release-body.md
             fi
           else
             echo "RELEASE-NOTES.md not found, using default"
-            echo "Release version ${VERSION}" > /tmp/release-notes.txt
+            echo "Release version ${VERSION}" >> /tmp/release-body.md
           fi
           
-          echo "Release notes extraction complete"
+          # Add the rest of the release body
+          cat >> /tmp/release-body.md << 'EOF_FOOTER'
+          
+          ---
+          
+          ## Desktop Application Installers
+          
+          **macOS:**
+          - Apple Silicon (M1/M2/M3): `Kubectl-UI-${{ steps.package-version.outputs.version }}-arm64.dmg`
+          - Intel: `Kubectl-UI-${{ steps.package-version.outputs.version }}.dmg`
+          
+          **Windows:**
+          - `Kubectl-UI Setup ${{ steps.package-version.outputs.version }}.exe`
+          
+          **Linux:**
+          - AppImage (universal): `Kubectl-UI-${{ steps.package-version.outputs.version }}.AppImage`
+          - Debian/Ubuntu: `kubectl-ui_${{ steps.package-version.outputs.version }}_amd64.deb`
+          - Red Hat/Fedora: `kubectl-ui-${{ steps.package-version.outputs.version }}.x86_64.rpm`
+          
+          ## Installation
+          
+          **macOS:** Download and open the DMG file, drag the app to Applications
+          
+          ⚠️ **macOS Security Note:** The app is not code-signed. On first launch:
+          - Right-click "Kubectl-UI" in Applications → Open → Open
+          - Or if you get a "damaged" error, run: `xattr -cr "/Applications/Kubectl-UI.app"`
+          
+          **Windows:** Download and run the EXE installer
+          
+          **Linux:** Download AppImage and make it executable:
+          ```bash
+          chmod +x Kubectl*.AppImage
+          ./Kubectl*.AppImage
+          ```
+          
+          Or install via package manager:
+          ```bash
+          # Debian/Ubuntu
+          sudo dpkg -i kubectl-ui_${{ steps.package-version.outputs.version }}_amd64.deb
+          
+          # Red Hat/Fedora
+          sudo rpm -i kubectl-ui-${{ steps.package-version.outputs.version }}.x86_64.rpm
+          ```
+          
+          ## Requirements
+          
+          - kubectl installed (`brew install kubectl`)
+          - AWS CLI for EKS clusters (`brew install awscli`)
+          EOF_FOOTER
+          
+          echo "Release body created successfully"
+          echo "Preview:"
+          cat /tmp/release-body.md
 
       - name: Create GitHub Release
         if: steps.check-tag.outputs.tag_exists == 'false'
@@ -144,56 +202,7 @@ jobs:
         with:
           tag_name: v${{ steps.package-version.outputs.version }}
           name: Release v${{ steps.package-version.outputs.version }}
-          body: |
-            ## What's New
-            
-            $(cat /tmp/release-notes.txt)
-            
-            ---
-            
-            ## Desktop Application Installers
-            
-            **macOS:**
-            - Apple Silicon (M1/M2/M3): `Kubectl-UI-${{ steps.package-version.outputs.version }}-arm64.dmg`
-            - Intel: `Kubectl-UI-${{ steps.package-version.outputs.version }}.dmg`
-            
-            **Windows:**
-            - `Kubectl-UI Setup ${{ steps.package-version.outputs.version }}.exe`
-            
-            **Linux:**
-            - AppImage (universal): `Kubectl-UI-${{ steps.package-version.outputs.version }}.AppImage`
-            - Debian/Ubuntu: `kubectl-ui_${{ steps.package-version.outputs.version }}_amd64.deb`
-            - Red Hat/Fedora: `kubectl-ui-${{ steps.package-version.outputs.version }}.x86_64.rpm`
-            
-            ## Installation
-            
-            **macOS:** Download and open the DMG file, drag the app to Applications
-            
-            ⚠️ **macOS Security Note:** The app is not code-signed. On first launch:
-            - Right-click "Kubectl-UI" in Applications → Open → Open
-            - Or if you get a "damaged" error, run: `xattr -cr "/Applications/Kubectl-UI.app"`
-            
-            **Windows:** Download and run the EXE installer
-            
-            **Linux:** Download AppImage and make it executable:
-            ```bash
-            chmod +x Kubectl*.AppImage
-            ./Kubectl*.AppImage
-            ```
-            
-            Or install via package manager:
-            ```bash
-            # Debian/Ubuntu
-            sudo dpkg -i kubectl-ui_${{ steps.package-version.outputs.version }}_amd64.deb
-            
-            # Red Hat/Fedora
-            sudo rpm -i kubectl-ui-${{ steps.package-version.outputs.version }}.x86_64.rpm
-            ```
-            
-            ## Requirements
-            
-            - kubectl installed (`brew install kubectl`)
-            - AWS CLI for EKS clusters (`brew install awscli`)
+          body_path: /tmp/release-body.md
           draft: false
           prerelease: false
           files: |
