@@ -109,6 +109,30 @@ jobs:
         with:
           path: artifacts
 
+      - name: Extract release notes for current version
+        if: steps.check-tag.outputs.tag_exists == 'false'
+        id: release-notes
+        run: |
+          VERSION="${{ steps.package-version.outputs.version }}"
+          
+          # Extract the section for the current version from RELEASE-NOTES.md
+          if [ -f "RELEASE-NOTES.md" ]; then
+            # Extract content between "## Version X.Y.Z" and the next "## Version" or "---"
+            NOTES=$(awk "/## Version ${VERSION}/,/^## Version |^---/" RELEASE-NOTES.md | sed '1d;$d' | sed '/^---$/d' | sed '/^<!--/,/-->$/d')
+            
+            if [ -z "$NOTES" ]; then
+              echo "No release notes found for version ${VERSION}, using default"
+              NOTES="Release version ${VERSION}"
+            fi
+          else
+            echo "RELEASE-NOTES.md not found, using default"
+            NOTES="Release version ${VERSION}"
+          fi
+          
+          # Save to file for use in release body
+          echo "$NOTES" > /tmp/release-notes.txt
+          echo "Release notes extracted for version ${VERSION}"
+
       - name: Create GitHub Release
         if: steps.check-tag.outputs.tag_exists == 'false'
         uses: softprops/action-gh-release@v1
@@ -118,9 +142,13 @@ jobs:
           tag_name: v${{ steps.package-version.outputs.version }}
           name: Release v${{ steps.package-version.outputs.version }}
           body: |
-            ## Release v${{ steps.package-version.outputs.version }}
+            ## What's New
             
-            ### Desktop Application Installers
+            $(cat /tmp/release-notes.txt)
+            
+            ---
+            
+            ## Desktop Application Installers
             
             **macOS:**
             - Apple Silicon (M1/M2/M3): `Kubectl-UI-${{ steps.package-version.outputs.version }}-arm64.dmg`
@@ -134,7 +162,7 @@ jobs:
             - Debian/Ubuntu: `kubectl-ui_${{ steps.package-version.outputs.version }}_amd64.deb`
             - Red Hat/Fedora: `kubectl-ui-${{ steps.package-version.outputs.version }}.x86_64.rpm`
             
-            ### Installation
+            ## Installation
             
             **macOS:** Download and open the DMG file, drag the app to Applications
             
@@ -159,7 +187,7 @@ jobs:
             sudo rpm -i kubectl-ui-${{ steps.package-version.outputs.version }}.x86_64.rpm
             ```
             
-            ### Requirements
+            ## Requirements
             
             - kubectl installed (`brew install kubectl`)
             - AWS CLI for EKS clusters (`brew install awscli`)
