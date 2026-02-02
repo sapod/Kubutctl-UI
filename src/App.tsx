@@ -1,15 +1,17 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { StoreProvider, useStore } from './store';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ThemeToggle } from './components/ThemeToggle';
 import { LogsPanel } from './components/LogsPanel';
+import { ConnectionVerificationOverlay } from './components/ConnectionVerificationOverlay';
+import { INACTIVITY_THRESHOLD_MS } from './consts';
 import {
     Sidebar, TerminalPanel, ResourceDrawer, ClusterHotbar, AddClusterModal,
     NamespaceSelector, ClusterCatalogModal, PortForwardModal, ShellModal, ConfirmationModal,
     ReplaceLogsTabModal, RoutineModal, ErrorBanner, UpdateNotification, WelcomeScreen,
     OverviewPage, NodesPage, PodsPage, DeploymentsPage, ReplicaSetsPage,
     JobsPage, CronJobsPage, ServicesPage, IngressesPage, ConfigMapsPage,
-    NamespacesPage, ResourceQuotasPage, PortForwardingPage
+    NamespacesPage, ResourceQuotasPage, PortForwardingPage, EventsPage
 } from './components/UI';
 import { Loader2, Plus, FileText, X } from 'lucide-react';
 import { kubectl } from './services/kubectl';
@@ -26,29 +28,86 @@ const isLogsOnlyMode = () => {
 
 const MainLayout = () => {
   const { state, dispatch } = useStore();
+  const verificationInProgressRef = useRef(false);
 
-  // Auto-retry when window regains focus after AWS SSO login
+  // Detect inactivity and verify connection when app becomes active
   useEffect(() => {
-    if (!state.awsSsoLoginRequired) return;
+    const verifyConnection = async (isRecoveringFromAwsSso = false) => {
+      if (verificationInProgressRef.current) return;
+      verificationInProgressRef.current = true;
 
-    const handleFocus = () => {
-      // When the window regains focus and AWS SSO login is required,
-      // automatically retry the connection
-      dispatch({ type: 'SET_AWS_SSO_LOGIN_REQUIRED', payload: false });
-      dispatch({ type: 'SET_ERROR', payload: null });
+      dispatch({ type: 'SET_VERIFYING_CONNECTION', payload: true });
 
-      // Small delay to ensure the login has completed
-      setTimeout(() => {
-        window.location.reload();
-      }, 500);
+      try {
+        // Attempt to verify connection by making an actual API call to the cluster
+        // This will fail if AWS SSO token is expired or invalid
+        await kubectl.getNamespaces();
+
+        // Update last active timestamp
+        dispatch({ type: 'UPDATE_LAST_ACTIVE_TIMESTAMP', payload: Date.now() });
+
+        // If we were recovering from AWS SSO login, reload the app to refresh data
+        if (isRecoveringFromAwsSso) {
+          setTimeout(() => {
+            window.location.reload();
+          }, 300);
+        }
+      } catch (error: any) {
+        // Connection failed - might need AWS SSO login
+        if (error.message?.includes('error validating') ||
+            error.message?.includes('couldn\'t get current server API group list') ||
+            error.message?.includes('token is expired')) {
+          dispatch({ type: 'SET_AWS_SSO_LOGIN_REQUIRED', payload: true });
+          dispatch({ type: 'SET_ERROR', payload: 'AWS SSO authentication required' });
+        }
+      } finally {
+        dispatch({ type: 'SET_VERIFYING_CONNECTION', payload: false });
+        verificationInProgressRef.current = false;
+      }
     };
 
+    // Shared logic for checking inactivity
+    const checkInactivityAndVerify = () => {
+      const timeSinceLastActive = Date.now() - state.lastActiveTimestamp;
+
+      if (timeSinceLastActive > INACTIVITY_THRESHOLD_MS) {
+        verifyConnection(false);
+      } else {
+        dispatch({ type: 'UPDATE_LAST_ACTIVE_TIMESTAMP', payload: Date.now() });
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        // App became visible - check inactivity
+        checkInactivityAndVerify();
+      }
+    };
+
+    const handleFocus = () => {
+      // If AWS SSO login is required, user might have completed login
+      // Show verification overlay and verify connection
+      if (state.awsSsoLoginRequired) {
+        dispatch({ type: 'SET_AWS_SSO_LOGIN_REQUIRED', payload: false });
+        dispatch({ type: 'SET_ERROR', payload: null });
+        // Verify connection (will show loading overlay)
+        verifyConnection(true); // Pass true to reload once verified
+        return;
+      }
+
+      // Otherwise, check inactivity and verify if needed
+      checkInactivityAndVerify();
+    };
+
+    // Listen for visibility and focus changes
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('focus', handleFocus);
 
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleFocus);
     };
-  }, [state.awsSsoLoginRequired, dispatch]);
+  }, [state.lastActiveTimestamp, state.awsSsoLoginRequired, dispatch]);
 
   const renderView = () => {
     switch (state.view) {
@@ -65,6 +124,7 @@ const MainLayout = () => {
       case 'namespaces': return <NamespacesPage />;
       case 'resourcequotas': return <ResourceQuotasPage />;
       case 'port-forwarding': return <PortForwardingPage />;
+      case 'events': return <EventsPage />;
       default: return <OverviewPage />;
     }
   };
@@ -164,8 +224,7 @@ const MainLayout = () => {
                                </button>
                                <button
                                    onClick={() => {
-                                       dispatch({ type: 'SET_AWS_SSO_LOGIN_REQUIRED', payload: false });
-                                       dispatch({ type: 'SET_ERROR', payload: null });
+                                       // Just reload - handleFocus will clear the flags when window gains focus
                                        window.location.reload();
                                    }}
                                    className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-lg text-base font-bold transition-all shadow-lg shadow-blue-900/20"
@@ -307,6 +366,12 @@ const MainLayout = () => {
             namespace={state.shellModalData?.namespace || ''}
             containers={state.shellModalData?.containers || []}
         />
+
+        {/* Connection Verification Overlay */}
+        <ConnectionVerificationOverlay
+          isVisible={state.isVerifyingConnection}
+          message="Verifying cluster connection..."
+        />
     </div>
   );
 };
@@ -314,7 +379,7 @@ const MainLayout = () => {
 // Logs-only mode component with title update and tabs
 const LogsOnlyMode = () => {
   const { state, dispatch } = useStore();
-  
+
   useEffect(() => {
     document.title = 'Kubectl UI - Logs';
   }, []);
@@ -354,7 +419,7 @@ const LogsOnlyMode = () => {
             )}
           </div>
         ))}
-        
+
         {/* Add new logs tab button (max 3) */}
         {state.logsTabs.length < 3 && (
           <button
@@ -366,7 +431,7 @@ const LogsOnlyMode = () => {
           </button>
         )}
       </div>
-      
+
       {/* Logs panel for active tab */}
       <div className="flex-1 overflow-hidden">
         <LogsPanel standalone={true} tabId={state.activeLogsTabId} />

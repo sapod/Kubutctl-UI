@@ -77,16 +77,29 @@ export const OverviewPage: React.FC = () => {
   );
 };
 
-interface ResourceTableProps { title: string; data: any[]; columns: { header: string; accessor: (item: any) => React.ReactNode; sortValue?: (item: any) => string | number; }[]; onSelect?: (id: string) => void; showActions?: boolean; enableMultiSelect?: boolean; onBulkDelete?: (ids: string[]) => void; bulkActions?: { label: string; icon: React.ReactNode; onClick: (ids: string[]) => void }[]; }
-const ResourceTable: React.FC<ResourceTableProps> = ({ title, data, columns, onSelect, showActions = false, enableMultiSelect = false, onBulkDelete }) => {
+interface ResourceTableProps {
+  title: string;
+  data: any[];
+  columns: { header: string; accessor: (item: any) => React.ReactNode; sortValue?: (item: any) => string | number; className?: string; }[];
+  onSelect?: (id: string) => void;
+  showActions?: boolean;
+  enableMultiSelect?: boolean;
+  onBulkDelete?: (ids: string[]) => void;
+  bulkActions?: { label: string; icon: React.ReactNode; onClick: (ids: string[]) => void }[];
+  defaultSort?: { key: number; direction: 'asc' | 'desc' };
+}
+const ResourceTable: React.FC<ResourceTableProps> = ({ title, data, columns, onSelect, showActions = false, enableMultiSelect = false, onBulkDelete, defaultSort }) => {
   const { state } = useStore();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const storageKey = `main_table_${title.replace(/\s/g, '').replace(/\//g, '_').toLowerCase()}`;
 
-  // Filter state - single search saved to localStorage, cleared on view change
+  // Per-view search filter key - session-based persistence
+  const filterStorageKey = `kube_search_filter_${state.view}`;
+
+  // Filter state - saved to sessionStorage per view (clears on app reopen)
   const [filter, setFilter] = useState(() => {
     try {
-      const saved = localStorage.getItem('kube_search_filter');
+      const saved = sessionStorage.getItem(filterStorageKey);
       return saved || '';
     } catch {
       return '';
@@ -97,38 +110,49 @@ const ResourceTable: React.FC<ResourceTableProps> = ({ title, data, columns, onS
   const [sortConfig, setSortConfig] = useState<{ key: number; direction: 'asc' | 'desc' } | null>(() => {
     try {
       const saved = localStorage.getItem(`kube_sort_${storageKey}`);
-      return saved ? JSON.parse(saved) : null;
+      return saved ? JSON.parse(saved) : (defaultSort || null);
     } catch {
-      return null;
+      return defaultSort || null;
     }
   });
 
-  // Save filter to localStorage when it changes
+  // Save filter to sessionStorage when it changes
   const handleFilterChange = (value: string) => {
     setFilter(value);
     try {
-      localStorage.setItem('kube_search_filter', value);
+      sessionStorage.setItem(filterStorageKey, value);
     } catch {}
   };
 
-  // Clear filter when view changes (tab switch)
-  // Store the current view in localStorage to detect view changes across component remounts
+  // Clear all filters when context changes, load saved filter on view change
   useEffect(() => {
-    const lastView = localStorage.getItem('kube_last_view');
+    const lastContext = sessionStorage.getItem('kube_last_context');
+    const currentContext = state.currentClusterId;
 
-    if (lastView && lastView !== state.view) {
-      // View changed - clear filter
+    // Context changed - clear all search filters
+    if (lastContext && lastContext !== currentContext) {
       setFilter('');
       try {
-        localStorage.removeItem('kube_search_filter');
+        // Clear all view-specific filters
+        Object.keys(sessionStorage).forEach(key => {
+          if (key.startsWith('kube_search_filter_')) {
+            sessionStorage.removeItem(key);
+          }
+        });
+      } catch {}
+    } else {
+      // Same context - load saved filter for this view
+      try {
+        const saved = sessionStorage.getItem(filterStorageKey);
+        setFilter(saved || '');
       } catch {}
     }
 
-    // Update last view
+    // Update last context
     try {
-      localStorage.setItem('kube_last_view', state.view);
+      sessionStorage.setItem('kube_last_context', currentContext);
     } catch {}
-  }, [state.view]);
+  }, [state.currentClusterId, state.view, filterStorageKey]);
 
   const filteredData = useMemo(() => data.filter(item => { if (state.selectedNamespace !== 'All Namespaces' && item.namespace && item.namespace !== state.selectedNamespace) return false; const nameToCheck = item.name || item.resourceName || ''; const namespaceToCheck = item.namespace || ''; return nameToCheck.toLowerCase().includes(filter.toLowerCase()) || namespaceToCheck.toLowerCase().includes(filter.toLowerCase()); }), [data, filter, state.selectedNamespace]);
   const sortedData = useMemo(() => { if (!sortConfig) return filteredData; const col = columns[sortConfig.key]; return [...filteredData].sort((a, b) => { const getVal = (item: any) => { if (col.sortValue) return col.sortValue(item); const key = col.header.toLowerCase(); if (item[key] !== undefined) return item[key]; return ''; }; const valA = getVal(a); const valB = getVal(b); if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1; if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1; return 0; }); }, [filteredData, sortConfig, columns]);
@@ -159,7 +183,7 @@ const ResourceTable: React.FC<ResourceTableProps> = ({ title, data, columns, onS
                         <input type="checkbox" onChange={() => { if (selectedIds.length === filteredData.length) setSelectedIds([]); else setSelectedIds(filteredData.map(d => d.id)); }} checked={selectedIds.length === filteredData.length && filteredData.length > 0} className="rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-0 cursor-pointer" />
                       </th>}
                   {columns.map((col, idx) => (
-                    <th key={idx} className="px-6 py-3 border-b border-gray-700 cursor-pointer hover:text-white select-none group" onClick={() => handleSort(idx)}>
+                    <th key={idx} className={`px-6 py-3 border-b border-gray-700 cursor-pointer hover:text-white select-none group ${col.className || ''}`} onClick={() => handleSort(idx)}>
                       <div className="flex items-center gap-1"> {col.header} <span className="text-gray-600 group-hover:text-gray-400"> {sortConfig?.key === idx ? (sortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />) : <ArrowUp size={12} className="opacity-0 group-hover:opacity-50" />} </span> </div>
                     </th>
                   ))}
@@ -172,7 +196,7 @@ const ResourceTable: React.FC<ResourceTableProps> = ({ title, data, columns, onS
                         {enableMultiSelect && <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
                                 <input type="checkbox" checked={selectedIds.includes(item.id)} onChange={(e) => { e.stopPropagation(); if (selectedIds.includes(item.id)) setSelectedIds(selectedIds.filter(sid => sid !== item.id)); else setSelectedIds([...selectedIds, item.id]); }} className="rounded bg-gray-700 border-gray-600 text-blue-500 focus:ring-0 cursor-pointer" />
                             </td>}
-                        {columns.map((col, idx) => <td key={idx} className="px-6 py-4">{col.accessor(item)}</td>)}
+                        {columns.map((col, idx) => <td key={idx} className={`px-6 py-4 ${col.className || ''}`}>{col.accessor(item)}</td>)}
                         {showActions && <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}><button className="text-gray-500 hover:text-gray-300"><MoreVertical size={16} /></button></td>}
                     </tr>
                 ))}
@@ -343,5 +367,74 @@ export const PortForwardingPage: React.FC = () => {
                 </div>
             </div>
         </div>
+    );
+};
+
+export const EventsPage: React.FC = () => {
+    const { state, dispatch } = useStore();
+
+    return (
+        <ResourceTable
+            title="Events"
+            data={state.events}
+            defaultSort={{ key: 0, direction: 'desc' }}
+            onSelect={(id) => dispatch({ type: 'SELECT_RESOURCE', payload: { id, type: 'event' } })}
+            columns={[
+                {
+                    header: 'Age',
+                    accessor: (e) => getAge(e.lastTimestamp || e.creationTimestamp),
+                    sortValue: (e) => e.lastTimestamp || e.creationTimestamp
+                },
+                {
+                    header: 'Type',
+                    accessor: (e) => {
+                        const isWarning = e.type === 'Warning';
+                        return (
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
+                                isWarning ? 'bg-yellow-900/30 text-yellow-400' : 'bg-blue-900/30 text-blue-400'
+                            }`}>
+                                {isWarning && <AlertTriangle size={12} />}
+                                {e.type}
+                            </span>
+                        );
+                    },
+                    sortValue: (e) => e.type
+                },
+                {
+                    header: 'Reason',
+                    accessor: (e) => (
+                        <span className="font-medium text-gray-200 block truncate" title={e.reason}>
+                            {e.reason}
+                        </span>
+                    ),
+                    sortValue: (e) => e.reason,
+                    className: 'max-w-[250px]'
+                },
+                {
+                    header: 'Object',
+                    accessor: (e) => (
+                        <span className="text-gray-300">
+                            {e.involvedObject?.kind}/{e.involvedObject?.name}
+                        </span>
+                    ),
+                    sortValue: (e) => `${e.involvedObject?.kind}/${e.involvedObject?.name}`,
+                    className: 'min-w-[400px]'
+                },
+                {
+                    header: 'Namespace',
+                    accessor: (e) => e.namespace,
+                    sortValue: (e) => e.namespace
+                },
+                {
+                    header: 'Message',
+                    accessor: (e) => (
+                        <span className="text-gray-400 text-sm truncate block max-w-md" title={e.message}>
+                            {e.message}
+                        </span>
+                    ),
+                    sortValue: (e) => e.message
+                },
+            ]}
+        />
     );
 };

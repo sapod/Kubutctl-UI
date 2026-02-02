@@ -223,7 +223,8 @@ export type View =
   | 'configmaps'
   | 'namespaces'
   | 'resourcequotas'
-  | 'port-forwarding';
+  | 'port-forwarding'
+  | 'events';
 
 export interface AppState {
   isStoreInitialized: boolean;
@@ -233,6 +234,8 @@ export interface AppState {
   error: string | null; // Added global error state
   awsSsoLoginRequired: boolean; // Block UI when AWS SSO login is needed
   externalContextMismatch: boolean; // Block UI when kubectl context was changed externally
+  isVerifyingConnection: boolean; // Show loading overlay when verifying connection after inactivity
+  lastActiveTimestamp: number; // Track when the app was last active
   currentClusterId: string;
   selectedNamespace: string; // 'All Namespaces' or specific name
   clusters: Cluster[];
@@ -315,6 +318,8 @@ export type Action =
   | { type: 'SET_STORE_INITIALIZED'; payload: boolean }
   | { type: 'SET_CONTEXT_SWITCHING'; payload: boolean }
   | { type: 'SET_ERROR'; payload: string | null }
+  | { type: 'SET_VERIFYING_CONNECTION'; payload: boolean }
+  | { type: 'UPDATE_LAST_ACTIVE_TIMESTAMP'; payload: number }
   | { type: 'SET_DATA'; payload: Partial<AppState> }
   | { type: 'SELECT_CLUSTER'; payload: string }
   | { type: 'DISCONNECT_CLUSTER'; payload: string }

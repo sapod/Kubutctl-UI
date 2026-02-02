@@ -2,25 +2,26 @@ import React, { useState, useEffect } from 'react';
 import { useStore } from '../store';
 import { AppState, Pod, Ingress, Service, ResourceStatus, Deployment, Job } from '../types';
 import { kubectl } from '../services/kubectl';
-import { Box, X, Globe, ArrowRightCircle, Container as ContainerIcon, Network, FileText, RotateCw, Trash2, ChevronDown, AlertTriangle, Maximize2, Minimize2, HardDrive, ExternalLink, ArrowLeft, StopCircle, Play, History, Edit2, Save, Key } from 'lucide-react';
+import { Box, X, Globe, ArrowRightCircle, Container as ContainerIcon, Network, FileText, RotateCw, Trash2, ChevronDown, AlertTriangle, Maximize2, Minimize2, HardDrive, ExternalLink, ArrowLeft, StopCircle, Play, History, Edit2, Save, Key, Copy, Check } from 'lucide-react';
 import { StatusBadge, getAge, isMatch, resolvePortName, parseCpu, parseMemory } from './Shared';
 import PodTerminal from './PodTerminal';
 import yaml from 'js-yaml';
 import { BACKEND_WS_BASE_URL } from '../consts';
 
 // --- Drawer Table Component ---
-export const DrawerTable = ({ columns, data, onRowClick, storageKey }: {
+export const DrawerTable = ({ columns, data, onRowClick, storageKey, defaultSort }: {
     columns: { header: string, accessor: (item: any) => React.ReactNode, className?: string, sortValue?: (item: any) => any }[],
     data: any[],
     onRowClick?: (item: any) => void,
-    storageKey?: string
+    storageKey?: string,
+    defaultSort?: { key: number, direction: 'asc' | 'desc' }
 }) => {
     const [sortConfig, setSortConfig] = useState<{ key: number, direction: 'asc' | 'desc' } | null>(() => {
-        if (!storageKey) return null;
+        if (!storageKey) return defaultSort || null;
         try {
             const saved = localStorage.getItem(`kube_sort_${storageKey}`);
-            return saved ? JSON.parse(saved) : null;
-        } catch { return null; }
+            return saved ? JSON.parse(saved) : (defaultSort || null);
+        } catch { return defaultSort || null; }
     });
 
     const sortedData = React.useMemo(() => {
@@ -116,6 +117,7 @@ export const ResourceDrawer: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'details' | 'yaml' | 'events' | 'terminal'>('details');
   const [expandedCmKey, setExpandedCmKey] = useState<string | null>(null);
   const [expandedContainers, setExpandedContainers] = useState<Set<number>>(new Set());
+  const [copiedId, setCopiedId] = useState<string | null>(null); // Track which copy button was clicked
 
   // Terminal container selection
   const [terminalContainer, setTerminalContainer] = useState<string>('');
@@ -286,6 +288,20 @@ export const ResourceDrawer: React.FC = () => {
     dispatch({ type: 'DRILL_DOWN_RESOURCE', payload: { id, type } });
   };
 
+  const copyToClipboard = (text: string, id: string, label: string = 'Text') => {
+    navigator.clipboard.writeText(text).then(() => {
+      console.log(`${label} copied to clipboard: ${text}`);
+      // Show copied indicator
+      setCopiedId(id);
+      // Hide after 2 seconds
+      setTimeout(() => {
+        setCopiedId(null);
+      }, 1000);
+    }).catch(err => {
+      console.error('Failed to copy:', err);
+    });
+  };
+
   const handlePortClick = (resourceName: string, port: number) => {
     const resourceType = state.selectedResourceType as any;
     const activePf = state.portForwards.find(pf =>
@@ -408,6 +424,7 @@ export const ResourceDrawer: React.FC = () => {
                 storageKey="drawer_deployments_rs"
                 data={rs}
                 onRowClick={(r) => handleLinkClick(r.id, 'replicaset')}
+                defaultSort={{ key: 1, direction: 'desc' }}
                 columns={[
                     { header: 'Name', accessor: (r) => <span className="text-blue-300 font-medium">{r.name}</span>, sortValue: (r) => r.name },
                     { header: 'Age', accessor: (r) => getAge(r.creationTimestamp), sortValue: (r) => r.creationTimestamp },
@@ -480,6 +497,23 @@ export const ResourceDrawer: React.FC = () => {
              <div key={i} className="mb-3 bg-gray-800 p-3 rounded border border-gray-700">
                 <div className="text-xs font-bold text-blue-300 mb-1 flex items-center gap-2">
                     <Globe size={12}/> {rule.host || '*'}
+                    {copiedId === `ingress-host-${i}` ? (
+                      <span className="flex items-center gap-1 text-green-400 text-[10px]">
+                        <Check size={10} />
+                        <span>Copied!</span>
+                      </span>
+                    ) : (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          copyToClipboard(rule.host || '*', `ingress-host-${i}`, 'Host');
+                        }}
+                        className="text-gray-600 hover:text-blue-400 transition-colors"
+                        title="Copy host"
+                      >
+                        <Copy size={10} />
+                      </button>
+                    )}
                 </div>
                 <div className="space-y-1">
                     {rule.paths.map((p, j) => {
@@ -995,6 +1029,23 @@ export const ResourceDrawer: React.FC = () => {
             <div className="font-semibold text-lg flex items-center gap-3 text-gray-100 truncate pr-4">
               <span className="bg-gray-800 p-1.5 rounded text-gray-400 flex-shrink-0"><Box size={18} /></span>
               <span className="truncate">{resource.name}</span>
+              {copiedId === 'resource-name' ? (
+                <span className="flex items-center gap-1 text-green-400 text-xs flex-shrink-0">
+                  <Check size={14} />
+                  <span>Copied!</span>
+                </span>
+              ) : (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    copyToClipboard(resource.name, 'resource-name', 'Resource name');
+                  }}
+                  className="text-gray-500 hover:text-blue-400 transition-colors flex-shrink-0"
+                  title="Copy resource name"
+                >
+                  <Copy size={14} />
+                </button>
+              )}
               <StatusBadge status={getResourceStatus()} />
             </div>
         </div>
@@ -1149,6 +1200,15 @@ export const ResourceDrawer: React.FC = () => {
                {'source' in resource && <DetailItem label="Source" value={(resource as any).source.component} />}
                {'involvedObject' in resource && <DetailItem label="Object" value={`${(resource as any).involvedObject.kind}/${(resource as any).involvedObject.name}`} />}
             </div>
+
+            {state.selectedResourceType === 'event' && 'message' in resource && (
+              <div className="space-y-3">
+                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Message</h3>
+                <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
+                  <p className="text-sm text-gray-300 whitespace-pre-wrap break-words">{(resource as any).message}</p>
+                </div>
+              </div>
+            )}
 
             <div className="space-y-3">
               <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Labels</h3>
