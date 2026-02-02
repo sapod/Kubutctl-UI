@@ -247,6 +247,21 @@ export const UpdateNotification: React.FC = () => {
         <p className="text-sm text-gray-400">
           New version: <span className="font-mono text-green-400 font-bold">{updateInfo.version}</span>
         </p>
+        
+        <button
+          onClick={() => {
+            const electron = (window as any).electron;
+            const url = `https://github.com/sapod/Kubutctl-UI/releases/tag/v${updateInfo.version}`;
+            if (electron && electron.openExternal) {
+              electron.openExternal(url).catch(() => window.open(url, '_blank'));
+            } else {
+              window.open(url, '_blank');
+            }
+          }}
+          className="text-xs text-blue-400 hover:text-blue-300 underline transition-colors"
+        >
+          View release notes →
+        </button>
 
         {isDownloading && (
           <div className="mt-3">
