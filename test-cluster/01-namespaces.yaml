@@ -1,0 +1,30 @@
+---
+# Namespace for test applications
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: test-apps
+  labels:
+    environment: testing
+    managed-by: kubectl-ui
+
+---
+# Namespace for monitoring
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    environment: testing
+    managed-by: kubectl-ui
+
+---
+# Namespace for databases
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: databases
+  labels:
+    environment: testing
+    managed-by: kubectl-ui
+

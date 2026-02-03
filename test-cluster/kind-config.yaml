@@ -1,0 +1,25 @@
+# Kind cluster configuration with multiple nodes
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: kubectl-ui-test
+nodes:
+  # Control plane node
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      # Allow accessing ingress on localhost:80
+      - containerPort: 80
+        hostPort: 80
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 443
+        protocol: TCP
+  # Worker nodes
+  - role: worker
+  - role: worker
+
