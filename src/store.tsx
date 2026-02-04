@@ -632,6 +632,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             err.includes('getting credentials: exec: executable aws failed');
 
         if (isAwsSsoError) {
+            dispatch({ type: 'CLOSE_DRAWER_SILENTLY' });
             dispatch({ type: 'SET_AWS_SSO_LOGIN_REQUIRED', payload: true });
             dispatch({ type: 'SET_ERROR', payload: 'AWS SSO authentication required. Please run "aws sso login" in your terminal and refresh the application.' });
             return;

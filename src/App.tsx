@@ -57,6 +57,7 @@ const MainLayout = () => {
         if (error.message?.includes('error validating') ||
             error.message?.includes('couldn\'t get current server API group list') ||
             error.message?.includes('token is expired')) {
+          dispatch({ type: 'CLOSE_DRAWER_SILENTLY' });
           dispatch({ type: 'SET_AWS_SSO_LOGIN_REQUIRED', payload: true });
           dispatch({ type: 'SET_ERROR', payload: 'AWS SSO authentication required' });
         }
