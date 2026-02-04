@@ -10,7 +10,7 @@ import {
     NamespaceSelector, ClusterCatalogModal, PortForwardModal, ShellModal, ConfirmationModal,
     ReplaceLogsTabModal, RoutineModal, ErrorBanner, UpdateNotification, WelcomeScreen,
     OverviewPage, NodesPage, PodsPage, DeploymentsPage, ReplicaSetsPage,
-    JobsPage, CronJobsPage, ServicesPage, IngressesPage, ConfigMapsPage,
+    JobsPage, CronJobsPage, ServicesPage, IngressesPage, ConfigMapsPage, SecretsPage,
     NamespacesPage, ResourceQuotasPage, PortForwardingPage, EventsPage
 } from './components/UI';
 import { Loader2, Plus, FileText, X } from 'lucide-react';
@@ -121,6 +121,7 @@ const MainLayout = () => {
       case 'services': return <ServicesPage />;
       case 'ingresses': return <IngressesPage />;
       case 'configmaps': return <ConfigMapsPage />;
+      case 'secrets': return <SecretsPage />;
       case 'namespaces': return <NamespacesPage />;
       case 'resourcequotas': return <ResourceQuotasPage />;
       case 'port-forwarding': return <PortForwardingPage />;

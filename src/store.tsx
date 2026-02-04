@@ -80,7 +80,7 @@ const getStoredResourcesForLogs = () => {
 const storedResources = getStoredResourcesForLogs();
 
 const initialState: AppState = {
-  view: initialClusterState.view, isLoading: false, isContextSwitching: false, error: null, awsSsoLoginRequired: false, externalContextMismatch: false, isVerifyingConnection: false, lastActiveTimestamp: Date.now(), currentClusterId: initialClusterId, selectedNamespace: getStoredNamespace(initialClusterId), clusters: storedClusters, nodes: [], pods: storedResources.pods, deployments: storedResources.deployments, replicaSets: storedResources.replicaSets, jobs: [], cronJobs: [], services: [], ingresses: [], configMaps: [], namespaces: [], events: [], resourceQuotas: [], portForwards: [], routines: getStoredRoutines(), terminalOutput: ['Welcome to Kubectl-UI', 'Initializing application...'], selectedResourceId: null, selectedResourceType: null, resourceHistory: [], drawerOpen: false, isAddClusterModalOpen: false, isCatalogOpen: false, isPortForwardModalOpen: false, portForwardModalData: null, isRoutineModalOpen: false, routineModalData: null, isShellModalOpen: false, shellModalData: null, isConfirmationModalOpen: false, confirmationModalData: null, isReplaceLogsTabModalOpen: false, replaceLogsTabModalData: null, logsTarget: null,
+  view: initialClusterState.view, isLoading: false, isContextSwitching: false, error: null, awsSsoLoginRequired: false, externalContextMismatch: false, isVerifyingConnection: false, lastActiveTimestamp: Date.now(), currentClusterId: initialClusterId, selectedNamespace: getStoredNamespace(initialClusterId), clusters: storedClusters, nodes: [], pods: storedResources.pods, deployments: storedResources.deployments, replicaSets: storedResources.replicaSets, jobs: [], cronJobs: [], services: [], ingresses: [], configMaps: [], secrets: [], namespaces: [], events: [], resourceQuotas: [], portForwards: [], routines: getStoredRoutines(), terminalOutput: ['Welcome to Kubectl-UI', 'Initializing application...'], selectedResourceId: null, selectedResourceType: null, resourceHistory: [], drawerOpen: false, isAddClusterModalOpen: false, isCatalogOpen: false, isPortForwardModalOpen: false, portForwardModalData: null, isRoutineModalOpen: false, routineModalData: null, isShellModalOpen: false, shellModalData: null, isConfirmationModalOpen: false, confirmationModalData: null, isReplaceLogsTabModalOpen: false, replaceLogsTabModalData: null, logsTarget: null,
   logsTabs: storedLogsTabs.tabs,
   activeLogsTabId: storedLogsTabs.activeTabId,
   isStoreInitialized: false,
@@ -780,6 +780,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               else if (type === 'service') res = state.services.find(r => r.id === id);
               else if (type === 'ingress') res = state.ingresses.find(r => r.id === id);
               else if (type === 'configmap') res = state.configMaps.find(r => r.id === id);
+              else if (type === 'secret') res = state.secrets.find(r => r.id === id);
               else if (type === 'namespace') res = state.namespaces.find(r => r.id === id);
               else if (type === 'event') res = state.events.find(r => r.id === id);
               else if (type === 'resourcequota') res = state.resourceQuotas.find(r => r.id === id);
@@ -997,6 +998,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 dispatch({ type: 'SET_DATA', payload: { pods: mergedPods } });
               }
             }).catch(() => {});
+
+            kubectl.getConfigMaps(ns, false).then(configMaps => {
+              if (isMounted) dispatch({ type: 'SET_DATA', payload: { configMaps } });
+            }).catch(() => {});
+            kubectl.getSecrets(ns, false).then(secrets => {
+              if (isMounted) dispatch({ type: 'SET_DATA', payload: { secrets } });
+            }).catch(() => {});
           }
           return { pods: podsWithMetrics };
         }
@@ -1095,6 +1103,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         case 'configmaps':
           return { configMaps: await kubectl.getConfigMaps(ns, notify) };
+
+        case 'secrets':
+          return { secrets: await kubectl.getSecrets(ns, notify) };
 
         case 'resourcequotas':
           return { resourceQuotas: await kubectl.getResourceQuotas(ns, notify) };

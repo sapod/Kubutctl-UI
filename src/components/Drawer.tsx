@@ -2,7 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useStore } from '../store';
 import { AppState, Pod, Ingress, Service, ResourceStatus, Deployment, Job } from '../types';
 import { kubectl } from '../services/kubectl';
-import { Box, X, Globe, ArrowRightCircle, Container as ContainerIcon, Network, FileText, RotateCw, Trash2, ChevronDown, AlertTriangle, Maximize2, Minimize2, HardDrive, ExternalLink, ArrowLeft, StopCircle, Play, History, Edit2, Save, Key, Copy, Check, Search } from 'lucide-react';
+import { Box, X, Globe, ArrowRightCircle, Container as ContainerIcon, Network,
+    FileText, RotateCw, Trash2, ChevronDown, AlertTriangle, Maximize2, Minimize2,
+    HardDrive, ExternalLink, ArrowLeft, StopCircle, Play, History, Edit2, Save,
+    Key, Copy, Check, Search, Eye, EyeOff } from 'lucide-react';
 import { StatusBadge, getAge, isMatch, resolvePortName, parseCpu, parseMemory } from './Shared';
 import PodTerminal from './PodTerminal';
 import yaml from 'js-yaml';
@@ -118,6 +121,7 @@ export const ResourceDrawer: React.FC = () => {
   const [expandedCmKey, setExpandedCmKey] = useState<string | null>(null);
   const [expandedContainers, setExpandedContainers] = useState<Set<number>>(new Set());
   const [copiedId, setCopiedId] = useState<string | null>(null); // Track which copy button was clicked
+  const [revealedSecrets, setRevealedSecrets] = useState<Set<string>>(new Set()); // Track which secret keys are revealed
 
   // Terminal container selection
   const [terminalContainer, setTerminalContainer] = useState<string>('');
@@ -162,6 +166,7 @@ export const ResourceDrawer: React.FC = () => {
   else if (rt === 'service') resource = state.services.find(r => r.id === state.selectedResourceId);
   else if (rt === 'ingress') resource = state.ingresses.find(r => r.id === state.selectedResourceId);
   else if (rt === 'configmap') resource = state.configMaps.find(r => r.id === state.selectedResourceId);
+  else if (rt === 'secret') resource = state.secrets.find(r => r.id === state.selectedResourceId);
   else if (rt === 'namespace') resource = state.namespaces.find(r => r.id === state.selectedResourceId);
   else if (rt === 'event') resource = state.events.find(r => r.id === state.selectedResourceId);
   else if (rt === 'resourcequota') resource = state.resourceQuotas.find(r => r.id === state.selectedResourceId);
@@ -172,6 +177,7 @@ export const ResourceDrawer: React.FC = () => {
     setIsEditingYaml(false);
     setExpandedContainers(new Set()); // Reset expanded containers when resource changes
     setTerminalContainer(''); // Reset terminal container selection
+    setRevealedSecrets(new Set()); // Reset revealed secrets when resource changes
   }, [state.selectedResourceId, state.selectedResourceType]);
 
   // Helper to get terminal target (for terminal tab)
@@ -508,6 +514,22 @@ export const ResourceDrawer: React.FC = () => {
       }
   };
 
+  const handleSecretClick = async (secretName: string, namespace: string) => {
+      let secret = state.secrets.find(s => s.name === secretName && s.namespace === namespace);
+      if (!secret) {
+          try {
+             const fetched = await kubectl.getResource('secret', secretName, namespace);
+             if (fetched) {
+                 dispatch({ type: 'SET_DATA', payload: { secrets: [...state.secrets, fetched] } });
+                 secret = fetched;
+             }
+          } catch(e) { console.error("Failed to fetch linked secret", e); }
+      }
+      if (secret) {
+          dispatch({ type: 'DRILL_DOWN_RESOURCE', payload: { id: secret.id, type: 'secret' } });
+      }
+  };
+
   const handleDelete = () => {
         if (!resource || !state.selectedResourceType) return;
         kubectl.deleteResource(state.selectedResourceType, resource.name, resource.namespace, resource.id);
@@ -751,6 +773,69 @@ export const ResourceDrawer: React.FC = () => {
                                     </div>
                                     <div className={`text-xs text-gray-400 font-mono whitespace-pre-wrap overflow-auto custom-scrollbar ${isExpanded ? 'flex-1 p-2' : 'max-h-32'}`}>
                                         {(val as string)}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                    {expandedCmKey && <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[55]" onClick={() => setExpandedCmKey(null)}></div>}
+                </div>
+            );
+        }
+    }
+    if (state.selectedResourceType === 'secret') {
+        const data = (resource as any).data || {};
+        const entries = Object.entries(data);
+        if (entries.length > 0) {
+            childrenLinks.push(
+                 <div key="secret-data" className="mt-4">
+                    <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Data</h4>
+                    <div className="space-y-3">
+                        {entries.map(([key, val]) => {
+                            const isExpanded = expandedCmKey === key;
+                            const isRevealed = revealedSecrets.has(key);
+                            let decodedValue = '';
+                            try {
+                                // Decode base64 value
+                                decodedValue = atob(val as string);
+                            } catch (e) {
+                                decodedValue = '(Unable to decode)';
+                            }
+
+                            const toggleReveal = () => {
+                                setRevealedSecrets(prev => {
+                                    const next = new Set(prev);
+                                    if (next.has(key)) {
+                                        next.delete(key);
+                                    } else {
+                                        next.add(key);
+                                    }
+                                    return next;
+                                });
+                            };
+
+                            return (
+                                <div key={key} className={`bg-gray-950 border border-gray-800 rounded p-2 flex flex-col transition-all duration-200 ${isExpanded ? 'fixed inset-10 z-[60] shadow-2xl border-gray-600' : ''}`}>
+                                    <div className="flex justify-between items-center mb-1 pb-1 border-b border-gray-800">
+                                        <span className="text-xs text-purple-400 font-mono font-bold">{key}</span>
+                                        <div className="flex gap-1">
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); toggleReveal(); }}
+                                                className="text-gray-500 hover:text-white p-1 rounded hover:bg-gray-800 transition-colors"
+                                                title={isRevealed ? 'Hide value' : 'Reveal value'}>
+                                                {isRevealed ? <EyeOff size={14} /> : <Eye size={14} />}
+                                            </button>
+                                            <button onClick={(e) => { e.stopPropagation(); setExpandedCmKey(isExpanded ? null : key); }} className="text-gray-500 hover:text-white p-1 rounded hover:bg-gray-800">
+                                                {isExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className={`text-xs font-mono whitespace-pre-wrap overflow-auto custom-scrollbar ${isExpanded ? 'flex-1 p-2' : 'max-h-32'}`}>
+                                        {isRevealed ? (
+                                            <span className="text-gray-400">{decodedValue}</span>
+                                        ) : (
+                                            <span className="text-gray-600">••••••••</span>
+                                        )}
                                     </div>
                                 </div>
                             );
@@ -1024,9 +1109,13 @@ export const ResourceDrawer: React.FC = () => {
                                        );
                                    } else if (envVar.valueFrom.secretKeyRef) {
                                        valueDisplay = (
-                                           <span className="text-purple-400 flex items-center gap-1.5">
+                                           <span
+                                               className="text-purple-400 hover:text-purple-300 hover:underline cursor-pointer flex items-center gap-1.5 font-medium transition-colors"
+                                               onClick={() => handleSecretClick(envVar.valueFrom!.secretKeyRef!.name, pod.namespace)}
+                                               title="View Secret details">
                                                <Key size={12} className="flex-shrink-0"/>
                                                <span>{envVar.valueFrom.secretKeyRef.name}:{envVar.valueFrom.secretKeyRef.key}</span>
+                                               <ExternalLink size={10} className="flex-shrink-0 opacity-50"/>
                                            </span>
                                        );
                                    } else if (envVar.valueFrom.fieldRef) {
@@ -1056,6 +1145,48 @@ export const ResourceDrawer: React.FC = () => {
                                        </div>
                                    </div>
                                );
+                           })}
+                       </div>
+                   </div>
+               )}
+               {c.envFrom && c.envFrom.length > 0 && (
+                   <div className="mt-2">
+                       <span className="text-xs text-gray-500 uppercase tracking-wider font-bold block mb-1">Environment From:</span>
+                       <div className="space-y-1.5">
+                           {c.envFrom.map((envFromItem) => {
+                               let sourceDisplay: JSX.Element | null = null;
+
+                               if (envFromItem.configMapRef) {
+                                   sourceDisplay = (
+                                       <div className="flex items-start gap-2 text-xs bg-gray-900/50 p-2 rounded border border-gray-700/30">
+                                           <span className="text-gray-400 flex-shrink-0">configMapRef:</span>
+                                           <span
+                                               className="text-yellow-400 hover:text-yellow-300 hover:underline cursor-pointer flex items-center gap-1.5 font-medium transition-colors"
+                                               onClick={() => handleConfigMapClick(envFromItem.configMapRef!.name, pod.namespace)}
+                                               title="View ConfigMap details">
+                                               <FileText size={12} className="flex-shrink-0"/>
+                                               <span>{envFromItem.configMapRef.name}</span>
+                                               <ExternalLink size={10} className="flex-shrink-0 opacity-50"/>
+                                           </span>
+                                       </div>
+                                   );
+                               } else if (envFromItem.secretRef) {
+                                   sourceDisplay = (
+                                       <div className="flex items-start gap-2 text-xs bg-gray-900/50 p-2 rounded border border-gray-700/30">
+                                           <span className="text-gray-400 flex-shrink-0">secretRef:</span>
+                                           <span
+                                               className="text-purple-400 hover:text-purple-300 hover:underline cursor-pointer flex items-center gap-1.5 font-medium transition-colors"
+                                               onClick={() => handleSecretClick(envFromItem.secretRef!.name, pod.namespace)}
+                                               title="View Secret details">
+                                               <Key size={12} className="flex-shrink-0"/>
+                                               <span>{envFromItem.secretRef.name}</span>
+                                               <ExternalLink size={10} className="flex-shrink-0 opacity-50"/>
+                                           </span>
+                                       </div>
+                                   );
+                               }
+
+                               return sourceDisplay;
                            })}
                        </div>
                    </div>
