@@ -18,7 +18,7 @@ const loadClusterState = (clusterId: string) => { try { const raw = localStorage
 // Helper to create a new empty logs tab
 const createEmptyLogsTab = (id?: string): LogsTabState => ({
   id: id || `logs-${Date.now()}`,
-  selectedDeployment: '',
+  selectedWorkload: '',
   selectedPod: '',
   selectedContainer: '',
   showPrevious: false,
@@ -208,8 +208,8 @@ function reducer(state: AppState, action: Action): AppState {
       // Centralized logic for opening logs - handles tab creation, replacement, and localStorage
       const logsData = action.payload;
 
-      // Find which deployment owns this pod (if it's a pod)
-      let selectedDeployment = '';
+      // Find which workload owns this pod (if it's a pod)
+      let selectedWorkload = '';
       let selectedPod = '';
       let selectedContainer = '';
 
@@ -217,41 +217,55 @@ function reducer(state: AppState, action: Action): AppState {
         const pod = state.pods.find(p => p.name === logsData.podName && p.namespace === logsData.namespace);
 
         if (pod && pod.labels) {
-          // Find deployment by label matching
-          const matchingDeployment = state.deployments.find(dep => {
-            if (dep.namespace !== pod.namespace) return false;
-            if (!dep.selector || !pod.labels) return false;
-            return Object.entries(dep.selector).every(([key, value]) => pod.labels![key] === value);
-          });
+          // Find workload (Deployment, DaemonSet, or StatefulSet) by label matching
+          const matchingWorkload =
+            state.deployments.find(dep => {
+              if (dep.namespace !== pod.namespace) return false;
+              if (!dep.selector || !pod.labels) return false;
+              return Object.entries(dep.selector).every(([key, value]) => pod.labels![key] === value);
+            }) ||
+            state.daemonSets.find(ds => {
+              if (ds.namespace !== pod.namespace) return false;
+              if (!ds.selector || !pod.labels) return false;
+              return Object.entries(ds.selector).every(([key, value]) => pod.labels![key] === value);
+            }) ||
+            state.statefulSets.find(ss => {
+              if (ss.namespace !== pod.namespace) return false;
+              if (!ss.selector || !pod.labels) return false;
+              return Object.entries(ss.selector).every(([key, value]) => pod.labels![key] === value);
+            });
 
-          if (matchingDeployment) {
-            selectedDeployment = `${matchingDeployment.namespace}/${matchingDeployment.name}`;
+          if (matchingWorkload) {
+            selectedWorkload = `${matchingWorkload.namespace}/${matchingWorkload.name}`;
           }
         }
 
-        // Fallback to owner references
-        if (!selectedDeployment && pod?.ownerReferences) {
+        // Fallback to owner references (mainly for Deployment detection via ReplicaSet)
+        if (!selectedWorkload && pod?.ownerReferences) {
           const owner = pod.ownerReferences.find(o => o.kind === 'ReplicaSet');
           if (owner) {
             const rs = state.replicaSets.find(r => r.name === owner.name && r.namespace === pod.namespace);
             if (rs?.ownerReferences) {
               const depOwner = rs.ownerReferences.find(o => o.kind === 'Deployment');
               if (depOwner) {
-                selectedDeployment = `${pod.namespace}/${depOwner.name}`;
+                selectedWorkload = `${pod.namespace}/${depOwner.name}`;
               }
             }
           }
         }
 
-        // Fallback to first deployment
-        if (!selectedDeployment && state.deployments.length > 0) {
-          selectedDeployment = `${state.deployments[0].namespace}/${state.deployments[0].name}`;
+        // Fallback to first available workload (Deployment, DaemonSet, or StatefulSet)
+        if (!selectedWorkload) {
+          const firstWorkload = state.deployments[0] || state.daemonSets[0] || state.statefulSets[0];
+          if (firstWorkload) {
+            selectedWorkload = `${firstWorkload.namespace}/${firstWorkload.name}`;
+          }
         }
 
         selectedPod = `${logsData.namespace}/${logsData.podName}`;
         selectedContainer = logsData.container || '';
       } else if (logsData.type === 'all-pods' && logsData.deploymentName) {
-        selectedDeployment = `${logsData.namespace}/${logsData.deploymentName}`;
+        selectedWorkload = `${logsData.namespace}/${logsData.deploymentName}`;
         selectedPod = 'all-pods';
         selectedContainer = '';
       }
@@ -261,7 +275,7 @@ function reducer(state: AppState, action: Action): AppState {
       // Otherwise, check if ANY tab is empty (not just the first one)
       const targetTab = action.payload.targetTabId
         ? state.logsTabs.find(tab => tab.id === action.payload.targetTabId)
-        : state.logsTabs.find(tab => !tab.selectedDeployment && !tab.selectedPod);
+        : state.logsTabs.find(tab => !tab.selectedWorkload && !tab.selectedPod);
 
       let updatedTabs = state.logsTabs;
       let newActiveId = state.activeLogsTabId;
@@ -270,8 +284,8 @@ function reducer(state: AppState, action: Action): AppState {
         // Use the specified or empty tab
         // If forceRefresh is true, add a timestamp to trigger log clearing
         const updates = action.payload.forceRefresh
-          ? { selectedDeployment, selectedPod, selectedContainer, lastUpdated: Date.now() }
-          : { selectedDeployment, selectedPod, selectedContainer };
+          ? { selectedWorkload, selectedPod, selectedContainer, lastUpdated: Date.now() }
+          : { selectedWorkload, selectedPod, selectedContainer };
 
         updatedTabs = state.logsTabs.map(tab =>
           tab.id === targetTab.id ? { ...tab, ...updates } : tab
@@ -281,7 +295,7 @@ function reducer(state: AppState, action: Action): AppState {
         // No empty tabs and no target specified, but room for more - create new tab
         const newTab = {
           ...createEmptyLogsTab(),
-          selectedDeployment,
+          selectedWorkload,
           selectedPod,
           selectedContainer
         };
@@ -303,6 +317,17 @@ function reducer(state: AppState, action: Action): AppState {
       const logsMode = localStorage.getItem('logsMode');
       const isLogsUndocked = logsMode === 'window';
 
+      // If logs are undocked, set logsTarget for cross-window communication
+      let newLogsTarget = null;
+      if (isLogsUndocked) {
+        const [namespace, workloadName] = selectedWorkload.split('/');
+        newLogsTarget = {
+          ...logsData,
+          deploymentName: workloadName, // Add detected workload name
+          namespace: namespace // Ensure namespace is from detected workload
+        };
+      }
+
       // Only close drawer if logs are docked (to see the logs in the terminal view)
       // Keep drawer open if logs are undocked (so user can continue browsing resources)
       const shouldCloseDrawer = !isLogsUndocked;
@@ -320,6 +345,7 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         logsTabs: updatedTabs,
         activeLogsTabId: newActiveId,
+        logsTarget: newLogsTarget, // Set for undocked window
         drawerOpen: !shouldCloseDrawer,
         // Only clear selected resource if closing drawer (docked mode)
         selectedResourceId: shouldCloseDrawer ? null : state.selectedResourceId,
@@ -409,7 +435,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       .filter(podId => podId && podId !== 'all-pods' && podId !== '')
 
     const selectedWorkloads = logsTabs
-      .map(tab => tab.selectedDeployment)
+      .map(tab => tab.selectedWorkload)
       .filter(w => w && w !== '')
 
     return {
@@ -602,7 +628,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => clearTimeout(timeoutId);
   }, [
     state.currentClusterId,
-    ...state.logsTabs.flatMap(t => [t.selectedPod, t.selectedDeployment])
+    ...state.logsTabs.flatMap(t => [t.selectedPod, t.selectedWorkload])
   ]);
 
   // Clear logs state, active tab, and drawer state on fresh app start (not refresh)

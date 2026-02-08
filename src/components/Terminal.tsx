@@ -16,8 +16,8 @@ export const TerminalPanel: React.FC = () => {
     // Focus logs window when active logs tab changes (user clicked LOGS button)
     const isFirstMountRef = useRef(true);
     const prevActiveLogsTabIdRef = useRef(state.activeLogsTabId);
-    const prevActiveTabDeploymentRef = useRef(state.logsTabs.find(t => t.id === state.activeLogsTabId)?.selectedDeployment || '');
-    
+    const prevActiveTabDeploymentRef = useRef(state.logsTabs.find(t => t.id === state.activeLogsTabId)?.selectedWorkload || '');
+
     // Will be set to 'docked' if logs window is not actually open
     const [isLogsMode, setIsLogsMode] = useState<'docked' | 'window'>('window');
 
@@ -63,13 +63,13 @@ export const TerminalPanel: React.FC = () => {
     // Focus logs window when active logs tab changes or gets filled (user clicked LOGS button)
     useEffect(() => {
         const activeTab = state.logsTabs.find(t => t.id === state.activeLogsTabId);
-        const currentDeployment = activeTab?.selectedDeployment || '';
-        
+        const currentDeployment = activeTab?.selectedWorkload || '';
+
         // Check if active tab ID changed OR if the active tab's deployment changed (tab got filled)
         const tabIdChanged = state.activeLogsTabId !== prevActiveLogsTabIdRef.current;
         const tabContentChanged = currentDeployment !== prevActiveTabDeploymentRef.current && currentDeployment !== '';
         const hasChanged = tabIdChanged || tabContentChanged;
-        
+
         // Skip on first mount ONLY if nothing changed
         if (isFirstMountRef.current) {
             isFirstMountRef.current = false;
@@ -255,7 +255,7 @@ export const TerminalPanel: React.FC = () => {
                           ? 'text-blue-400 bg-gray-900' 
                           : 'text-gray-400 hover:text-gray-300 hover:bg-gray-600'
                       }`}
-                      title={tab.selectedDeployment || `Logs ${index === 0 ? '' : index + 1}`.trim()}
+                      title={tab.selectedWorkload || `Logs ${index === 0 ? '' : index + 1}`.trim()}
                     >
                       <FileText size={12} className="mr-1" />
                       {index === 0 ? 'Logs' : `Logs ${index + 1}`}

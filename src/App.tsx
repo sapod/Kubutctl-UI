@@ -401,7 +401,7 @@ const LogsOnlyMode = () => {
                   ? 'text-blue-400 bg-gray-800' 
                   : 'text-gray-400 hover:text-gray-300 hover:bg-gray-800/50'
               }`}
-              title={tab.selectedDeployment || `Logs ${index === 0 ? '' : index + 1}`.trim()}
+              title={tab.selectedWorkload || `Logs ${index === 0 ? '' : index + 1}`.trim()}
             >
               <FileText size={12} className="mr-1" />
               {index === 0 ? 'Logs' : `Logs ${index + 1}`}
