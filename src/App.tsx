@@ -9,7 +9,7 @@ import {
     Sidebar, TerminalPanel, ResourceDrawer, ClusterHotbar, AddClusterModal,
     NamespaceSelector, ClusterCatalogModal, PortForwardModal, ShellModal, ConfirmationModal,
     ReplaceLogsTabModal, RoutineModal, ErrorBanner, UpdateNotification, WelcomeScreen,
-    OverviewPage, NodesPage, PodsPage, DeploymentsPage, ReplicaSetsPage,
+    OverviewPage, NodesPage, PodsPage, DeploymentsPage, ReplicaSetsPage, DaemonSetsPage, StatefulSetsPage,
     JobsPage, CronJobsPage, ServicesPage, IngressesPage, ConfigMapsPage, SecretsPage,
     NamespacesPage, ResourceQuotasPage, PortForwardingPage, EventsPage
 } from './components/UI';
@@ -117,6 +117,8 @@ const MainLayout = () => {
       case 'pods': return <PodsPage />;
       case 'deployments': return <DeploymentsPage />;
       case 'replicasets': return <ReplicaSetsPage />;
+      case 'daemonsets': return <DaemonSetsPage />;
+      case 'statefulsets': return <StatefulSetsPage />;
       case 'jobs': return <JobsPage />;
       case 'cronjobs': return <CronJobsPage />;
       case 'services': return <ServicesPage />;

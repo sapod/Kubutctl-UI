@@ -59,28 +59,54 @@ const initialClusterId = getStoredCurrentClusterId(storedClusters);
 const initialClusterState = loadClusterState(initialClusterId);
 const storedLogsTabs = getStoredLogsTabs();
 
-// Load resources from localStorage (for logs window)
-const getStoredResourcesForLogs = () => {
+// Helper to load cache from localStorage
+const loadClusterCache = (): Map<string, { data: Partial<AppState>; timestamp: number }> => {
   try {
-    const stored = localStorage.getItem('kube_resources_for_logs');
+    const stored = localStorage.getItem('kube_cluster_cache');
     if (stored) {
       const parsed = JSON.parse(stored);
-      return {
-        deployments: parsed.deployments || [],
-        pods: parsed.pods || [],
-        replicaSets: parsed.replicaSets || []
-      };
+      const cacheMap = new Map<string, { data: Partial<AppState>; timestamp: number }>(Object.entries(parsed));
+
+      // Clean up entries older than 7 days
+      const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+      for (const [key, value] of cacheMap.entries()) {
+        if (value.timestamp < sevenDaysAgo) {
+          cacheMap.delete(key);
+        }
+      }
+
+      return cacheMap;
     }
-  } catch (err) {
-    console.error('Failed to load resources from localStorage:', err);
+  } catch (e) {
+    console.error('Failed to load cluster cache:', e);
   }
-  return { deployments: [], pods: [], replicaSets: [] };
+  return new Map();
 };
 
-const storedResources = getStoredResourcesForLogs();
+// Load cached resources for the initial cluster
+const getInitialCachedResources = () => {
+  const cache = loadClusterCache();
+  const currentCluster = storedClusters.find(c => c.id === initialClusterId);
+
+  if (currentCluster && cache.has(currentCluster.name)) {
+    const cached = cache.get(currentCluster.name)!.data;
+    const resources = {
+      deployments: cached.deployments || [],
+      daemonSets: cached.daemonSets || [],
+      statefulSets: cached.statefulSets || [],
+      pods: cached.pods || [],
+      replicaSets: cached.replicaSets || []
+    };
+
+    return resources;
+  }
+  return { deployments: [], daemonSets: [], statefulSets: [], pods: [], replicaSets: [] };
+};
+
+const storedResources = getInitialCachedResources();
 
 const initialState: AppState = {
-  view: initialClusterState.view, isLoading: false, isContextSwitching: false, error: null, awsSsoLoginRequired: false, externalContextMismatch: false, isVerifyingConnection: false, lastActiveTimestamp: Date.now(), currentClusterId: initialClusterId, selectedNamespace: getStoredNamespace(initialClusterId), clusters: storedClusters, nodes: [], pods: storedResources.pods, deployments: storedResources.deployments, replicaSets: storedResources.replicaSets, jobs: [], cronJobs: [], services: [], ingresses: [], configMaps: [], secrets: [], namespaces: [], events: [], resourceQuotas: [], portForwards: [], routines: getStoredRoutines(), terminalOutput: ['Welcome to Kubectl-UI', 'Initializing application...'], selectedResourceId: null, selectedResourceType: null, resourceHistory: [], drawerOpen: false, isAddClusterModalOpen: false, isCatalogOpen: false, isPortForwardModalOpen: false, portForwardModalData: null, isRoutineModalOpen: false, routineModalData: null, isShellModalOpen: false, shellModalData: null, isConfirmationModalOpen: false, confirmationModalData: null, isReplaceLogsTabModalOpen: false, replaceLogsTabModalData: null, logsTarget: null,
+  view: initialClusterState.view, isLoading: false, isContextSwitching: false, error: null, awsSsoLoginRequired: false, externalContextMismatch: false, isVerifyingConnection: false, lastActiveTimestamp: Date.now(), currentClusterId: initialClusterId, selectedNamespace: getStoredNamespace(initialClusterId), clusters: storedClusters, nodes: [], pods: storedResources.pods, deployments: storedResources.deployments, replicaSets: storedResources.replicaSets, daemonSets: storedResources.daemonSets, statefulSets: storedResources.statefulSets, jobs: [], cronJobs: [], services: [], ingresses: [], configMaps: [], secrets: [], namespaces: [], events: [], resourceQuotas: [], portForwards: [], routines: getStoredRoutines(), terminalOutput: ['Welcome to Kubectl-UI', 'Initializing application...'], selectedResourceId: null, selectedResourceType: null, resourceHistory: [], drawerOpen: false, isAddClusterModalOpen: false, isCatalogOpen: false, isPortForwardModalOpen: false, portForwardModalData: null, isRoutineModalOpen: false, routineModalData: null, isShellModalOpen: false, shellModalData: null, isConfirmationModalOpen: false, confirmationModalData: null, isReplaceLogsTabModalOpen: false, replaceLogsTabModalData: null, logsTarget: null,
   logsTabs: storedLogsTabs.tabs,
   activeLogsTabId: storedLogsTabs.activeTabId,
   isStoreInitialized: false,
@@ -350,44 +376,6 @@ function reducer(state: AppState, action: Action): AppState {
 
 const StoreContext = createContext<{ state: AppState; dispatch: React.Dispatch<any> } | null>(null);
 
-// Helper to load cache from localStorage
-const loadClusterCache = (): Map<string, { data: Partial<AppState>; timestamp: number }> => {
-  try {
-    const stored = localStorage.getItem('kube_cluster_cache');
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      const cacheMap = new Map<string, { data: Partial<AppState>; timestamp: number }>(Object.entries(parsed));
-
-      // Clean up entries older than 7 days
-      const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
-      let cleanedCount = 0;
-
-      for (const [key, value] of cacheMap.entries()) {
-        if (value.timestamp < sevenDaysAgo) {
-          cacheMap.delete(key);
-          cleanedCount++;
-        }
-      }
-
-      if (cleanedCount > 0) {
-        try {
-          localStorage.setItem('kube_cluster_cache', JSON.stringify(Object.fromEntries(cacheMap)));
-        } catch (e) {
-          console.warn('Failed to save cleaned cache:', e);
-        }
-      }
-
-      return cacheMap;
-    }
-  } catch (e) {
-    console.error('Failed to load cluster cache:', e);
-    // If cache is corrupted, clear it
-    try {
-      localStorage.removeItem('kube_cluster_cache');
-    } catch {}
-  }
-  return new Map();
-};
 
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, dispatch] = useReducer(reducer, initialState);
@@ -413,6 +401,23 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     previousExternalMismatchRef.current = state.externalContextMismatch;
   }, [state.externalContextMismatch]);
 
+  // Helper to get selected pods and workloads from logs tabs (for cache preservation)
+  // Returns sets of selected pod IDs and workload IDs (max 3 each)
+  const getLogsSelections = (logsTabs: LogsTabState[]) => {
+    const selectedPods = logsTabs
+      .map(tab => tab.selectedPod)
+      .filter(podId => podId && podId !== 'all-pods' && podId !== '')
+
+    const selectedWorkloads = logsTabs
+      .map(tab => tab.selectedDeployment)
+      .filter(w => w && w !== '')
+
+    return {
+      selectedPods: new Set(selectedPods),
+      selectedWorkloads: new Set(selectedWorkloads)
+    };
+  };
+
   // Cluster data cache - stores data for last 3 visited clusters
   // Uses cluster name (kubectl context name) as key for stability
   // Load cache from localStorage on initialization
@@ -434,19 +439,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           }
         } catch (err) {
           console.error('Failed to sync logsTabs from localStorage:', err);
-        }
-      }
-      // Sync resources data for logs window
-      if (e.key === 'kube_resources_for_logs' && e.newValue) {
-        try {
-          const parsed = JSON.parse(e.newValue);
-          dispatch({ type: 'SET_DATA', payload: {
-            deployments: parsed.deployments || [],
-            pods: parsed.pods || [],
-            replicaSets: parsed.replicaSets || []
-          }});
-        } catch (err) {
-          console.error('Failed to sync resources from localStorage:', err);
         }
       }
       // Sync logsTarget for cross-window communication (when clicking LOGS in drawer)
@@ -478,45 +470,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
   }, [state.currentClusterId]);
-  // Save resources to localStorage for logs window - minimal data only
-  // This is used to populate selectors in undocked logs window
-  // We don't need full resources, just enough for dropdowns
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const isLogsOnly = params.get('logsOnly') === 'true';
-
-    if (!isLogsOnly && state.currentClusterId && (state.deployments.length > 0 || state.pods.length > 0)) {
-      // Use a timeout to debounce and only save after resources have stabilized
-      const timeoutId = setTimeout(() => {
-        try {
-          // Save limited data - first MAX_CACHED_ITEMS_PER_TYPE items only
-          const limitedData = {
-            deployments: state.deployments.slice(0, MAX_CACHED_ITEMS_PER_TYPE),
-            pods: state.pods.slice(0, MAX_CACHED_ITEMS_PER_TYPE),
-            replicaSets: state.replicaSets.slice(0, MAX_CACHED_ITEMS_PER_TYPE)
-          };
-
-          const dataString = JSON.stringify(limitedData);
-          const sizeInKB = new Blob([dataString]).size / 1024;
-
-          // Only save if under 1000KB (well under localStorage limits)
-          if (sizeInKB < 1000) {
-            localStorage.setItem('kube_resources_for_logs', dataString);
-          } else {
-            console.warn(`Resources data too large (${sizeInKB.toFixed(0)}KB), not caching for logs window`);
-          }
-        } catch (err) {
-          console.error('Failed to save resources to localStorage:', err);
-          // Clean up on any error
-          try {
-            localStorage.removeItem('kube_resources_for_logs');
-          } catch {}
-        }
-      }, 1000); // Debounce by 1 second
-
-      return () => clearTimeout(timeoutId);
-    }
-  }, [state.currentClusterId]); // Only when cluster changes - logs window fetches fresh data anyway
 
   // Sync logsTarget to localStorage for cross-window communication
   useEffect(() => {
@@ -540,6 +493,117 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
     }
   }, [state.logsTarget]);
+
+  // Update cache when logs tab selections change (to preserve newly selected pods/workloads)
+  useEffect(() => {
+    if (!state.currentClusterId) return;
+
+    const timeoutId = setTimeout(() => {
+      try {
+        // Get cluster name
+        const cluster = state.clusters.find(c => c.id === state.currentClusterId);
+        if (!cluster) return;
+
+        // Get current cached data
+        const cached = clusterCacheRef.current.get(cluster.name);
+        if (!cached) return;
+
+        const cachedData = { ...cached.data };
+        let modified = false;
+
+        // Get selected pods and workloads from logs tabs
+        const { selectedPods: selectedPodIds, selectedWorkloads: selectedWorkloadIds } =
+          getLogsSelections(state.logsTabs);
+
+        // Check selected pods from all tabs
+        for (const podId of selectedPodIds) {
+          const [namespace, podName] = podId.split('/');
+          if (!namespace || !podName) continue;
+
+          // Check if this pod is already in cache
+          const isInCache = cachedData.pods?.some((p: any) =>
+            p.namespace === namespace && p.name === podName
+          );
+
+          if (!isInCache) {
+            // Try to find in current state
+            const pod = state.pods.find(p => p.namespace === namespace && p.name === podName);
+            if (pod) {
+              cachedData.pods = cachedData.pods || [];
+              cachedData.pods.push(pod);
+              modified = true;
+            }
+          }
+        }
+
+        // Check selected workloads from all tabs
+
+        for (const workloadId of selectedWorkloadIds) {
+          const [namespace, workloadName] = workloadId.split('/');
+          if (!namespace || !workloadName) continue;
+
+          // Check if workload is already in cache
+          const isInCache =
+            cachedData.deployments?.some((d: any) => d.namespace === namespace && d.name === workloadName) ||
+            cachedData.daemonSets?.some((ds: any) => ds.namespace === namespace && ds.name === workloadName) ||
+            cachedData.statefulSets?.some((ss: any) => ss.namespace === namespace && ss.name === workloadName);
+
+          if (!isInCache) {
+            // Try to find in current state
+            const deployment = state.deployments.find(d => d.namespace === namespace && d.name === workloadName);
+            if (deployment) {
+              cachedData.deployments = cachedData.deployments || [];
+              cachedData.deployments.push(deployment);
+              modified = true;
+            }
+
+            const daemonSet = state.daemonSets.find(ds => ds.namespace === namespace && ds.name === workloadName);
+            if (daemonSet) {
+              cachedData.daemonSets = cachedData.daemonSets || [];
+              cachedData.daemonSets.push(daemonSet);
+              modified = true;
+            }
+
+            const statefulSet = state.statefulSets.find(ss => ss.namespace === namespace && ss.name === workloadName);
+            if (statefulSet) {
+              cachedData.statefulSets = cachedData.statefulSets || [];
+              cachedData.statefulSets.push(statefulSet);
+              modified = true;
+            }
+          }
+        }
+
+        // If we added new resources, update the cache
+        if (modified) {
+          clusterCacheRef.current.set(cluster.name, {
+            data: cachedData,
+            timestamp: Date.now()
+          });
+
+          // Persist to localStorage
+          try {
+            const cacheObject = Object.fromEntries(clusterCacheRef.current);
+            const cacheString = JSON.stringify(cacheObject);
+            const cacheSizeInBytes = new Blob([cacheString]).size;
+
+            // Only save if under 4MB
+            if (cacheSizeInBytes < 4 * 1024 * 1024) {
+              localStorage.setItem('kube_cluster_cache', cacheString);
+            }
+          } catch (err) {
+            console.error('[Store] Failed to persist cache:', err);
+          }
+        }
+      } catch (err) {
+        console.error('[Store] Error updating cache with logs selections:', err);
+      }
+    }, 1000); // Debounce by 1 second to avoid excessive updates
+
+    return () => clearTimeout(timeoutId);
+  }, [
+    state.currentClusterId,
+    ...state.logsTabs.flatMap(t => [t.selectedPod, t.selectedDeployment])
+  ]);
 
   // Clear logs state, active tab, and drawer state on fresh app start (not refresh)
   // Use Electron's app session ID which is unique per app launch but same across refreshes
@@ -782,6 +846,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               else if (type === 'ingress') res = state.ingresses.find(r => r.id === id);
               else if (type === 'configmap') res = state.configMaps.find(r => r.id === id);
               else if (type === 'secret') res = state.secrets.find(r => r.id === id);
+              else if (type === 'statefulset') res = state.statefulSets.find(r => r.id === id);
+              else if (type === 'daemonset') res = state.daemonSets.find(r => r.id === id);
               else if (type === 'namespace') res = state.namespaces.find(r => r.id === id);
               else if (type === 'event') res = state.events.find(r => r.id === id);
               else if (type === 'resourcequota') res = state.resourceQuotas.find(r => r.id === id);
@@ -931,13 +997,58 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     // Helper function to limit cache data to top 50 items per resource type
     // This keeps cache size small (~500KB-1MB) while showing most relevant data on context switch
-    const limitCacheData = (data: any): any => {
+    const limitCacheData = (data: any, currentLogsTabs: LogsTabState[]): any => {
       const limitedData: any = {};
+
+      // Get pods and workloads that are selected in logs tabs (to preserve them in cache)
+      const { selectedPods: selectedPodsInLogs, selectedWorkloads: selectedWorkloadsInLogs } =
+        getLogsSelections(currentLogsTabs);
 
       for (const [key, value] of Object.entries(data)) {
         if (Array.isArray(value)) {
-          // Limit arrays to first MAX_CACHED_ITEMS_PER_TYPE items (assumes data is already sorted appropriately)
-          limitedData[key] = value.slice(0, MAX_CACHED_ITEMS_PER_TYPE);
+          // Limit arrays to first MAX_CACHED_ITEMS_PER_TYPE items
+          const baseItems = value.slice(0, MAX_CACHED_ITEMS_PER_TYPE);
+
+          // For pods: add selected pods from logs tabs (if not already in base items)
+          if (key === 'pods' && selectedPodsInLogs.size > 0) {
+            const baseItemIds = new Set(baseItems.map((p: any) => `${p.namespace}/${p.name}`));
+            const extraPods = value.filter((p: any) => {
+              const podId = `${p.namespace}/${p.name}`;
+              return selectedPodsInLogs.has(podId) && !baseItemIds.has(podId);
+            });
+            limitedData[key] = [...baseItems, ...extraPods];
+          }
+          // For deployments: add selected deployments from logs tabs
+          else if (key === 'deployments' && selectedWorkloadsInLogs.size > 0) {
+            const baseItemIds = new Set(baseItems.map((d: any) => `${d.namespace}/${d.name}`));
+            const extraDeployments = value.filter((d: any) => {
+              const deploymentId = `${d.namespace}/${d.name}`;
+              return selectedWorkloadsInLogs.has(deploymentId) && !baseItemIds.has(deploymentId);
+            });
+            limitedData[key] = [...baseItems, ...extraDeployments];
+          }
+          // For daemonSets: add selected daemonSets from logs tabs
+          else if (key === 'daemonSets' && selectedWorkloadsInLogs.size > 0) {
+            const baseItemIds = new Set(baseItems.map((ds: any) => `${ds.namespace}/${ds.name}`));
+            const extraDaemonSets = value.filter((ds: any) => {
+              const daemonSetId = `${ds.namespace}/${ds.name}`;
+              return selectedWorkloadsInLogs.has(daemonSetId) && !baseItemIds.has(daemonSetId);
+            });
+            limitedData[key] = [...baseItems, ...extraDaemonSets];
+          }
+          // For statefulSets: add selected statefulSets from logs tabs
+          else if (key === 'statefulSets' && selectedWorkloadsInLogs.size > 0) {
+            const baseItemIds = new Set(baseItems.map((ss: any) => `${ss.namespace}/${ss.name}`));
+            const extraStatefulSets = value.filter((ss: any) => {
+              const statefulSetId = `${ss.namespace}/${ss.name}`;
+              return selectedWorkloadsInLogs.has(statefulSetId) && !baseItemIds.has(statefulSetId);
+            });
+            limitedData[key] = [...baseItems, ...extraStatefulSets];
+          }
+          else {
+            // For other arrays, just use base items
+            limitedData[key] = baseItems;
+          }
         } else {
           // Keep non-array values as-is (like namespaces object, etc.)
           limitedData[key] = value;
@@ -1154,6 +1265,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         backgroundPromises.push(kubectl.getServices(ns, false));
       }
 
+      // Always fetch DaemonSets and StatefulSets for logs panel (to match pods to workloads)
+      backgroundPromises.push(kubectl.getDaemonSets(ns, false));
+      backgroundPromises.push(kubectl.getStatefulSets(ns, false));
+
       if (backgroundPromises.length === 0) return;
 
       Promise.allSettled(backgroundPromises).then((results) => {
@@ -1190,6 +1305,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (view !== 'services' && results[idx]?.status === 'fulfilled') {
           bgData.services = (results[idx] as any).value;
         }
+        idx++;
+
+        // Extract DaemonSets
+        if (results[idx]?.status === 'fulfilled') {
+          bgData.daemonSets = (results[idx] as any).value;
+        }
+        idx++;
+
+        // Extract StatefulSets
+        if (results[idx]?.status === 'fulfilled') {
+          bgData.statefulSets = (results[idx] as any).value;
+        }
 
         if (Object.keys(bgData).length > 0) {
           dispatch({ type: 'SET_DATA', payload: bgData });
@@ -1202,13 +1329,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
           const cachedData = getCachedClusterData(state.currentClusterId);
           if (cachedData) {
-            const limitedBgData = limitCacheData(bgData);
+            const limitedBgData = limitCacheData(bgData, state.logsTabs);
             const mergedData = { ...cachedData, ...limitedBgData };
 
             setCachedClusterData(state.currentClusterId, mergedData);
           } else {
             // If no cache exists yet, create one with background data (limited)
-            const limitedData = limitCacheData(bgData);
+            const limitedData = limitCacheData(bgData, state.logsTabs);
             setCachedClusterData(state.currentClusterId, limitedData);
           }
         }
@@ -1270,13 +1397,33 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             // Dispatch critical data
             if (isMounted) {
                 const fullData = { ...viewData, namespaces };
+
+                // Merge cached pods with newly fetched pods
+                // When viewing a specific namespace, we only fetch pods from that namespace
+                // But we need to preserve pods from other namespaces that were cached (e.g., for logs tabs)
+                if (fullData.pods && ns !== 'All Namespaces') {
+                    const cachedData = getCachedClusterData(state.currentClusterId);
+                    if (cachedData?.pods) {
+                        const newPods = fullData.pods;
+                        const newPodIds = new Set(newPods.map((p: any) => p.id));
+
+                        // Get cached pods from OTHER namespaces (not the one we just fetched)
+                        const podsFromOtherNamespaces = cachedData.pods.filter(
+                            (p: any) => p.namespace !== ns && !newPodIds.has(p.id)
+                        );
+
+                        // Merge: newly fetched pods + cached pods from other namespaces
+                        fullData.pods = [...newPods, ...podsFromOtherNamespaces];
+                    }
+                }
+
                 dispatch({ type: 'SET_DATA', payload: fullData });
 
                 // Only cache on foreground fetches (cluster switch, manual refresh)
                 // Don't cache on background polls to prevent localStorage bloat
                 // Limit all resource types to top 50 items
                 if (!isBackground) {
-                  const limitedData = limitCacheData(fullData);
+                  const limitedData = limitCacheData(fullData, state.logsTabs);
                   setCachedClusterData(state.currentClusterId, limitedData);
                 }
 

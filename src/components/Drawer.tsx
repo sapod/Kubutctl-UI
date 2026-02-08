@@ -160,6 +160,8 @@ export const ResourceDrawer: React.FC = () => {
   if (rt === 'pod') resource = state.pods.find(r => r.id === state.selectedResourceId);
   else if (rt === 'deployment') resource = state.deployments.find(r => r.id === state.selectedResourceId);
   else if (rt === 'replicaset') resource = state.replicaSets.find(r => r.id === state.selectedResourceId);
+  else if (rt === 'daemonset') resource = state.daemonSets.find(r => r.id === state.selectedResourceId);
+  else if (rt === 'statefulset') resource = state.statefulSets.find(r => r.id === state.selectedResourceId);
   else if (rt === 'job') resource = state.jobs.find(r => r.id === state.selectedResourceId);
   else if (rt === 'cronjob') resource = state.cronJobs.find(r => r.id === state.selectedResourceId);
   else if (rt === 'node') resource = state.nodes.find(r => r.id === state.selectedResourceId);
@@ -581,6 +583,56 @@ export const ResourceDrawer: React.FC = () => {
     return 'Active';
   };
 
+  // Helper function to render controlled pods for workloads
+  const renderRelatedPods = (
+    storageKey: string,
+    title: string,
+    extraColumns?: Array<{ header: string; accessor: (p: Pod) => JSX.Element | string; sortValue: (p: Pod) => any }>
+  ) => {
+    const pods = state.pods.filter(p =>
+      state.selectedResourceType === 'deployment'
+        ? isMatch(p.labels, resource.selector)
+        : p.ownerReferences?.some(o => o.uid === resource.id)
+    );
+
+    if (pods.length === 0) return null;
+
+    const baseColumns = [
+      {
+        header: 'Name',
+        accessor: (p: Pod) => (
+          <div className="flex items-center gap-2">
+            <span className="text-green-300 font-medium">{p.name}</span>
+            {(!p.isReady && p.status !== ResourceStatus.Completed && p.status !== ResourceStatus.Succeeded) && (
+              <div title="Pod is not ready">
+                <AlertTriangle size={14} className="text-yellow-500 flex-shrink-0" />
+              </div>
+            )}
+          </div>
+        ),
+        sortValue: (p: Pod) => p.name
+      },
+      {
+        header: 'Status',
+        accessor: (p: Pod) => <StatusBadge status={p.status} />,
+        sortValue: (p: Pod) => p.status
+      },
+      ...(extraColumns || [])
+    ];
+
+    return (
+      <div key="pods" className="mt-4">
+        <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">{title}</h4>
+        <DrawerTable
+          storageKey={storageKey}
+          data={pods}
+          onRowClick={(p) => handleLinkClick(p.id, 'pod')}
+          columns={baseColumns}
+        />
+      </div>
+    );
+  };
+
   const renderRelatedResources = () => {
     const childrenLinks: React.ReactNode[] = [];
     if (state.selectedResourceType === 'deployment') {
@@ -606,33 +658,16 @@ export const ResourceDrawer: React.FC = () => {
           </div>
         );
       }
-      const pods = state.pods.filter(p => isMatch(p.labels, resource.selector));
-      if (pods.length > 0) {
-        childrenLinks.push(
-          <div key="pods" className="mt-4">
-            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Pods</h4>
-            <DrawerTable
-                storageKey="drawer_deployments_pods"
-                data={pods}
-                onRowClick={(p) => handleLinkClick(p.id, 'pod')}
-                columns={[
-                    { header: 'Name', accessor: (p) => (
-                      <div className="flex items-center gap-2">
-                        <span className="text-green-300 font-medium">{p.name}</span>
-                        {(!p.isReady && p.status !== ResourceStatus.Completed && p.status !== ResourceStatus.Succeeded) && (
-                          <div title="Pod is not ready">
-                             <AlertTriangle size={14} className="text-yellow-500 flex-shrink-0" />
-                          </div>
-                        )}
-                      </div>
-                    ), sortValue: (p) => p.name },
-                    { header: 'Status', accessor: (p) => <StatusBadge status={p.status} />, sortValue: (p) => p.status },
-                    { header: 'CPU', accessor: (p) => p.cpuUsage, sortValue: (p) => parseCpu(p.cpuUsage) },
-                    { header: 'Mem', accessor: (p) => p.memoryUsage, sortValue: (p) => parseMemory(p.memoryUsage) },
-                ]}
-            />
-          </div>
-        );
+      const controlledPods = renderRelatedPods(
+        'drawer_deployments_pods',
+        'Pods',
+        [
+          { header: 'CPU', accessor: (p: Pod) => p.cpuUsage, sortValue: (p: Pod) => parseCpu(p.cpuUsage) },
+          { header: 'Mem', accessor: (p: Pod) => p.memoryUsage, sortValue: (p: Pod) => parseMemory(p.memoryUsage) },
+        ]
+      );
+      if (controlledPods) {
+        childrenLinks.push(controlledPods);
       }
     }
     if (state.selectedResourceType === 'job') {
@@ -847,31 +882,27 @@ export const ResourceDrawer: React.FC = () => {
         }
     }
     if (state.selectedResourceType === 'replicaset') {
-      const pods = state.pods.filter(p => p.ownerReferences?.some(o => o.uid === resource.id));
-      if (pods.length > 0) {
-        childrenLinks.push(
-          <div key="pods" className="mt-4">
-            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Controlled Pods</h4>
-            <DrawerTable
-                storageKey="drawer_rs_pods"
-                data={pods}
-                onRowClick={(p) => handleLinkClick(p.id, 'pod')}
-                columns={[
-                    { header: 'Name', accessor: (p) => (
-                        <div className="flex items-center gap-2">
-                          <span className="text-green-300 font-medium">{p.name}</span>
-                          {(!p.isReady && p.status !== ResourceStatus.Completed && p.status !== ResourceStatus.Succeeded) && (
-                            <div title="Pod is not ready">
-                              <AlertTriangle size={14} className="text-yellow-500 flex-shrink-0" />
-                            </div>
-                          )}
-                        </div>
-                      ), sortValue: (p) => p.name },
-                    { header: 'Status', accessor: (p) => <StatusBadge status={p.status} />, sortValue: (p) => p.status },
-                ]}
-            />
-          </div>
-        );
+      const controlledPods = renderRelatedPods('drawer_rs_pods', 'Controlled Pods');
+      if (controlledPods) {
+        childrenLinks.push(controlledPods);
+      }
+    }
+    if (state.selectedResourceType === 'daemonset') {
+      const controlledPods = renderRelatedPods(
+        'drawer_ds_pods',
+        'Controlled Pods',
+        [
+          { header: 'Node', accessor: (p: Pod) => <span className="text-xs text-gray-400">{p.node}</span>, sortValue: (p: Pod) => p.node },
+        ]
+      );
+      if (controlledPods) {
+        childrenLinks.push(controlledPods);
+      }
+    }
+    if (state.selectedResourceType === 'statefulset') {
+      const controlledPods = renderRelatedPods('drawer_ss_pods', 'Controlled Pods');
+      if (controlledPods) {
+        childrenLinks.push(controlledPods);
       }
     }
     if (state.selectedResourceType === 'pod') {
@@ -1354,6 +1385,48 @@ export const ResourceDrawer: React.FC = () => {
             {state.selectedResourceType === 'deployment' && (
               <div className="flex gap-2 mb-4">
                  <button onClick={() => kubectl.rolloutRestart('deployment', resource.name, resource.namespace, resource.id)} className="flex-1 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-blue-300" title="Restart all pods in this deployment"><RotateCw size={14} className="mr-2" /> Rollout Restart</button>
+                 <button
+                   onClick={() => {
+                     dispatch({
+                       type: 'OPEN_LOGS_FOR_RESOURCE',
+                       payload: {
+                         type: 'all-pods',
+                         deploymentName: resource.name,
+                         namespace: resource.namespace
+                       }
+                     });
+                   }}
+                   className="flex-1 bg-green-900/30 hover:bg-green-900/50 border border-green-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-green-300"
+                   title="View aggregated logs from all pods"
+                 >
+                   <FileText size={14} className="mr-2" /> LOGS
+                 </button>
+              </div>
+            )}
+            {state.selectedResourceType === 'daemonset' && (
+              <div className="flex gap-2 mb-4">
+                 <button onClick={() => kubectl.rolloutRestart('daemonset', resource.name, resource.namespace, resource.id)} className="flex-1 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-blue-300" title="Restart all pods in this daemonset"><RotateCw size={14} className="mr-2" /> Rollout Restart</button>
+                 <button
+                   onClick={() => {
+                     dispatch({
+                       type: 'OPEN_LOGS_FOR_RESOURCE',
+                       payload: {
+                         type: 'all-pods',
+                         deploymentName: resource.name,
+                         namespace: resource.namespace
+                       }
+                     });
+                   }}
+                   className="flex-1 bg-green-900/30 hover:bg-green-900/50 border border-green-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-green-300"
+                   title="View aggregated logs from all pods"
+                 >
+                   <FileText size={14} className="mr-2" /> LOGS
+                 </button>
+              </div>
+            )}
+            {state.selectedResourceType === 'statefulset' && (
+              <div className="flex gap-2 mb-4">
+                 <button onClick={() => kubectl.rolloutRestart('statefulset', resource.name, resource.namespace, resource.id)} className="flex-1 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-blue-300" title="Restart all pods in this statefulset"><RotateCw size={14} className="mr-2" /> Rollout Restart</button>
                  <button
                    onClick={() => {
                      dispatch({
