@@ -24,7 +24,7 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
     const currentTab = state.logsTabs.find(tab => tab.id === currentTabId) || state.logsTabs[0];
 
     const {
-        selectedDeployment,
+        selectedWorkload,
         selectedPod,
         selectedContainer,
         showPrevious,
@@ -38,7 +38,7 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
         autoRefreshInterval,
         lastUpdated,
     } = currentTab || {
-        selectedDeployment: '',
+        selectedWorkload: '',
         selectedPod: '',
         selectedContainer: '',
         showPrevious: false,
@@ -56,6 +56,32 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
     // Helper to update logs state in store for this specific tab
     const updateLogsState = (updates: Partial<typeof currentTab>) => {
         dispatch({ type: 'UPDATE_LOGS_TAB', payload: { tabId: currentTabId, updates } });
+    };
+
+    // Helper function to find the workload (Deployment/DaemonSet/StatefulSet) that owns a pod
+    // Uses label selector matching to find the parent workload
+    const findWorkloadForPod = (pod: { namespace: string; labels?: Record<string, string> }) => {
+        if (!pod.labels) return null;
+
+        // Search through all workload types using label selector matching
+        const matchingWorkload =
+            state.deployments.find(dep => {
+                if (dep.namespace !== pod.namespace) return false;
+                if (!dep.selector) return false;
+                return Object.entries(dep.selector).every(([key, value]) => pod.labels![key] === value);
+            }) ||
+            state.daemonSets.find(ds => {
+                if (ds.namespace !== pod.namespace) return false;
+                if (!ds.selector) return false;
+                return Object.entries(ds.selector).every(([key, value]) => pod.labels![key] === value);
+            }) ||
+            state.statefulSets.find(ss => {
+                if (ss.namespace !== pod.namespace) return false;
+                if (!ss.selector) return false;
+                return Object.entries(ss.selector).every(([key, value]) => pod.labels![key] === value);
+            });
+
+        return matchingWorkload;
     };
 
     // Logs state - use a Map to store logs per tab, so each tab has its own logs
@@ -113,7 +139,7 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
     const autoRefreshHideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const isMouseInButtonRef = useRef(false);
     const isMouseInPanelRef = useRef(false);
-    const [availableDeployments, setAvailableDeployments] = useState<Array<{ name: string; namespace: string }>>([]);
+    const [availableWorkloads, setAvailableWorkloads] = useState<Array<{ name: string; namespace: string }>>([]);
 
     // Track fetch context to avoid appending logs from stale requests
     const fetchContextRef = useRef<{
@@ -133,44 +159,105 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
      * - Logging a warning to console
      * - Showing a user-visible message in the logs panel
      * - Auto-switching to all-pods mode (if autoSwitch is true)
-     * 
+     *
      * @param podId - The pod identifier in format "namespace/podName"
      * @param options - Configuration options
      * @returns true if pod exists, false otherwise
      */
     const validatePodExists = (
-        podId: string, 
-        options: { 
-            autoSwitch?: boolean; 
+        podId: string,
+        options: {
+            autoSwitch?: boolean;
             userMessage?: string;
             action?: string;
         } = {}
     ): boolean => {
-        const { autoSwitch = true, userMessage, action = 'operation' } = options;
-        
+        const { autoSwitch = true, userMessage } = options;
+
         const [podNamespace, podName] = podId.split('/');
+
+        // Validate podId format - must have both namespace and name
+        if (!podNamespace || !podName) {
+            console.warn(`[LogsPanel] Malformed podId: "${podId}" - expected format: "namespace/podName"`);
+            return false;
+        }
+
         const podExists = state.pods.some(p => p.name === podName && p.namespace === podNamespace);
 
         if (!podExists) {
+            // Create warning message for use throughout validation
             const warningMsg = `Pod "${podName}" not found in namespace "${podNamespace}"`;
-            console.warn(`[LogsPanel] ${warningMsg}`);
-            
-            // Show user-visible message in logs
-            const displayMessage = userMessage || 
-                `⚠️ ${warningMsg}. ${autoSwitch ? 'Switching to all-pods mode...' : `Cannot perform ${action}.`}`;
-            setLogLines([displayMessage]);
-            
-            // Auto-switch to all-pods mode if enabled
+
+            // Check if this pod is explicitly selected in a logs tab
+            // If so, be very lenient about resetting - it might be loading or was cached
+            const isExplicitlySelected = currentTab?.selectedPod === podId;
+
+            // Don't auto-switch if we haven't completed initial pods fetch yet
+            // This prevents validation running on cached/stale data from localStorage
+            if (!hasInitialPodsFetchedRef.current) {
+                return false; // Return false but don't auto-switch - give it time to load
+            }
+
+            if (isExplicitlySelected && initialFetchCompletedAtRef.current > 0) {
+                const timeSinceInit = Date.now() - initialFetchCompletedAtRef.current;
+                // Only wait if not much time has passed (< 5s)
+                if (timeSinceInit < 5000) {
+                    return false;
+                }
+            }
+
             if (autoSwitch) {
+                // Before switching to all-pods, check if we can find another pod from the same workload
+                // This provides a better UX when a specific pod was deleted/recreated
+                const currentWorkload = selectedWorkload;
+                if (currentWorkload) {
+                    const [namespace, workloadName] = currentWorkload.split('/');
+
+                    // Find the workload
+                    const deployment = state.deployments.find(d => d.name === workloadName && d.namespace === namespace);
+                    const daemonSet = state.daemonSets.find(ds => ds.name === workloadName && ds.namespace === namespace);
+                    const statefulSet = state.statefulSets.find(ss => ss.name === workloadName && ss.namespace === namespace);
+                    const workload = deployment || daemonSet || statefulSet;
+
+                    if (workload) {
+                        // Find pods for this workload
+                        const workloadPods = state.pods.filter(p => {
+                            if (p.namespace !== namespace) return false;
+                            if (!p.labels || !workload.selector) return false;
+                            return Object.entries(workload.selector).every(([key, value]) => p.labels![key] === value);
+                        });
+
+                        // If there are pods available, switch to the first one instead of all-pods
+                        if (workloadPods.length > 0) {
+                            const firstPod = workloadPods[0];
+
+                            updateLogsState({
+                                selectedPod: `${firstPod.namespace}/${firstPod.name}`,
+                                selectedContainer: firstPod.containers[0]?.name || '',
+                            });
+
+                            setLogLines([`⚠️ Pod "${podName}" not found. Switched to "${firstPod.name}".`]);
+                            return false;
+                        }
+                    }
+                }
+
+                // No pods available from the workload, fall back to all-pods
+                const displayMessage = userMessage ||
+                    `⚠️ ${warningMsg}. Switching to all-pods mode...`;
+                setLogLines([displayMessage]);
+
                 updateLogsState({
                     selectedPod: 'all-pods',
                     selectedContainer: '',
                 });
+
+                return false;
             }
-            
+
             return false;
         }
-        
+
         return true;
     };
 
@@ -190,17 +277,18 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
     // Track scroll position per tab
     const scrollPositionPerTab = useRef<Map<string, { scrollTop: number; scrollLeft: number }>>(new Map());
 
-    // Update available deployments when state changes
+    // Update available deployments when state changes (includes Deployments, DaemonSets, and StatefulSets)
     useEffect(() => {
-        const deployments = state.deployments.map(dep => ({
-            name: dep.name,
-            namespace: dep.namespace
-        }));
-        setAvailableDeployments(deployments);
-    }, [state.pods, state.deployments, state.replicaSets]);
+        const workloads = [
+            ...state.deployments.map(dep => ({ name: dep.name, namespace: dep.namespace })),
+            ...state.daemonSets.map(ds => ({ name: ds.name, namespace: ds.namespace })),
+            ...state.statefulSets.map(ss => ({ name: ss.name, namespace: ss.namespace }))
+        ];
+        setAvailableWorkloads(workloads);
+    }, [state.pods, state.deployments, state.daemonSets, state.statefulSets, state.replicaSets]);
 
     // Track previous deployment to detect changes for pod auto-selection
-    const prevSelectedDeploymentRef = useRef(selectedDeployment);
+    const prevSelectedWorkloadRef = useRef(selectedWorkload);
 
     // Track if we're currently restoring scroll position (to prevent auto-scroll interference)
     const isRestoringScrollRef = useRef(false);
@@ -208,13 +296,31 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
     // Track previous tab ID to handle tab switching
     const prevTabIdRef = useRef(currentTabId);
 
+    // Track if initial pods fetch has completed (to prevent validation on cached data)
+    const hasInitialPodsFetchedRef = useRef(false);
+    const initialFetchCompletedAtRef = useRef<number>(0);
+
     // Detect tab switch and update refs
     useEffect(() => {
         if (prevTabIdRef.current !== currentTabId) {
             prevTabIdRef.current = currentTabId;
-            prevSelectedDeploymentRef.current = selectedDeployment;
+            prevSelectedWorkloadRef.current = selectedWorkload;
+            hasInitialPodsFetchedRef.current = false; // Reset on tab switch
         }
-    }, [currentTabId, selectedDeployment]);
+    }, [currentTabId, selectedWorkload]);
+
+    // Track when pods have been fetched (wait a bit to ensure fresh data, not just cache)
+    useEffect(() => {
+        if (state.pods.length > 0 && !hasInitialPodsFetchedRef.current) {
+            // Wait 3 seconds after first pods appear to consider them "fetched"
+            // This gives time for the actual fetch to complete, especially for pods in different namespaces
+            const timer = setTimeout(() => {
+                hasInitialPodsFetchedRef.current = true;
+                initialFetchCompletedAtRef.current = Date.now();
+            }, 3000);
+            return () => clearTimeout(timer);
+        }
+    }, [state.pods.length]);
 
     // Restore scroll position after content renders for the new tab
     useLayoutEffect(() => {
@@ -331,6 +437,7 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
     // Track which logsTarget we've already processed to prevent loops
     const processedLogsTargetRef = useRef<string>('');
     const hasProcessedOnceRef = useRef(false);
+    const isProcessingLogsTargetRef = useRef(false); // Track when we're actively processing a logsTarget
 
     useEffect(() => {
         if (state.logsTarget && currentTabId === state.activeLogsTabId) {
@@ -343,6 +450,9 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
                 // Already processed, skip silently
                 return;
             }
+
+            // Mark that we're processing a logsTarget
+            isProcessingLogsTargetRef.current = true;
 
             // Mark this logsTarget as processed immediately
             processedLogsTargetRef.current = currentTargetStr;
@@ -368,54 +478,49 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
                 // For pod: find which deployment owns it using label matching
                 const pod = state.pods.find(p => p.name === logsTarget.podName && p.namespace === logsTarget.namespace);
 
-                let deploymentFound = false;
-                let foundDeployment = '';
+                let workloadFound = false;
+                let foundWorkload = '';
 
                 if (pod && pod.labels) {
-                    // Find deployment that matches this pod's labels
-                    const matchingDeployment = state.deployments.find(dep => {
-                        if (dep.namespace !== pod.namespace) return false;
-                        if (!dep.selector || !pod.labels) return false;
+                    // Find workload (Deployment, DaemonSet, or StatefulSet) that matches this pod's labels
+                    const matchingWorkload = findWorkloadForPod(pod);
 
-                        // Check if all deployment selector labels match the pod's labels
-                        return Object.entries(dep.selector).every(([key, value]) => pod.labels![key] === value);
-                    });
-
-                    if (matchingDeployment) {
-                        foundDeployment = `${matchingDeployment.namespace}/${matchingDeployment.name}`;
-                        deploymentFound = true;
+                    if (matchingWorkload) {
+                        foundWorkload = `${matchingWorkload.namespace}/${matchingWorkload.name}`;
+                        workloadFound = true;
                     }
                 }
 
-                // If no deployment found, try old method with owner references as fallback
-                if (!deploymentFound && pod?.ownerReferences) {
+                // If no workload found, try old method with owner references as fallback
+                // This is mainly for Deployment detection via ReplicaSet owner chain
+                if (!workloadFound && pod?.ownerReferences) {
                     const owner = pod.ownerReferences.find(o => o.kind === 'ReplicaSet');
                     if (owner) {
                         const rs = state.replicaSets.find(r => r.name === owner.name && r.namespace === pod.namespace);
                         if (rs?.ownerReferences) {
                             const depOwner = rs.ownerReferences.find(o => o.kind === 'Deployment');
                             if (depOwner) {
-                                foundDeployment = `${pod.namespace}/${depOwner.name}`;
-                                deploymentFound = true;
+                                foundWorkload = `${pod.namespace}/${depOwner.name}`;
+                                workloadFound = true;
                             }
                         }
                     }
                 }
 
-                // If still no deployment found, select first available deployment
-                if (!deploymentFound && availableDeployments.length > 0) {
-                    foundDeployment = `${availableDeployments[0].namespace}/${availableDeployments[0].name}`;
+                // If still no workload found, select first available workload
+                if (!workloadFound && availableWorkloads.length > 0) {
+                    foundWorkload = `${availableWorkloads[0].namespace}/${availableWorkloads[0].name}`;
                 }
 
                 updateLogsState({
-                    selectedDeployment: foundDeployment,
+                    selectedWorkload: foundWorkload,
                     selectedPod: `${logsTarget.namespace}/${logsTarget.podName}`,
                     selectedContainer: logsTarget.container || '',
                 });
             } else if (logsTarget.type === 'all-pods' && logsTarget.deploymentName) {
                 // For deployment all-pods
                 updateLogsState({
-                    selectedDeployment: `${logsTarget.namespace}/${logsTarget.deploymentName}`,
+                    selectedWorkload: `${logsTarget.namespace}/${logsTarget.deploymentName}`,
                     selectedPod: 'all-pods',
                     selectedContainer: '',
                 });
@@ -427,6 +532,7 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
                 // Clear the processed tracker when we clear the target
                 processedLogsTargetRef.current = '';
                 hasProcessedOnceRef.current = false;
+                isProcessingLogsTargetRef.current = false; // Clear the processing flag
             }, 500);
             }, 100); // Small delay to ensure tab switching completes
 
@@ -435,12 +541,13 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
             // Clear the tracker when logsTarget becomes null
             processedLogsTargetRef.current = '';
             hasProcessedOnceRef.current = false;
+            isProcessingLogsTargetRef.current = false;
         }
-    }, [state.logsTarget, state.pods, state.deployments, state.replicaSets, availableDeployments, currentTabId, state.activeLogsTabId]);
+    }, [state.logsTarget, state.pods, state.deployments, state.daemonSets, state.statefulSets, state.replicaSets, availableWorkloads, currentTabId, state.activeLogsTabId]);
 
     // Refs to track the latest selection values (to avoid stale closures in auto-refresh)
     const latestSelectionRef = useRef({
-        deployment: selectedDeployment,
+        deployment: selectedWorkload,
         pod: selectedPod,
         container: selectedContainer,
         tabId: currentTabId,
@@ -449,12 +556,12 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
     // Keep the ref updated with latest values
     useEffect(() => {
         latestSelectionRef.current = {
-            deployment: selectedDeployment,
+            deployment: selectedWorkload,
             pod: selectedPod,
             container: selectedContainer,
             tabId: currentTabId,
         };
-    }, [selectedDeployment, selectedPod, selectedContainer, currentTabId]);
+    }, [selectedWorkload, selectedPod, selectedContainer, currentTabId]);
 
     // Fetch logs function
     const fetchLogs = async () => {
@@ -465,14 +572,23 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
 
         // IMPORTANT: Validate pod exists BEFORE starting fetch
         // This prevents errors when tab state has stale pod names
+        // EXCEPT for explicitly selected pods from logs tabs - always try fetching those
         if (latest.pod && latest.pod !== 'all-pods') {
-            if (!validatePodExists(latest.pod, { 
-                autoSwitch: true,
-                action: 'fetch logs'
-            })) {
-                // Pod doesn't exist, validatePodExists already handled it
-                return;
+            // Check if this pod is explicitly selected in current tab (from logs tab state)
+            const isFromLogsTab = currentTab?.selectedPod === latest.pod;
+
+            // Skip validation entirely for pods from logs tabs - they were explicitly selected
+            // Even if not in state.pods, the kubectl API might work (pod exists but not in our limited list)
+            if (!isFromLogsTab) {
+                if (!validatePodExists(latest.pod, {
+                    autoSwitch: true,
+                    action: 'fetch logs'
+                })) {
+                    // Pod doesn't exist, validatePodExists already handled it
+                    return;
+                }
             }
+            // If from logs tab, skip validation and try fetching anyway
         }
 
         // Capture the current fetch context at the start
@@ -591,7 +707,10 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
                 const [podNamespace, podName] = latest.pod.split('/');
 
                 // Validate that the pod still exists
-                if (!validatePodExists(latest.pod, { 
+                // BUT skip validation if this pod is explicitly selected in logs tab
+                const isFromLogsTab = currentTab?.selectedPod === latest.pod;
+
+                if (!isFromLogsTab && !validatePodExists(latest.pod, {
                     autoSwitch: true,
                     action: 'fetch logs'
                 })) {
@@ -632,11 +751,11 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
 
     // Download logs function - fetches all logs without line limit
     const downloadLogs = async () => {
-        if (!selectedDeployment) return;
+        if (!selectedWorkload) return;
 
         setDownloadingLogs(true);
         try {
-            const [namespace, depName] = selectedDeployment.split('/');
+            const [namespace, depName] = selectedWorkload.split('/');
             let lines: string[];
 
             // Fetch all logs with unlimited flag
@@ -646,7 +765,7 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
                 const [podNamespace, podName] = selectedPod.split('/');
 
                 // Validate that the pod still exists
-                if (!validatePodExists(selectedPod, { 
+                if (!validatePodExists(selectedPod, {
                     autoSwitch: false,
                     userMessage: '⚠️ Cannot download logs: Pod no longer exists. Please select a different pod or use all-pods mode.',
                     action: 'download logs'
@@ -685,7 +804,7 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
     };
 
     // Track previous values to detect context changes vs search changes
-    const prevDeploymentRef = useRef(selectedDeployment);
+    const prevDeploymentRef = useRef(selectedWorkload);
     const prevPodRef = useRef(selectedPod);
     const prevContainerRef = useRef(selectedContainer);
     const prevShowPreviousRef = useRef(showPrevious);
@@ -718,7 +837,7 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
 
             // Update ALL refs to new values
             prevLastUpdatedRef.current = lastUpdated;
-            prevDeploymentRef.current = selectedDeployment;
+            prevDeploymentRef.current = selectedWorkload;
             prevPodRef.current = selectedPod;
             prevContainerRef.current = selectedContainer;
             prevShowPreviousRef.current = showPrevious;
@@ -750,7 +869,7 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
             // Update the per-tab tracking for the new tab
             lastUpdatedPerTabRef.current.set(currentTabId, lastUpdated);
             // Tab switched - update all refs to new tab's values without triggering reload
-            prevDeploymentRef.current = selectedDeployment;
+            prevDeploymentRef.current = selectedWorkload;
             prevPodRef.current = selectedPod;
             prevContainerRef.current = selectedContainer;
             prevShowPreviousRef.current = showPrevious;
@@ -762,7 +881,7 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
 
             // If this tab already has logs in memory, don't reload - just continue with auto-refresh
             // If no logs yet and has a deployment selected, start fresh fetch
-            if (logLines.length === 0 && selectedDeployment && (selectedPod === 'all-pods' || (selectedPod && selectedContainer))) {
+            if (logLines.length === 0 && selectedWorkload && (selectedPod === 'all-pods' || (selectedPod && selectedContainer))) {
                 setIsContextLoading(true);
                 setLoadingLogs(true);
                 fetchLogs();
@@ -770,11 +889,11 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
             return;
         }
 
-        if (selectedDeployment) {
+        if (selectedWorkload) {
             if (selectedPod === 'all-pods' || (selectedPod && selectedContainer)) {
                 // Check if this is a context change (deployment/pod/container changed) vs just a search query change
                 const isContextChange =
-                    prevDeploymentRef.current !== selectedDeployment ||
+                    prevDeploymentRef.current !== selectedWorkload ||
                     prevPodRef.current !== selectedPod ||
                     prevContainerRef.current !== selectedContainer ||
                     prevShowPreviousRef.current !== showPrevious;
@@ -788,7 +907,7 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
                 const isSearchQueryChange = prevSearchQueryRef.current !== searchQuery;
 
                 // Update refs
-                prevDeploymentRef.current = selectedDeployment;
+                prevDeploymentRef.current = selectedWorkload;
                 prevPodRef.current = selectedPod;
                 prevContainerRef.current = selectedContainer;
                 prevShowPreviousRef.current = showPrevious;
@@ -829,31 +948,51 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
                 return () => clearTimeout(timeoutId);
             }
         }
-    }, [selectedDeployment, selectedPod, selectedContainer, showPrevious, searchQuery, appliedDateFrom, appliedDateTo, currentTabId, lastUpdated]);
+    }, [selectedWorkload, selectedPod, selectedContainer, showPrevious, searchQuery, appliedDateFrom, appliedDateTo, currentTabId, lastUpdated]);
 
     // Auto-refresh logs when enabled
     useEffect(() => {
-        if (autoRefreshEnabled && selectedDeployment && (selectedPod === 'all-pods' || (selectedPod && selectedContainer))) {
+        if (autoRefreshEnabled && selectedWorkload && (selectedPod === 'all-pods' || (selectedPod && selectedContainer))) {
             const intervalId = setInterval(() => {
                 fetchLogs();
             }, autoRefreshInterval);
 
             return () => clearInterval(intervalId);
         }
-    }, [autoRefreshEnabled, autoRefreshInterval, selectedDeployment, selectedPod, selectedContainer, searchQuery, appliedDateFrom, appliedDateTo, showPrevious]);
+    }, [autoRefreshEnabled, autoRefreshInterval, selectedWorkload, selectedPod, selectedContainer, searchQuery, appliedDateFrom, appliedDateTo, showPrevious]);
 
     // Update pod selection when deployment changes (but not when logsTarget is being set or on initial mount)
     useEffect(() => {
+        // Check if pod is already set to a specific value (not empty, not all-pods)
+        // If so, this is likely from localStorage restore or explicit user selection - don't override it
+        const hasSpecificPodSelected = selectedPod && selectedPod !== '' && selectedPod !== 'all-pods';
+
+        // Check if workload data has actually loaded - if not, don't make changes yet
+        // This prevents resetting pod selection on page reload before workloads are fetched
+        const hasWorkloadData = state.deployments.length > 0 || state.daemonSets.length > 0 || state.statefulSets.length > 0;
+
+        // Also check if pods have loaded - if a specific pod is selected but pods haven't loaded yet,
+        // don't reset (this is the page reload scenario where localStorage state is restored but data isn't loaded yet)
+        const hasPodsData = state.pods.length > 0;
+
         // Only auto-set to all-pods if:
-        // 1. Deployment changed
-        // 2. Not from logsTarget (drawer LOGS button)
-        // 3. Not initial mount
-        // 4. Pod is currently empty or all-pods (don't override if a specific pod is already set)
-        const shouldAutoSetAllPods = selectedDeployment &&
+        // 1. Deployment changed from previous value
+        // 2. Not from logsTarget (drawer LOGS button) - check both state and ref
+        // 3. Not initial mount (prevDeployment was not empty)
+        // 4. Pod is NOT already set to a specific pod (preserves localStorage restore)
+        // 5. Workload data has actually loaded (prevents premature reset)
+        // 6. Pods data has loaded (prevents reset when pod list is empty on page reload)
+        const shouldAutoSetAllPods = selectedWorkload &&
             !state.logsTarget &&
-            prevSelectedDeploymentRef.current !== selectedDeployment &&
-            prevSelectedDeploymentRef.current !== '' &&
-            (selectedPod === '' || selectedPod === 'all-pods' || !selectedPod);
+            !isProcessingLogsTargetRef.current &&
+            prevSelectedWorkloadRef.current !== selectedWorkload &&
+            prevSelectedWorkloadRef.current !== '' &&
+            !hasSpecificPodSelected &&
+            hasWorkloadData &&
+            hasPodsData;
+
+        // IMPORTANT: Update prevSelectedWorkloadRef immediately to track the deployment
+        prevSelectedWorkloadRef.current = selectedWorkload;
 
         if (shouldAutoSetAllPods) {
             updateLogsState({
@@ -861,8 +1000,30 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
                 selectedContainer: '',
             });
         }
-        prevSelectedDeploymentRef.current = selectedDeployment;
-    }, [selectedDeployment]);
+    }, [selectedWorkload, selectedPod, state.logsTarget, state.deployments.length, state.daemonSets.length, state.statefulSets.length, state.pods.length]);
+
+    // Auto-detect and update workload when pod is selected
+    // This ensures the workload dropdown shows the correct owner of the selected pod
+    useEffect(() => {
+        if (selectedPod && selectedPod !== 'all-pods' && selectedPod !== '') {
+            const [namespace, podName] = selectedPod.split('/');
+            const pod = state.pods.find(p => p.namespace === namespace && p.name === podName);
+
+            if (pod && pod.labels) {
+                // Find the workload that owns this pod
+                const matchingWorkload = findWorkloadForPod(pod);
+
+                if (matchingWorkload) {
+                    const correctWorkloadId = `${matchingWorkload.namespace}/${matchingWorkload.name}`;
+
+                    // Only update if it's different from current selection
+                    if (selectedWorkload !== correctWorkloadId) {
+                        updateLogsState({ selectedWorkload: correctWorkloadId });
+                    }
+                }
+            }
+        }
+    }, [selectedPod, state.pods, state.deployments, state.daemonSets, state.statefulSets]);
 
     // Update container when pod changes (but only if current container is not valid)
     useEffect(() => {
@@ -1026,19 +1187,19 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
                 {/* Logs controls */}
                 <div className="flex flex-wrap items-center gap-3 px-4 py-2 bg-gray-900/50 border-b border-gray-800">
                     <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0 z-[110]">
-                        <label className="text-xs text-gray-400 font-medium">Deployment:</label>
+                        <label className="text-xs text-gray-400 font-medium">Workload:</label>
                         <select
                             className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-blue-500 max-w-xs"
-                            value={selectedDeployment}
+                            value={selectedWorkload}
                             onChange={(e) => {
                                 updateLogsState({
-                                    selectedDeployment: e.target.value,
+                                    selectedWorkload: e.target.value,
                                     selectedPod: e.target.value ? 'all-pods' : '',
                                 });
                             }}
                         >
-                            {!selectedDeployment && <option value="" disabled>Select deployment</option>}
-                            {availableDeployments.map(dep => (
+                            {!selectedWorkload && <option value="" disabled>Select workload</option>}
+                            {availableWorkloads.map(dep => (
                                 <option key={`${dep.namespace}/${dep.name}`} value={`${dep.namespace}/${dep.name}`}>
                                     {dep.namespace}/{dep.name}
                                 </option>
@@ -1050,20 +1211,26 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
                             className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-blue-500 max-w-xs"
                             value={selectedPod}
                             onChange={(e) => updateLogsState({ selectedPod: e.target.value })}
-                            disabled={!selectedDeployment}
+                            disabled={!selectedWorkload}
                         >
-                            {!selectedDeployment ? (
-                                <option value="" disabled>Select deployment first</option>
+                            {!selectedWorkload ? (
+                                <option value="" disabled>Select workload first</option>
                             ) : (
                                 <>
                                     <option value="all-pods">All Pods (Aggregated)</option>
                                     {(() => {
-                                        const [namespace, depName] = selectedDeployment.split('/');
-                                        const deployment = state.deployments.find(d => d.name === depName && d.namespace === namespace);
+                                        const [namespace, workloadName] = selectedWorkload.split('/');
 
-                                        if (!deployment) return null;
+                                        // Find the workload in any of the three types
+                                        const deployment = state.deployments.find(d => d.name === workloadName && d.namespace === namespace);
+                                        const daemonSet = state.daemonSets.find(ds => ds.name === workloadName && ds.namespace === namespace);
+                                        const statefulSet = state.statefulSets.find(ss => ss.name === workloadName && ss.namespace === namespace);
 
-                                        // Helper function to check if pod labels match deployment selector
+                                        const workload = deployment || daemonSet || statefulSet;
+
+                                        if (!workload) return null;
+
+                                        // Helper function to check if pod labels match workload selector
                                         const matchesSelector = (podLabels: Record<string, string> | undefined, selector: Record<string, string> | undefined) => {
                                             if (!podLabels || !selector) return false;
                                             return Object.entries(selector).every(([key, value]) => podLabels[key] === value);
@@ -1071,7 +1238,7 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
 
                                         const filteredPods = state.pods.filter(statePod => {
                                             if (statePod.namespace !== namespace) return false;
-                                            return matchesSelector(statePod.labels, deployment.selector);
+                                            return matchesSelector(statePod.labels, workload.selector);
                                         });
 
                                         return filteredPods.map(pod => (
@@ -1084,7 +1251,7 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
                             )}
                         </select>
 
-                        {selectedDeployment && selectedPod && selectedPod !== 'all-pods' && (
+                        {selectedWorkload && selectedPod && selectedPod !== 'all-pods' && (
                             <>
                                 <label className="text-xs text-gray-400 font-medium ml-2">Container:</label>
                                 <select
@@ -1138,7 +1305,7 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
                                     }}
                                     className="p-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-gray-400 hover:text-white transition-colors"
                                     title="Refresh logs"
-                                    disabled={loadingLogs || !selectedDeployment || (selectedPod !== 'all-pods' && !selectedContainer)}
+                                    disabled={loadingLogs || !selectedWorkload || (selectedPod !== 'all-pods' && !selectedContainer)}
                                 >
                                     <RefreshCw size={14} className={loadingLogs ? "animate-spin" : ""} />
                                 </button>
@@ -1173,7 +1340,7 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
                                 onClick={downloadLogs}
                                 className="p-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-gray-400 hover:text-white transition-colors"
                                 title="Download all logs (no line limit)"
-                                disabled={downloadingLogs || !selectedDeployment || (selectedPod !== 'all-pods' && !selectedContainer)}
+                                disabled={downloadingLogs || !selectedWorkload || (selectedPod !== 'all-pods' && !selectedContainer)}
                             >
                                 <Download size={14} className={downloadingLogs ? "animate-spin" : ""} />
                             </button>
@@ -1338,7 +1505,7 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
                 >
                     {isContextLoading ? (
                         <div className="text-gray-500 italic">Loading logs...</div>
-                    ) : !selectedDeployment ? (
+                    ) : !selectedWorkload ? (
                         <div className="text-gray-500 italic">Select a deployment to view logs.</div>
                     ) : logLines.length > 0 ? (
                         <>

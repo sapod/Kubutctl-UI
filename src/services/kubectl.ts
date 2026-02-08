@@ -1,6 +1,6 @@
 import {
-  Node, Pod, Deployment, ReplicaSet, Job, CronJob, Service, Ingress,
-  ConfigMap, Namespace, K8sEvent, ResourceQuota, ResourceStatus, PortForward, ResourceStats
+  Node, Pod, Deployment, ReplicaSet, DaemonSet, StatefulSet, Job, CronJob, Service, Ingress,
+  ConfigMap, Secret, Namespace, K8sEvent, ResourceQuota, ResourceStatus, PortForward, ResourceStats
 } from '../types';
 import { BACKEND_BASE_URL, BACKEND_PORT } from '../consts';
 
@@ -24,11 +24,14 @@ export const KUBECTL_COMMANDS: Record<string, CommandDefinition> = {
   getPods: { command: (ns: string) => `kubectl get pods ${ns === 'All Namespaces' ? '--all-namespaces' : `-n ${ns}`} -o json`, shouldVerify: false },
   getDeployments: { command: (ns: string) => `kubectl get deployments ${ns === 'All Namespaces' ? '--all-namespaces' : `-n ${ns}`} -o json`, shouldVerify: false },
   getReplicaSets: { command: (ns: string) => `kubectl get replicasets ${ns === 'All Namespaces' ? '--all-namespaces' : `-n ${ns}`} -o json`, shouldVerify: false },
+  getDaemonSets: { command: (ns: string) => `kubectl get daemonsets ${ns === 'All Namespaces' ? '--all-namespaces' : `-n ${ns}`} -o json`, shouldVerify: false },
+  getStatefulSets: { command: (ns: string) => `kubectl get statefulsets ${ns === 'All Namespaces' ? '--all-namespaces' : `-n ${ns}`} -o json`, shouldVerify: false },
   getJobs: { command: (ns: string) => `kubectl get jobs ${ns === 'All Namespaces' ? '--all-namespaces' : `-n ${ns}`} -o json`, shouldVerify: false },
   getCronJobs: { command: (ns: string) => `kubectl get cronjobs ${ns === 'All Namespaces' ? '--all-namespaces' : `-n ${ns}`} -o json`, shouldVerify: false },
   getServices: { command: (ns: string) => `kubectl get services ${ns === 'All Namespaces' ? '--all-namespaces' : `-n ${ns}`} -o json`, shouldVerify: false },
   getIngresses: { command: (ns: string) => `kubectl get ingresses ${ns === 'All Namespaces' ? '--all-namespaces' : `-n ${ns}`} -o json`, shouldVerify: false },
   getConfigMaps: { command: (ns: string) => `kubectl get configmaps ${ns === 'All Namespaces' ? '--all-namespaces' : `-n ${ns}`} -o json`, shouldVerify: false },
+  getSecrets: { command: (ns: string) => `kubectl get secrets ${ns === 'All Namespaces' ? '--all-namespaces' : `-n ${ns}`} -o json`, shouldVerify: false },
   getEvents: { command: (ns: string) => `kubectl get events ${ns === 'All Namespaces' ? '--all-namespaces' : `-n ${ns}`} -o json`, shouldVerify: false },
   getResourceQuotas: { command: (ns: string) => `kubectl get resourcequotas ${ns === 'All Namespaces' ? '--all-namespaces' : `-n ${ns}`} -o json`, shouldVerify: false },
   deleteResource: {
@@ -122,12 +125,15 @@ export const KUBECTL_COMMANDS: Record<string, CommandDefinition> = {
   getPod: { command: (name: string, ns: string) => `kubectl get pod ${name} -n ${ns} -o json`, shouldVerify: false },
   getDeployment: { command: (name: string, ns: string) => `kubectl get deployment ${name} -n ${ns} -o json`, shouldVerify: false },
   getReplicaSet: { command: (name: string, ns: string) => `kubectl get replicaset ${name} -n ${ns} -o json`, shouldVerify: false },
+  getDaemonSet: { command: (name: string, ns: string) => `kubectl get daemonset ${name} -n ${ns} -o json`, shouldVerify: false },
+  getStatefulSet: { command: (name: string, ns: string) => `kubectl get statefulset ${name} -n ${ns} -o json`, shouldVerify: false },
   getJob: { command: (name: string, ns: string) => `kubectl get job ${name} -n ${ns} -o json`, shouldVerify: false },
   getCronJob: { command: (name: string, ns: string) => `kubectl get cronjob ${name} -n ${ns} -o json`, shouldVerify: false },
   getNode: { command: (name: string) => `kubectl get node ${name} -o json`, shouldVerify: false },
   getService: { command: (name: string, ns: string) => `kubectl get service ${name} -n ${ns} -o json`, shouldVerify: false },
   getIngress: { command: (name: string, ns: string) => `kubectl get ingress ${name} -n ${ns} -o json`, shouldVerify: false },
   getConfigMap: { command: (name: string, ns: string) => `kubectl get configmap ${name} -n ${ns} -o json`, shouldVerify: false },
+  getSecret: { command: (name: string, ns: string) => `kubectl get secret ${name} -n ${ns} -o json`, shouldVerify: false },
   getNamespace: { command: (name: string) => `kubectl get namespace ${name} -o json`, shouldVerify: false },
   getResourceQuota: { command: (name: string, ns: string) => `kubectl get resourcequota ${name} -n ${ns} -o json`, shouldVerify: false },
 };
@@ -184,6 +190,44 @@ const transformPod = (raw: any): Pod => {
     let status = raw.status.phase;
     if (raw.metadata.deletionTimestamp) status = 'Terminating';
     const isReady = raw.status.conditions?.some((c: any) => c.type === 'Ready' && c.status === 'True') ?? false;
+    
+    // Extract related ConfigMaps and Secrets from containers
+    const relatedConfigMaps = new Set<string>();
+    const relatedSecrets = new Set<string>();
+    
+    raw.spec.containers.forEach((c: any) => {
+      // From env
+      c.env?.forEach((e: any) => {
+        if (e.valueFrom?.configMapKeyRef) {
+          relatedConfigMaps.add(e.valueFrom.configMapKeyRef.name);
+        }
+        if (e.valueFrom?.secretKeyRef) {
+          relatedSecrets.add(e.valueFrom.secretKeyRef.name);
+        }
+      });
+      
+      // From envFrom
+      c.envFrom?.forEach((ef: any) => {
+        if (ef.configMapRef) {
+          relatedConfigMaps.add(ef.configMapRef.name);
+        }
+        if (ef.secretRef) {
+          relatedSecrets.add(ef.secretRef.name);
+        }
+      });
+      
+      // From volume mounts
+      c.volumeMounts?.forEach((vm: any) => {
+        const vol = raw.spec.volumes?.find((v: any) => v.name === vm.name);
+        if (vol?.configMap) {
+          relatedConfigMaps.add(vol.configMap.name);
+        }
+        if (vol?.secret) {
+          relatedSecrets.add(vol.secret.secretName);
+        }
+      });
+    });
+    
     return {
       id: raw.metadata.uid, name: raw.metadata.name, namespace: raw.metadata.namespace, creationTimestamp: raw.metadata.creationTimestamp, labels: raw.metadata.labels || {},
       ownerReferences: raw.metadata.ownerReferences, status: status as ResourceStatus, isReady,
@@ -194,10 +238,14 @@ const transformPod = (raw: any): Pod => {
         image: c.image,
         ports: c.ports || [],
         env: c.env || [],
+        envFrom: c.envFrom || [],
         resources: c.resources,
         volumeMounts: c.volumeMounts || []
       })),
-      volumes: raw.spec.volumes || [], resourceStats: aggregateResources(raw.spec.containers), relatedConfigMaps: [],
+      volumes: raw.spec.volumes || [], 
+      resourceStats: aggregateResources(raw.spec.containers), 
+      relatedConfigMaps: Array.from(relatedConfigMaps),
+      relatedSecrets: Array.from(relatedSecrets),
       raw
     };
 };
@@ -212,6 +260,27 @@ const transformDeployment = (raw: any): Deployment => ({
 const transformReplicaSet = (raw: any): ReplicaSet => ({
     id: raw.metadata.uid, name: raw.metadata.name, namespace: raw.metadata.namespace, creationTimestamp: raw.metadata.creationTimestamp, labels: raw.metadata.labels || {},
     replicas: raw.spec.replicas, availableReplicas: raw.status.availableReplicas || 0, selector: raw.spec.selector?.matchLabels || {},
+    resourceStats: aggregateResources(raw.spec.template?.spec?.containers),
+    raw
+});
+
+const transformDaemonSet = (raw: any): DaemonSet => ({
+    id: raw.metadata.uid, name: raw.metadata.name, namespace: raw.metadata.namespace, creationTimestamp: raw.metadata.creationTimestamp, labels: raw.metadata.labels || {},
+    desiredNumberScheduled: raw.status.desiredNumberScheduled || 0,
+    currentNumberScheduled: raw.status.currentNumberScheduled || 0,
+    numberReady: raw.status.numberReady || 0,
+    numberAvailable: raw.status.numberAvailable || 0,
+    selector: raw.spec.selector?.matchLabels || {},
+    resourceStats: aggregateResources(raw.spec.template?.spec?.containers),
+    raw
+});
+
+const transformStatefulSet = (raw: any): StatefulSet => ({
+    id: raw.metadata.uid, name: raw.metadata.name, namespace: raw.metadata.namespace, creationTimestamp: raw.metadata.creationTimestamp, labels: raw.metadata.labels || {},
+    replicas: raw.spec.replicas || 0,
+    readyReplicas: raw.status.readyReplicas || 0,
+    currentReplicas: raw.status.currentReplicas || 0,
+    selector: raw.spec.selector?.matchLabels || {},
     resourceStats: aggregateResources(raw.spec.template?.spec?.containers),
     raw
 });
@@ -252,6 +321,13 @@ const transformIngress = (raw: any): Ingress => ({
 
 const transformConfigMap = (raw: any): ConfigMap => ({
     id: raw.metadata.uid, name: raw.metadata.name, namespace: raw.metadata.namespace, creationTimestamp: raw.metadata.creationTimestamp, labels: raw.metadata.labels || {}, data: raw.data || {},
+    raw
+});
+
+const transformSecret = (raw: any): Secret => ({
+    id: raw.metadata.uid, name: raw.metadata.name, namespace: raw.metadata.namespace, creationTimestamp: raw.metadata.creationTimestamp, labels: raw.metadata.labels || {}, 
+    type: raw.type || 'Opaque',
+    data: raw.data || {},
     raw
 });
 
@@ -459,6 +535,8 @@ export const kubectl = {
   getNamespaces: async (notify = true) => (await executeWithVerification({ command: () => 'kubectl get namespaces -o json', shouldVerify: false }, [], notify)).items?.map(transformNamespace) || [],
   getDeployments: async (ns = 'All Namespaces', notify = true) => (await executeWithVerification(KUBECTL_COMMANDS.getDeployments, [ns], notify)).items?.map(transformDeployment) || [],
   getReplicaSets: async (ns = 'All Namespaces', notify = true) => (await executeWithVerification(KUBECTL_COMMANDS.getReplicaSets, [ns], notify)).items?.map(transformReplicaSet) || [],
+  getDaemonSets: async (ns = 'All Namespaces', notify = true) => (await executeWithVerification(KUBECTL_COMMANDS.getDaemonSets, [ns], notify)).items?.map(transformDaemonSet) || [],
+  getStatefulSets: async (ns = 'All Namespaces', notify = true) => (await executeWithVerification(KUBECTL_COMMANDS.getStatefulSets, [ns], notify)).items?.map(transformStatefulSet) || [],
   getPods: async (ns = 'All Namespaces', notify = true) => (await executeWithVerification(KUBECTL_COMMANDS.getPods, [ns], notify)).items?.map(transformPod) || [],
   getPodMetrics: async (ns = 'All Namespaces', notify = true) => parseMetrics(await executeWithVerification(KUBECTL_COMMANDS.topPods, [ns], notify)),
   getJobs: async (ns = 'All Namespaces', notify = true) => (await executeWithVerification(KUBECTL_COMMANDS.getJobs, [ns], notify)).items?.map(transformJob) || [],
@@ -466,6 +544,7 @@ export const kubectl = {
   getServices: async (ns = 'All Namespaces', notify = true) => (await executeWithVerification(KUBECTL_COMMANDS.getServices, [ns], notify)).items?.map(transformService) || [],
   getIngresses: async (ns = 'All Namespaces', notify = true) => (await executeWithVerification(KUBECTL_COMMANDS.getIngresses, [ns], notify)).items?.map(transformIngress) || [],
   getConfigMaps: async (ns = 'All Namespaces', notify = true) => (await executeWithVerification(KUBECTL_COMMANDS.getConfigMaps, [ns], notify)).items?.map(transformConfigMap) || [],
+  getSecrets: async (ns = 'All Namespaces', notify = true) => (await executeWithVerification(KUBECTL_COMMANDS.getSecrets, [ns], notify)).items?.map(transformSecret) || [],
   getEvents: async (ns = 'All Namespaces', notify = true) => (await executeWithVerification(KUBECTL_COMMANDS.getEvents, [ns], notify)).items?.map(transformEvent) || [],
   getResourceQuotas: async (ns = 'All Namespaces', notify = true) => (await executeWithVerification(KUBECTL_COMMANDS.getResourceQuotas, [ns], notify)).items?.map(transformResourceQuota) || [],
   getPortForwards: async(_notify = true): Promise<PortForward[]> => {
@@ -473,7 +552,7 @@ export const kubectl = {
   },
   getResource: async (type: string, name: string, ns: string, notify = true): Promise<any> => {
       try {
-          const mapping: any = { pod: [KUBECTL_COMMANDS.getPod, transformPod], deployment: [KUBECTL_COMMANDS.getDeployment, transformDeployment], replicaset: [KUBECTL_COMMANDS.getReplicaSet, transformReplicaSet], job: [KUBECTL_COMMANDS.getJob, transformJob], cronjob: [KUBECTL_COMMANDS.getCronJob, transformCronJob], node: [KUBECTL_COMMANDS.getNode, transformNode], service: [KUBECTL_COMMANDS.getService, transformService], ingress: [KUBECTL_COMMANDS.getIngress, transformIngress], configmap: [KUBECTL_COMMANDS.getConfigMap, transformConfigMap], namespace: [KUBECTL_COMMANDS.getNamespace, transformNamespace], resourcequota: [KUBECTL_COMMANDS.getResourceQuota, transformResourceQuota] };
+          const mapping: any = { pod: [KUBECTL_COMMANDS.getPod, transformPod], deployment: [KUBECTL_COMMANDS.getDeployment, transformDeployment], replicaset: [KUBECTL_COMMANDS.getReplicaSet, transformReplicaSet], daemonset: [KUBECTL_COMMANDS.getDaemonSet, transformDaemonSet], statefulset: [KUBECTL_COMMANDS.getStatefulSet, transformStatefulSet], job: [KUBECTL_COMMANDS.getJob, transformJob], cronjob: [KUBECTL_COMMANDS.getCronJob, transformCronJob], node: [KUBECTL_COMMANDS.getNode, transformNode], service: [KUBECTL_COMMANDS.getService, transformService], ingress: [KUBECTL_COMMANDS.getIngress, transformIngress], configmap: [KUBECTL_COMMANDS.getConfigMap, transformConfigMap], secret: [KUBECTL_COMMANDS.getSecret, transformSecret], namespace: [KUBECTL_COMMANDS.getNamespace, transformNamespace], resourcequota: [KUBECTL_COMMANDS.getResourceQuota, transformResourceQuota] };
           const [cmdDef, transform] = mapping[type]; const args = type === 'node' || type === 'namespace' ? [name] : [name, ns];
           const data = await executeWithVerification(cmdDef, args, notify); return transform(data);
       } catch (e) { return null; }

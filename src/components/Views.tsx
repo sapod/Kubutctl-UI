@@ -283,6 +283,16 @@ export const ReplicaSetsPage: React.FC = () => {
     return <ResourceTable title="ReplicaSets" data={state.replicaSets} enableMultiSelect onBulkDelete={(ids) => kubectl.deleteResources(ids, 'replicaset', state.replicaSets.filter(d => ids.includes(d.id)).map(i => ({ name: i.name, namespace: i.namespace })))} onSelect={(id) => dispatch({ type: 'SELECT_RESOURCE', payload: { id, type: 'replicaset' } })} columns={[ { header: 'Name', accessor: (r) => <span className="font-medium text-gray-200">{r.name}</span>, sortValue: (r) => r.name }, { header: 'Namespace', accessor: (r) => r.namespace, sortValue: (r) => r.namespace }, { header: 'Desired', accessor: (r) => r.replicas }, { header: 'Available', accessor: (r) => r.availableReplicas }, { header: 'Age', accessor: (r) => getAge(r.creationTimestamp), sortValue: (r) => r.creationTimestamp }, ]} />;
 };
 
+export const DaemonSetsPage: React.FC = () => {
+    const { state, dispatch } = useStore();
+    return <ResourceTable title="DaemonSets" data={state.daemonSets} enableMultiSelect onBulkDelete={(ids) => kubectl.deleteResources(ids, 'daemonset', state.daemonSets.filter(d => ids.includes(d.id)).map(i => ({ name: i.name, namespace: i.namespace })))} onSelect={(id) => dispatch({ type: 'SELECT_RESOURCE', payload: { id, type: 'daemonset' } })} columns={[ { header: 'Name', accessor: (d) => <span className="font-medium text-gray-200">{d.name}</span>, sortValue: (d) => d.name }, { header: 'Namespace', accessor: (d) => d.namespace, sortValue: (d) => d.namespace }, { header: 'Desired', accessor: (d) => d.desiredNumberScheduled }, { header: 'Current', accessor: (d) => d.currentNumberScheduled }, { header: 'Ready', accessor: (d) => d.numberReady }, { header: 'Available', accessor: (d) => d.numberAvailable }, { header: 'Age', accessor: (d) => getAge(d.creationTimestamp), sortValue: (d) => d.creationTimestamp }, ]} />;
+};
+
+export const StatefulSetsPage: React.FC = () => {
+    const { state, dispatch } = useStore();
+    return <ResourceTable title="StatefulSets" data={state.statefulSets} enableMultiSelect onBulkDelete={(ids) => kubectl.deleteResources(ids, 'statefulset', state.statefulSets.filter(d => ids.includes(d.id)).map(i => ({ name: i.name, namespace: i.namespace })))} onSelect={(id) => dispatch({ type: 'SELECT_RESOURCE', payload: { id, type: 'statefulset' } })} columns={[ { header: 'Name', accessor: (s) => <span className="font-medium text-gray-200">{s.name}</span>, sortValue: (s) => s.name }, { header: 'Namespace', accessor: (s) => s.namespace, sortValue: (s) => s.namespace }, { header: 'Desired', accessor: (s) => s.replicas }, { header: 'Current', accessor: (s) => s.currentReplicas }, { header: 'Ready', accessor: (s) => s.readyReplicas }, { header: 'Age', accessor: (s) => getAge(s.creationTimestamp), sortValue: (s) => s.creationTimestamp }, ]} />;
+};
+
 export const JobsPage: React.FC = () => {
     const { state, dispatch } = useStore();
     return <ResourceTable title="Jobs" data={state.jobs} enableMultiSelect onBulkDelete={(ids) => kubectl.deleteResources(ids, 'job', state.jobs.filter(d => ids.includes(d.id)).map(i => ({ name: i.name, namespace: i.namespace })))} onSelect={(id) => dispatch({ type: 'SELECT_RESOURCE', payload: { id, type: 'job' } })} columns={[ { header: 'Name', accessor: (j) => <span className="font-medium text-gray-200">{j.name}</span>, sortValue: (j) => j.name }, { header: 'Namespace', accessor: (j) => j.namespace, sortValue: (j) => j.namespace }, { header: 'Completions', accessor: (j) => `${j.succeeded}/${j.completions}` }, { header: 'Status', accessor: (j) => <StatusBadge status={j.failed > 0 ? ResourceStatus.Failed : (j.succeeded >= j.completions ? ResourceStatus.Completed : ResourceStatus.Running)} /> }, { header: 'Age', accessor: (j) => getAge(j.creationTimestamp), sortValue: (j) => j.creationTimestamp }, ]} />;
@@ -306,6 +316,11 @@ export const IngressesPage: React.FC = () => {
 export const ConfigMapsPage: React.FC = () => {
     const { state, dispatch } = useStore();
     return <ResourceTable title="ConfigMaps" data={state.configMaps} enableMultiSelect onBulkDelete={(ids) => kubectl.deleteResources(ids, 'configmap', state.configMaps.filter(d => ids.includes(d.id)).map(i => ({ name: i.name, namespace: i.namespace })))} onSelect={(id) => dispatch({ type: 'SELECT_RESOURCE', payload: { id, type: 'configmap' } })} columns={[ { header: 'Name', accessor: (c) => <span className="font-medium text-gray-200">{c.name}</span>, sortValue: (c) => c.name }, { header: 'Namespace', accessor: (c) => c.namespace, sortValue: (c) => c.namespace }, { header: 'Keys', accessor: (c) => Object.keys(c.data).length }, { header: 'Age', accessor: (c) => getAge(c.creationTimestamp), sortValue: (c) => c.creationTimestamp }, ]} />;
+};
+
+export const SecretsPage: React.FC = () => {
+    const { state, dispatch } = useStore();
+    return <ResourceTable title="Secrets" data={state.secrets} enableMultiSelect onBulkDelete={(ids) => kubectl.deleteResources(ids, 'secret', state.secrets.filter(d => ids.includes(d.id)).map(i => ({ name: i.name, namespace: i.namespace })))} onSelect={(id) => dispatch({ type: 'SELECT_RESOURCE', payload: { id, type: 'secret' } })} columns={[ { header: 'Name', accessor: (s) => <span className="font-medium text-gray-200">{s.name}</span>, sortValue: (s) => s.name }, { header: 'Namespace', accessor: (s) => s.namespace, sortValue: (s) => s.namespace }, { header: 'Type', accessor: (s) => <span className="text-xs text-gray-400">{s.type}</span>, sortValue: (s) => s.type }, { header: 'Keys', accessor: (s) => Object.keys(s.data).length }, { header: 'Age', accessor: (s) => getAge(s.creationTimestamp), sortValue: (s) => s.creationTimestamp }, ]} />;
 };
 
 export const NamespacesPage: React.FC = () => {

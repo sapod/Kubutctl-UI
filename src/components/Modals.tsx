@@ -79,7 +79,7 @@ export const PortForwardModal: React.FC<{
     };
 
     return (
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
         <div className="bg-gray-800 border border-gray-600 rounded-lg shadow-xl w-full max-w-sm p-5">
            <h3 className="text-lg font-bold text-gray-100 mb-4">Port Forwarding</h3>
            <div className="mb-4 text-sm text-gray-400">
@@ -209,7 +209,7 @@ export const RoutineModal: React.FC = () => {
     };
 
     return (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
             <div className="bg-gray-800 border border-gray-600 rounded-lg shadow-xl w-full max-w-4xl flex flex-col max-h-[85vh]">
                 <div className="flex justify-between items-center p-6 border-b border-gray-700">
                     <h2 className="text-xl font-bold text-gray-100 flex items-center">

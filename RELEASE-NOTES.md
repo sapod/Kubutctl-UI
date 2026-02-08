@@ -1,16 +1,21 @@
 # Release Notes
 
-## Version 2.5.1
+## Version 2.6.0
 
 ### Features
-- Added release notes link to update notification popup, allowing users to view detailed changes before updating
+- Added full support for DaemonSets and StatefulSets workloads
+- Added full support for Secrets (view, decode/encode, and management)
+- Added YAML search capability in resource drawer
 
 ### Improvements
-- Updated background operations stop on inactivity timeout from 5 minutes to 10 minutes for better user experience
-- Enhanced update notification UI with direct link to GitHub releases
+- Improved logs panel to work with all workloads (Deployment/DaemonSet/StatefulSet)
+- Improve caching in logs for better experience and storage optimization
 
 ### Bug Fixes
-- None
+- Fixed z-index values in UI to ensure proper layering of modals and overlays
+- Fixed drawer not closing on AWS SSO authentication error, now closes automatically to display error message clearly
+- Fixed logs panel pod selection not being preserved after page reload if pod not in cache
+- Fixed environment variables not showing secret references in pod drawer
 
 ### Breaking Changes
 - None

@@ -9,8 +9,8 @@ import {
     Sidebar, TerminalPanel, ResourceDrawer, ClusterHotbar, AddClusterModal,
     NamespaceSelector, ClusterCatalogModal, PortForwardModal, ShellModal, ConfirmationModal,
     ReplaceLogsTabModal, RoutineModal, ErrorBanner, UpdateNotification, WelcomeScreen,
-    OverviewPage, NodesPage, PodsPage, DeploymentsPage, ReplicaSetsPage,
-    JobsPage, CronJobsPage, ServicesPage, IngressesPage, ConfigMapsPage,
+    OverviewPage, NodesPage, PodsPage, DeploymentsPage, ReplicaSetsPage, DaemonSetsPage, StatefulSetsPage,
+    JobsPage, CronJobsPage, ServicesPage, IngressesPage, ConfigMapsPage, SecretsPage,
     NamespacesPage, ResourceQuotasPage, PortForwardingPage, EventsPage
 } from './components/UI';
 import { Loader2, Plus, FileText, X } from 'lucide-react';
@@ -57,6 +57,7 @@ const MainLayout = () => {
         if (error.message?.includes('error validating') ||
             error.message?.includes('couldn\'t get current server API group list') ||
             error.message?.includes('token is expired')) {
+          dispatch({ type: 'CLOSE_DRAWER_SILENTLY' });
           dispatch({ type: 'SET_AWS_SSO_LOGIN_REQUIRED', payload: true });
           dispatch({ type: 'SET_ERROR', payload: 'AWS SSO authentication required' });
         }
@@ -116,11 +117,14 @@ const MainLayout = () => {
       case 'pods': return <PodsPage />;
       case 'deployments': return <DeploymentsPage />;
       case 'replicasets': return <ReplicaSetsPage />;
+      case 'daemonsets': return <DaemonSetsPage />;
+      case 'statefulsets': return <StatefulSetsPage />;
       case 'jobs': return <JobsPage />;
       case 'cronjobs': return <CronJobsPage />;
       case 'services': return <ServicesPage />;
       case 'ingresses': return <IngressesPage />;
       case 'configmaps': return <ConfigMapsPage />;
+      case 'secrets': return <SecretsPage />;
       case 'namespaces': return <NamespacesPage />;
       case 'resourcequotas': return <ResourceQuotasPage />;
       case 'port-forwarding': return <PortForwardingPage />;

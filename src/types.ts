@@ -44,6 +44,10 @@ export interface Container {
   image: string;
   ports: ContainerPort[];
   env?: ContainerEnvVar[];
+  envFrom?: {
+    configMapRef?: { name: string };
+    secretRef?: { name: string };
+  }[];
   resources?: {
       requests?: { cpu: string; memory: string };
       limits?: { cpu: string; memory: string };
@@ -68,6 +72,7 @@ export interface Pod extends K8sResource {
   volumes: any[]; // Store volumes as raw objects
   resourceStats: ResourceStats;
   relatedConfigMaps: string[];
+  relatedSecrets: string[];
 }
 
 export interface ResourceStats {
@@ -94,6 +99,23 @@ export interface Deployment extends K8sResource {
 export interface ReplicaSet extends K8sResource {
   replicas: number;
   availableReplicas: number;
+  selector: Record<string, string>;
+  resourceStats: ResourceStats;
+}
+
+export interface DaemonSet extends K8sResource {
+  desiredNumberScheduled: number;
+  currentNumberScheduled: number;
+  numberReady: number;
+  numberAvailable: number;
+  selector: Record<string, string>;
+  resourceStats: ResourceStats;
+}
+
+export interface StatefulSet extends K8sResource {
+  replicas: number;
+  readyReplicas: number;
+  currentReplicas: number;
   selector: Record<string, string>;
   resourceStats: ResourceStats;
 }
@@ -147,6 +169,11 @@ export interface Ingress extends K8sResource {
 
 export interface ConfigMap extends K8sResource {
   data: Record<string, string>;
+}
+
+export interface Secret extends K8sResource {
+  type: string; // Opaque, kubernetes.io/service-account-token, etc.
+  data: Record<string, string>; // base64 encoded values
 }
 
 export interface Namespace extends K8sResource {
@@ -216,11 +243,14 @@ export type View =
   | 'pods'
   | 'deployments'
   | 'replicasets'
+  | 'daemonsets'
+  | 'statefulsets'
   | 'jobs'
   | 'cronjobs'
   | 'services'
   | 'ingresses'
   | 'configmaps'
+  | 'secrets'
   | 'namespaces'
   | 'resourcequotas'
   | 'port-forwarding'
@@ -243,11 +273,14 @@ export interface AppState {
   pods: Pod[];
   deployments: Deployment[];
   replicaSets: ReplicaSet[];
+  daemonSets: DaemonSet[];
+  statefulSets: StatefulSet[];
   jobs: Job[];
   cronJobs: CronJob[];
   services: Service[];
   ingresses: Ingress[];
   configMaps: ConfigMap[];
+  secrets: Secret[];
   namespaces: Namespace[];
   events: K8sEvent[];
   resourceQuotas: ResourceQuota[];
@@ -255,7 +288,7 @@ export interface AppState {
   routines: PortForwardRoutine[];
   terminalOutput: string[];
   selectedResourceId: string | null;
-  selectedResourceType: 'pod' | 'deployment' | 'replicaset' | 'job' | 'cronjob' | 'node' | 'service' | 'ingress' | 'configmap' | 'namespace' | 'event' | 'resourcequota' | null;
+  selectedResourceType: 'pod' | 'deployment' | 'replicaset' | 'daemonset' | 'statefulset' | 'job' | 'cronjob' | 'node' | 'service' | 'ingress' | 'configmap' | 'secret' | 'namespace' | 'event' | 'resourcequota' | null;
   resourceHistory: { id: string; type: AppState['selectedResourceType'] }[]; // Call stack for navigation
   drawerOpen: boolean;
   isAddClusterModalOpen: boolean;
@@ -297,7 +330,7 @@ export interface AppState {
 // Single logs tab state
 export interface LogsTabState {
   id: string;
-  selectedDeployment: string;
+  selectedWorkload: string;
   selectedPod: string;
   selectedContainer: string;
   showPrevious: boolean;

@@ -2,7 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useStore } from '../store';
 import { AppState, Pod, Ingress, Service, ResourceStatus, Deployment, Job } from '../types';
 import { kubectl } from '../services/kubectl';
-import { Box, X, Globe, ArrowRightCircle, Container as ContainerIcon, Network, FileText, RotateCw, Trash2, ChevronDown, AlertTriangle, Maximize2, Minimize2, HardDrive, ExternalLink, ArrowLeft, StopCircle, Play, History, Edit2, Save, Key, Copy, Check } from 'lucide-react';
+import { Box, X, Globe, ArrowRightCircle, Container as ContainerIcon, Network,
+    FileText, RotateCw, Trash2, ChevronDown, AlertTriangle, Maximize2, Minimize2,
+    HardDrive, ExternalLink, ArrowLeft, StopCircle, Play, History, Edit2, Save,
+    Key, Copy, Check, Search, Eye, EyeOff } from 'lucide-react';
 import { StatusBadge, getAge, isMatch, resolvePortName, parseCpu, parseMemory } from './Shared';
 import PodTerminal from './PodTerminal';
 import yaml from 'js-yaml';
@@ -118,6 +121,7 @@ export const ResourceDrawer: React.FC = () => {
   const [expandedCmKey, setExpandedCmKey] = useState<string | null>(null);
   const [expandedContainers, setExpandedContainers] = useState<Set<number>>(new Set());
   const [copiedId, setCopiedId] = useState<string | null>(null); // Track which copy button was clicked
+  const [revealedSecrets, setRevealedSecrets] = useState<Set<string>>(new Set()); // Track which secret keys are revealed
 
   // Terminal container selection
   const [terminalContainer, setTerminalContainer] = useState<string>('');
@@ -125,6 +129,15 @@ export const ResourceDrawer: React.FC = () => {
   // YAML Edit State
   const [isEditingYaml, setIsEditingYaml] = useState(false);
   const [editedYaml, setEditedYaml] = useState('');
+
+  // YAML Search State
+  const [yamlSearchQuery, setYamlSearchQuery] = useState('');
+  const [showYamlSearch, setShowYamlSearch] = useState(false);
+  const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
+  const [totalMatches, setTotalMatches] = useState(0);
+  const yamlSearchInputRef = React.useRef<HTMLInputElement>(null);
+  const yamlContainerRef = React.useRef<HTMLDivElement | HTMLTextAreaElement>(null);
+  const yamlHighlightLayerRef = React.useRef<HTMLDivElement>(null);
 
   // Drawer resizing
   const [drawerWidth, setDrawerWidth] = useState(() => {
@@ -147,12 +160,15 @@ export const ResourceDrawer: React.FC = () => {
   if (rt === 'pod') resource = state.pods.find(r => r.id === state.selectedResourceId);
   else if (rt === 'deployment') resource = state.deployments.find(r => r.id === state.selectedResourceId);
   else if (rt === 'replicaset') resource = state.replicaSets.find(r => r.id === state.selectedResourceId);
+  else if (rt === 'daemonset') resource = state.daemonSets.find(r => r.id === state.selectedResourceId);
+  else if (rt === 'statefulset') resource = state.statefulSets.find(r => r.id === state.selectedResourceId);
   else if (rt === 'job') resource = state.jobs.find(r => r.id === state.selectedResourceId);
   else if (rt === 'cronjob') resource = state.cronJobs.find(r => r.id === state.selectedResourceId);
   else if (rt === 'node') resource = state.nodes.find(r => r.id === state.selectedResourceId);
   else if (rt === 'service') resource = state.services.find(r => r.id === state.selectedResourceId);
   else if (rt === 'ingress') resource = state.ingresses.find(r => r.id === state.selectedResourceId);
   else if (rt === 'configmap') resource = state.configMaps.find(r => r.id === state.selectedResourceId);
+  else if (rt === 'secret') resource = state.secrets.find(r => r.id === state.selectedResourceId);
   else if (rt === 'namespace') resource = state.namespaces.find(r => r.id === state.selectedResourceId);
   else if (rt === 'event') resource = state.events.find(r => r.id === state.selectedResourceId);
   else if (rt === 'resourcequota') resource = state.resourceQuotas.find(r => r.id === state.selectedResourceId);
@@ -163,6 +179,7 @@ export const ResourceDrawer: React.FC = () => {
     setIsEditingYaml(false);
     setExpandedContainers(new Set()); // Reset expanded containers when resource changes
     setTerminalContainer(''); // Reset terminal container selection
+    setRevealedSecrets(new Set()); // Reset revealed secrets when resource changes
   }, [state.selectedResourceId, state.selectedResourceType]);
 
   // Helper to get terminal target (for terminal tab)
@@ -186,6 +203,88 @@ export const ResourceDrawer: React.FC = () => {
           }
       }
   }, [activeTab, terminalTarget, terminalContainer]);
+
+  // Handle Cmd/Ctrl+F for YAML search
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Only handle when drawer is open and on YAML tab
+      if (state.drawerOpen && activeTab === 'yaml') {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+          e.preventDefault();
+          setShowYamlSearch(true);
+          setTimeout(() => yamlSearchInputRef.current?.focus(), 100);
+        }
+        if (e.key === 'Escape' && showYamlSearch) {
+          setShowYamlSearch(false);
+          setYamlSearchQuery('');
+          setCurrentMatchIndex(0);
+          setTotalMatches(0);
+        }
+        // Handle Enter to jump to next match
+        if (e.key === 'Enter' && showYamlSearch && yamlSearchQuery && totalMatches > 0) {
+          e.preventDefault();
+          if (e.shiftKey) {
+            // Shift+Enter: go to previous match
+            setCurrentMatchIndex(prev => (prev - 1 + totalMatches) % totalMatches);
+          } else {
+            // Enter: go to next match
+            setCurrentMatchIndex(prev => (prev + 1) % totalMatches);
+          }
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [state.drawerOpen, activeTab, showYamlSearch, yamlSearchQuery, totalMatches]);
+
+  // Focus search input when opened
+  useEffect(() => {
+    if (showYamlSearch && yamlSearchInputRef.current) {
+      yamlSearchInputRef.current.focus();
+    }
+  }, [showYamlSearch]);
+
+  // Scroll to current match in YAML
+  useEffect(() => {
+    if (currentMatchIndex >= 0 && totalMatches > 0) {
+      if (isEditingYaml) {
+        // In edit mode, find match in highlight layer and sync textarea scroll
+        if (yamlHighlightLayerRef.current) {
+          const matchElements = yamlHighlightLayerRef.current.querySelectorAll('[data-match-index]');
+          const currentElement = Array.from(matchElements).find(
+            el => el.getAttribute('data-match-index') === currentMatchIndex.toString()
+          ) as HTMLElement;
+
+          if (currentElement && yamlContainerRef.current) {
+            // Calculate position and scroll textarea
+            const containerTop = yamlHighlightLayerRef.current.offsetTop;
+            const elementTop = currentElement.offsetTop;
+            const scrollPosition = elementTop - containerTop - (yamlContainerRef.current.clientHeight / 2) + (currentElement.clientHeight / 2);
+
+            yamlContainerRef.current.scrollTop = Math.max(0, scrollPosition);
+            // Sync highlight layer
+            yamlHighlightLayerRef.current.scrollTop = yamlContainerRef.current.scrollTop;
+          }
+        }
+      } else {
+        // In view mode, use standard scrollIntoView
+        if (yamlContainerRef.current && 'querySelectorAll' in yamlContainerRef.current) {
+          const matchElements = yamlContainerRef.current.querySelectorAll('[data-match-index]');
+          const currentElement = Array.from(matchElements).find(
+            el => el.getAttribute('data-match-index') === currentMatchIndex.toString()
+          );
+
+          if (currentElement) {
+            currentElement.scrollIntoView({
+              behavior: 'smooth',
+              block: 'center',
+            });
+          }
+        }
+      }
+    }
+  }, [currentMatchIndex, totalMatches, isEditingYaml]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -212,6 +311,65 @@ export const ResourceDrawer: React.FC = () => {
       }
       return next;
     });
+  };
+
+  // Highlight search matches in YAML
+  const highlightYamlMatches = (text: string, query: string) => {
+    if (!query) {
+      setTotalMatches(0);
+      setCurrentMatchIndex(0);
+      return text;
+    }
+
+    try {
+      const regex = new RegExp(`(${query})`, 'gi');
+      const parts = text.split(regex);
+
+      // Count matches
+      let matchCount = 0;
+      const testRegex = new RegExp(query, 'i');
+      parts.forEach(part => {
+        if (testRegex.test(part)) matchCount++;
+      });
+
+      // Update total matches if changed
+      if (matchCount !== totalMatches) {
+        setTotalMatches(matchCount);
+        if (currentMatchIndex >= matchCount) {
+          setCurrentMatchIndex(0);
+        }
+      }
+
+      let matchIndex = 0;
+      return (
+        <>
+          {parts.map((part, i) => {
+            if (testRegex.test(part)) {
+              const isCurrentMatch = matchIndex === currentMatchIndex;
+              const spanElement = (
+                <span
+                  key={i}
+                  data-match-index={matchIndex}
+                  className={isCurrentMatch
+                    ? "bg-orange-500 text-gray-900 font-bold"
+                    : "bg-yellow-500 text-gray-900"
+                  }
+                >
+                  {part}
+                </span>
+              );
+              matchIndex++;
+              return spanElement;
+            }
+            return part;
+          })}
+        </>
+      );
+    } catch (e) {
+      // Invalid regex - return text without highlighting
+      setTotalMatches(0);
+      return text;
+    }
   };
 
   // Drawer resizing handlers
@@ -358,6 +516,22 @@ export const ResourceDrawer: React.FC = () => {
       }
   };
 
+  const handleSecretClick = async (secretName: string, namespace: string) => {
+      let secret = state.secrets.find(s => s.name === secretName && s.namespace === namespace);
+      if (!secret) {
+          try {
+             const fetched = await kubectl.getResource('secret', secretName, namespace);
+             if (fetched) {
+                 dispatch({ type: 'SET_DATA', payload: { secrets: [...state.secrets, fetched] } });
+                 secret = fetched;
+             }
+          } catch(e) { console.error("Failed to fetch linked secret", e); }
+      }
+      if (secret) {
+          dispatch({ type: 'DRILL_DOWN_RESOURCE', payload: { id: secret.id, type: 'secret' } });
+      }
+  };
+
   const handleDelete = () => {
         if (!resource || !state.selectedResourceType) return;
         kubectl.deleteResource(state.selectedResourceType, resource.name, resource.namespace, resource.id);
@@ -409,6 +583,56 @@ export const ResourceDrawer: React.FC = () => {
     return 'Active';
   };
 
+  // Helper function to render controlled pods for workloads
+  const renderRelatedPods = (
+    storageKey: string,
+    title: string,
+    extraColumns?: Array<{ header: string; accessor: (p: Pod) => JSX.Element | string; sortValue: (p: Pod) => any }>
+  ) => {
+    const pods = state.pods.filter(p =>
+      state.selectedResourceType === 'deployment'
+        ? isMatch(p.labels, resource.selector)
+        : p.ownerReferences?.some(o => o.uid === resource.id)
+    );
+
+    if (pods.length === 0) return null;
+
+    const baseColumns = [
+      {
+        header: 'Name',
+        accessor: (p: Pod) => (
+          <div className="flex items-center gap-2">
+            <span className="text-green-300 font-medium">{p.name}</span>
+            {(!p.isReady && p.status !== ResourceStatus.Completed && p.status !== ResourceStatus.Succeeded) && (
+              <div title="Pod is not ready">
+                <AlertTriangle size={14} className="text-yellow-500 flex-shrink-0" />
+              </div>
+            )}
+          </div>
+        ),
+        sortValue: (p: Pod) => p.name
+      },
+      {
+        header: 'Status',
+        accessor: (p: Pod) => <StatusBadge status={p.status} />,
+        sortValue: (p: Pod) => p.status
+      },
+      ...(extraColumns || [])
+    ];
+
+    return (
+      <div key="pods" className="mt-4">
+        <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">{title}</h4>
+        <DrawerTable
+          storageKey={storageKey}
+          data={pods}
+          onRowClick={(p) => handleLinkClick(p.id, 'pod')}
+          columns={baseColumns}
+        />
+      </div>
+    );
+  };
+
   const renderRelatedResources = () => {
     const childrenLinks: React.ReactNode[] = [];
     if (state.selectedResourceType === 'deployment') {
@@ -434,33 +658,16 @@ export const ResourceDrawer: React.FC = () => {
           </div>
         );
       }
-      const pods = state.pods.filter(p => isMatch(p.labels, resource.selector));
-      if (pods.length > 0) {
-        childrenLinks.push(
-          <div key="pods" className="mt-4">
-            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Pods</h4>
-            <DrawerTable
-                storageKey="drawer_deployments_pods"
-                data={pods}
-                onRowClick={(p) => handleLinkClick(p.id, 'pod')}
-                columns={[
-                    { header: 'Name', accessor: (p) => (
-                      <div className="flex items-center gap-2">
-                        <span className="text-green-300 font-medium">{p.name}</span>
-                        {(!p.isReady && p.status !== ResourceStatus.Completed && p.status !== ResourceStatus.Succeeded) && (
-                          <div title="Pod is not ready">
-                             <AlertTriangle size={14} className="text-yellow-500 flex-shrink-0" />
-                          </div>
-                        )}
-                      </div>
-                    ), sortValue: (p) => p.name },
-                    { header: 'Status', accessor: (p) => <StatusBadge status={p.status} />, sortValue: (p) => p.status },
-                    { header: 'CPU', accessor: (p) => p.cpuUsage, sortValue: (p) => parseCpu(p.cpuUsage) },
-                    { header: 'Mem', accessor: (p) => p.memoryUsage, sortValue: (p) => parseMemory(p.memoryUsage) },
-                ]}
-            />
-          </div>
-        );
+      const controlledPods = renderRelatedPods(
+        'drawer_deployments_pods',
+        'Pods',
+        [
+          { header: 'CPU', accessor: (p: Pod) => p.cpuUsage, sortValue: (p: Pod) => parseCpu(p.cpuUsage) },
+          { header: 'Mem', accessor: (p: Pod) => p.memoryUsage, sortValue: (p: Pod) => parseMemory(p.memoryUsage) },
+        ]
+      );
+      if (controlledPods) {
+        childrenLinks.push(controlledPods);
       }
     }
     if (state.selectedResourceType === 'job') {
@@ -611,32 +818,91 @@ export const ResourceDrawer: React.FC = () => {
             );
         }
     }
+    if (state.selectedResourceType === 'secret') {
+        const data = (resource as any).data || {};
+        const entries = Object.entries(data);
+        if (entries.length > 0) {
+            childrenLinks.push(
+                 <div key="secret-data" className="mt-4">
+                    <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Data</h4>
+                    <div className="space-y-3">
+                        {entries.map(([key, val]) => {
+                            const isExpanded = expandedCmKey === key;
+                            const isRevealed = revealedSecrets.has(key);
+                            let decodedValue = '';
+                            try {
+                                // Decode base64 value
+                                decodedValue = atob(val as string);
+                            } catch (e) {
+                                decodedValue = '(Unable to decode)';
+                            }
+
+                            const toggleReveal = () => {
+                                setRevealedSecrets(prev => {
+                                    const next = new Set(prev);
+                                    if (next.has(key)) {
+                                        next.delete(key);
+                                    } else {
+                                        next.add(key);
+                                    }
+                                    return next;
+                                });
+                            };
+
+                            return (
+                                <div key={key} className={`bg-gray-950 border border-gray-800 rounded p-2 flex flex-col transition-all duration-200 ${isExpanded ? 'fixed inset-10 z-[60] shadow-2xl border-gray-600' : ''}`}>
+                                    <div className="flex justify-between items-center mb-1 pb-1 border-b border-gray-800">
+                                        <span className="text-xs text-purple-400 font-mono font-bold">{key}</span>
+                                        <div className="flex gap-1">
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); toggleReveal(); }}
+                                                className="text-gray-500 hover:text-white p-1 rounded hover:bg-gray-800 transition-colors"
+                                                title={isRevealed ? 'Hide value' : 'Reveal value'}>
+                                                {isRevealed ? <EyeOff size={14} /> : <Eye size={14} />}
+                                            </button>
+                                            <button onClick={(e) => { e.stopPropagation(); setExpandedCmKey(isExpanded ? null : key); }} className="text-gray-500 hover:text-white p-1 rounded hover:bg-gray-800">
+                                                {isExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className={`text-xs font-mono whitespace-pre-wrap overflow-auto custom-scrollbar ${isExpanded ? 'flex-1 p-2' : 'max-h-32'}`}>
+                                        {isRevealed ? (
+                                            <span className="text-gray-400">{decodedValue}</span>
+                                        ) : (
+                                            <span className="text-gray-600">••••••••</span>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                    {expandedCmKey && <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[55]" onClick={() => setExpandedCmKey(null)}></div>}
+                </div>
+            );
+        }
+    }
     if (state.selectedResourceType === 'replicaset') {
-      const pods = state.pods.filter(p => p.ownerReferences?.some(o => o.uid === resource.id));
-      if (pods.length > 0) {
-        childrenLinks.push(
-          <div key="pods" className="mt-4">
-            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Controlled Pods</h4>
-            <DrawerTable
-                storageKey="drawer_rs_pods"
-                data={pods}
-                onRowClick={(p) => handleLinkClick(p.id, 'pod')}
-                columns={[
-                    { header: 'Name', accessor: (p) => (
-                        <div className="flex items-center gap-2">
-                          <span className="text-green-300 font-medium">{p.name}</span>
-                          {(!p.isReady && p.status !== ResourceStatus.Completed && p.status !== ResourceStatus.Succeeded) && (
-                            <div title="Pod is not ready">
-                              <AlertTriangle size={14} className="text-yellow-500 flex-shrink-0" />
-                            </div>
-                          )}
-                        </div>
-                      ), sortValue: (p) => p.name },
-                    { header: 'Status', accessor: (p) => <StatusBadge status={p.status} />, sortValue: (p) => p.status },
-                ]}
-            />
-          </div>
-        );
+      const controlledPods = renderRelatedPods('drawer_rs_pods', 'Controlled Pods');
+      if (controlledPods) {
+        childrenLinks.push(controlledPods);
+      }
+    }
+    if (state.selectedResourceType === 'daemonset') {
+      const controlledPods = renderRelatedPods(
+        'drawer_ds_pods',
+        'Controlled Pods',
+        [
+          { header: 'Node', accessor: (p: Pod) => <span className="text-xs text-gray-400">{p.node}</span>, sortValue: (p: Pod) => p.node },
+        ]
+      );
+      if (controlledPods) {
+        childrenLinks.push(controlledPods);
+      }
+    }
+    if (state.selectedResourceType === 'statefulset') {
+      const controlledPods = renderRelatedPods('drawer_ss_pods', 'Controlled Pods');
+      if (controlledPods) {
+        childrenLinks.push(controlledPods);
       }
     }
     if (state.selectedResourceType === 'pod') {
@@ -874,9 +1140,13 @@ export const ResourceDrawer: React.FC = () => {
                                        );
                                    } else if (envVar.valueFrom.secretKeyRef) {
                                        valueDisplay = (
-                                           <span className="text-purple-400 flex items-center gap-1.5">
+                                           <span
+                                               className="text-purple-400 hover:text-purple-300 hover:underline cursor-pointer flex items-center gap-1.5 font-medium transition-colors"
+                                               onClick={() => handleSecretClick(envVar.valueFrom!.secretKeyRef!.name, pod.namespace)}
+                                               title="View Secret details">
                                                <Key size={12} className="flex-shrink-0"/>
                                                <span>{envVar.valueFrom.secretKeyRef.name}:{envVar.valueFrom.secretKeyRef.key}</span>
+                                               <ExternalLink size={10} className="flex-shrink-0 opacity-50"/>
                                            </span>
                                        );
                                    } else if (envVar.valueFrom.fieldRef) {
@@ -906,6 +1176,48 @@ export const ResourceDrawer: React.FC = () => {
                                        </div>
                                    </div>
                                );
+                           })}
+                       </div>
+                   </div>
+               )}
+               {c.envFrom && c.envFrom.length > 0 && (
+                   <div className="mt-2">
+                       <span className="text-xs text-gray-500 uppercase tracking-wider font-bold block mb-1">Environment From:</span>
+                       <div className="space-y-1.5">
+                           {c.envFrom.map((envFromItem) => {
+                               let sourceDisplay: JSX.Element | null = null;
+
+                               if (envFromItem.configMapRef) {
+                                   sourceDisplay = (
+                                       <div className="flex items-start gap-2 text-xs bg-gray-900/50 p-2 rounded border border-gray-700/30">
+                                           <span className="text-gray-400 flex-shrink-0">configMapRef:</span>
+                                           <span
+                                               className="text-yellow-400 hover:text-yellow-300 hover:underline cursor-pointer flex items-center gap-1.5 font-medium transition-colors"
+                                               onClick={() => handleConfigMapClick(envFromItem.configMapRef!.name, pod.namespace)}
+                                               title="View ConfigMap details">
+                                               <FileText size={12} className="flex-shrink-0"/>
+                                               <span>{envFromItem.configMapRef.name}</span>
+                                               <ExternalLink size={10} className="flex-shrink-0 opacity-50"/>
+                                           </span>
+                                       </div>
+                                   );
+                               } else if (envFromItem.secretRef) {
+                                   sourceDisplay = (
+                                       <div className="flex items-start gap-2 text-xs bg-gray-900/50 p-2 rounded border border-gray-700/30">
+                                           <span className="text-gray-400 flex-shrink-0">secretRef:</span>
+                                           <span
+                                               className="text-purple-400 hover:text-purple-300 hover:underline cursor-pointer flex items-center gap-1.5 font-medium transition-colors"
+                                               onClick={() => handleSecretClick(envFromItem.secretRef!.name, pod.namespace)}
+                                               title="View Secret details">
+                                               <Key size={12} className="flex-shrink-0"/>
+                                               <span>{envFromItem.secretRef.name}</span>
+                                               <ExternalLink size={10} className="flex-shrink-0 opacity-50"/>
+                                           </span>
+                                       </div>
+                                   );
+                               }
+
+                               return sourceDisplay;
                            })}
                        </div>
                    </div>
@@ -1091,6 +1403,48 @@ export const ResourceDrawer: React.FC = () => {
                  </button>
               </div>
             )}
+            {state.selectedResourceType === 'daemonset' && (
+              <div className="flex gap-2 mb-4">
+                 <button onClick={() => kubectl.rolloutRestart('daemonset', resource.name, resource.namespace, resource.id)} className="flex-1 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-blue-300" title="Restart all pods in this daemonset"><RotateCw size={14} className="mr-2" /> Rollout Restart</button>
+                 <button
+                   onClick={() => {
+                     dispatch({
+                       type: 'OPEN_LOGS_FOR_RESOURCE',
+                       payload: {
+                         type: 'all-pods',
+                         deploymentName: resource.name,
+                         namespace: resource.namespace
+                       }
+                     });
+                   }}
+                   className="flex-1 bg-green-900/30 hover:bg-green-900/50 border border-green-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-green-300"
+                   title="View aggregated logs from all pods"
+                 >
+                   <FileText size={14} className="mr-2" /> LOGS
+                 </button>
+              </div>
+            )}
+            {state.selectedResourceType === 'statefulset' && (
+              <div className="flex gap-2 mb-4">
+                 <button onClick={() => kubectl.rolloutRestart('statefulset', resource.name, resource.namespace, resource.id)} className="flex-1 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-blue-300" title="Restart all pods in this statefulset"><RotateCw size={14} className="mr-2" /> Rollout Restart</button>
+                 <button
+                   onClick={() => {
+                     dispatch({
+                       type: 'OPEN_LOGS_FOR_RESOURCE',
+                       payload: {
+                         type: 'all-pods',
+                         deploymentName: resource.name,
+                         namespace: resource.namespace
+                       }
+                     });
+                   }}
+                   className="flex-1 bg-green-900/30 hover:bg-green-900/50 border border-green-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-green-300"
+                   title="View aggregated logs from all pods"
+                 >
+                   <FileText size={14} className="mr-2" /> LOGS
+                 </button>
+              </div>
+            )}
             {state.selectedResourceType === 'cronjob' && (
               <div className="flex gap-2 mb-4">
                  <button onClick={handleTriggerCronJob} className="flex-1 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-blue-300" title="Manually trigger this cronjob now"><Play size={14} className="mr-2" /> Trigger Now</button>
@@ -1246,7 +1600,47 @@ export const ResourceDrawer: React.FC = () => {
             <div className="flex-1 flex flex-col overflow-hidden -mx-6 -mb-6 h-full">
                 <div className="bg-gray-850 px-6 py-2 border-b border-gray-800 flex justify-between items-center flex-shrink-0">
                     <span className="text-xs text-gray-500 font-bold uppercase tracking-widest">Resource Manifest</span>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 items-center">
+                        {/* Search UI */}
+                        {showYamlSearch && (
+                            <div className="flex items-center gap-2 bg-gray-800 border border-gray-700 rounded px-2 py-1">
+                                <Search size={12} className="text-gray-500" />
+                                <input
+                                    ref={yamlSearchInputRef}
+                                    type="text"
+                                    placeholder="Search in YAML (regex)..."
+                                    value={yamlSearchQuery}
+                                    onChange={(e) => setYamlSearchQuery(e.target.value)}
+                                    className="bg-transparent text-xs text-gray-300 placeholder-gray-600 focus:outline-none w-48"
+                                />
+                                {totalMatches > 0 && (
+                                    <span className="text-xs text-gray-500 whitespace-nowrap">
+                                        {currentMatchIndex + 1}/{totalMatches}
+                                    </span>
+                                )}
+                                <button
+                                    onClick={() => {
+                                        setShowYamlSearch(false);
+                                        setYamlSearchQuery('');
+                                        setCurrentMatchIndex(0);
+                                        setTotalMatches(0);
+                                    }}
+                                    className="text-gray-500 hover:text-gray-300"
+                                    title="Close search (ESC)"
+                                >
+                                    <X size={12} />
+                                </button>
+                            </div>
+                        )}
+                        {!showYamlSearch && !isEditingYaml && (
+                            <button
+                                onClick={() => setShowYamlSearch(true)}
+                                className="px-2 py-1 text-gray-500 hover:text-gray-300 transition-colors"
+                                title="Search in YAML (Cmd/Ctrl+F)"
+                            >
+                                <Search size={14} />
+                            </button>
+                        )}
                         {isEditingYaml ? (
                             <>
                                 <button onClick={() => setIsEditingYaml(false)} className="px-3 py-1 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs rounded border border-gray-700 transition-colors" title="Cancel editing and discard changes">Cancel</button>
@@ -1263,15 +1657,59 @@ export const ResourceDrawer: React.FC = () => {
                 </div>
                 <div className="flex-1 overflow-hidden relative">
                     {isEditingYaml ? (
-                        <textarea
-                            className="absolute inset-0 w-full h-full p-6 bg-gray-950 text-gray-300 font-mono text-xs focus:outline-none resize-none custom-scrollbar"
-                            value={editedYaml}
-                            onChange={(e) => setEditedYaml(e.target.value)}
-                            spellCheck={false}
-                        />
+                        <>
+                            {/* Search highlights layer (behind textarea) */}
+                            {yamlSearchQuery && (
+                                <div
+                                    ref={yamlHighlightLayerRef}
+                                    className="absolute inset-0 p-6 overflow-auto font-mono text-xs custom-scrollbar pointer-events-none"
+                                    style={{
+                                        background: '#030712',
+                                        whiteSpace: 'pre-wrap',
+                                        wordWrap: 'break-word',
+                                        lineHeight: '1.5',
+                                        letterSpacing: 'normal',
+                                        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+                                    }}
+                                >
+                                    <pre className="whitespace-pre-wrap" style={{
+                                        margin: 0,
+                                        lineHeight: '1.5'
+                                    }}>
+                                        {highlightYamlMatches(editedYaml, yamlSearchQuery)}
+                                    </pre>
+                                </div>
+                            )}
+                            {/* Editable textarea */}
+                            <textarea
+                                ref={yamlContainerRef as React.RefObject<HTMLTextAreaElement>}
+                                className="absolute inset-0 w-full h-full p-6 font-mono text-xs focus:outline-none resize-none custom-scrollbar"
+                                style={{
+                                    background: yamlSearchQuery ? 'transparent' : '#030712',
+                                    color: yamlSearchQuery ? 'transparent' : '#d1d5db',
+                                    caretColor: '#d1d5db',
+                                    lineHeight: '1.5',
+                                    whiteSpace: 'pre-wrap',
+                                    wordWrap: 'break-word',
+                                    letterSpacing: 'normal',
+                                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+                                }}
+                                value={editedYaml}
+                                onChange={(e) => setEditedYaml(e.target.value)}
+                                onScroll={(e) => {
+                                    // Sync scroll position with highlight layer
+                                    if (yamlHighlightLayerRef.current && yamlSearchQuery) {
+                                        const target = e.target as HTMLTextAreaElement;
+                                        yamlHighlightLayerRef.current.scrollTop = target.scrollTop;
+                                        yamlHighlightLayerRef.current.scrollLeft = target.scrollLeft;
+                                    }
+                                }}
+                                spellCheck={false}
+                            />
+                        </>
                     ) : (
-                        <div className="absolute inset-0 p-6 overflow-auto font-mono text-xs text-gray-300 bg-gray-950 custom-scrollbar">
-                            <pre className="whitespace-pre">{editedYaml}</pre>
+                        <div ref={yamlContainerRef as React.RefObject<HTMLDivElement>} className="absolute inset-0 p-6 overflow-auto font-mono text-xs text-gray-300 bg-gray-950 custom-scrollbar">
+                            <pre className="whitespace-pre">{yamlSearchQuery ? highlightYamlMatches(editedYaml, yamlSearchQuery) : editedYaml}</pre>
                         </div>
                     )}
                 </div>
