@@ -1382,51 +1382,21 @@ export const ResourceDrawer: React.FC = () => {
       <div className="flex-1 overflow-y-auto p-6 bg-gray-900 custom-scrollbar flex flex-col">
         {activeTab === 'details' && (
           <div className="space-y-6">
-            {state.selectedResourceType === 'deployment' && (
+            {(state.selectedResourceType === 'deployment' ||
+              state.selectedResourceType === 'daemonset' ||
+              state.selectedResourceType === 'statefulset') && (
               <div className="flex gap-2 mb-4">
-                 <button onClick={() => kubectl.rolloutRestart('deployment', resource.name, resource.namespace, resource.id)} className="flex-1 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-blue-300" title="Restart all pods in this deployment"><RotateCw size={14} className="mr-2" /> Rollout Restart</button>
                  <button
                    onClick={() => {
-                     dispatch({
-                       type: 'OPEN_LOGS_FOR_RESOURCE',
-                       payload: {
-                         type: 'all-pods',
-                         deploymentName: resource.name,
-                         namespace: resource.namespace
-                       }
-                     });
+                     // Type is already validated by outer condition
+                     const resourceType = state.selectedResourceType as 'deployment' | 'daemonset' | 'statefulset';
+                     kubectl.rolloutRestart(resourceType, resource.name, resource.namespace, resource.id);
                    }}
-                   className="flex-1 bg-green-900/30 hover:bg-green-900/50 border border-green-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-green-300"
-                   title="View aggregated logs from all pods"
+                   className="flex-1 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-blue-300"
+                   title={`Restart all pods in this ${state.selectedResourceType}`}
                  >
-                   <FileText size={14} className="mr-2" /> LOGS
+                   <RotateCw size={14} className="mr-2" /> Rollout Restart
                  </button>
-              </div>
-            )}
-            {state.selectedResourceType === 'daemonset' && (
-              <div className="flex gap-2 mb-4">
-                 <button onClick={() => kubectl.rolloutRestart('daemonset', resource.name, resource.namespace, resource.id)} className="flex-1 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-blue-300" title="Restart all pods in this daemonset"><RotateCw size={14} className="mr-2" /> Rollout Restart</button>
-                 <button
-                   onClick={() => {
-                     dispatch({
-                       type: 'OPEN_LOGS_FOR_RESOURCE',
-                       payload: {
-                         type: 'all-pods',
-                         deploymentName: resource.name,
-                         namespace: resource.namespace
-                       }
-                     });
-                   }}
-                   className="flex-1 bg-green-900/30 hover:bg-green-900/50 border border-green-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-green-300"
-                   title="View aggregated logs from all pods"
-                 >
-                   <FileText size={14} className="mr-2" /> LOGS
-                 </button>
-              </div>
-            )}
-            {state.selectedResourceType === 'statefulset' && (
-              <div className="flex gap-2 mb-4">
-                 <button onClick={() => kubectl.rolloutRestart('statefulset', resource.name, resource.namespace, resource.id)} className="flex-1 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-blue-300" title="Restart all pods in this statefulset"><RotateCw size={14} className="mr-2" /> Rollout Restart</button>
                  <button
                    onClick={() => {
                      dispatch({

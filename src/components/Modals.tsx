@@ -427,11 +427,11 @@ export const ReplaceLogsTabModal: React.FC = () => {
     };
 
     const getTabDisplayInfo = (tab: typeof state.logsTabs[0]) => {
-        const deployment = tab.selectedDeployment.split('/')[1] || 'None';
-        const pod = tab.selectedPod === 'all-pods' ? 'All Pods' : (tab.selectedPod.split('/')[1] || 'None');
+        const workload = tab.selectedWorkload?.split('/')[1] || 'None';
+        const pod = tab.selectedPod === 'all-pods' ? 'All Pods' : (tab.selectedPod?.split('/')[1] || 'None');
         const container = tab.selectedContainer || 'None';
 
-        return { deployment, pod, container };
+        return { workload, pod, container };
     };
 
     return (
@@ -486,9 +486,9 @@ export const ReplaceLogsTabModal: React.FC = () => {
                                             </div>
                                             <div className="space-y-1.5 text-sm">
                                                 <div className="flex items-center gap-2">
-                                                    <span className="text-gray-500 w-24">Deployment:</span>
-                                                    <span className={`font-mono ${info.deployment === 'None' ? 'text-gray-600 italic' : 'text-gray-300'}`}>
-                                                        {info.deployment}
+                                                    <span className="text-gray-500 w-24">Workload:</span>
+                                                    <span className={`font-mono ${info.workload === 'None' ? 'text-gray-600 italic' : 'text-gray-300'}`}>
+                                                        {info.workload}
                                                     </span>
                                                 </div>
                                                 <div className="flex items-center gap-2">

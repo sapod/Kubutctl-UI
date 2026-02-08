@@ -58,31 +58,6 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
         dispatch({ type: 'UPDATE_LOGS_TAB', payload: { tabId: currentTabId, updates } });
     };
 
-    // Helper function to find the workload (Deployment/DaemonSet/StatefulSet) that owns a pod
-    // Uses label selector matching to find the parent workload
-    const findWorkloadForPod = (pod: { namespace: string; labels?: Record<string, string> }) => {
-        if (!pod.labels) return null;
-
-        // Search through all workload types using label selector matching
-        const matchingWorkload =
-            state.deployments.find(dep => {
-                if (dep.namespace !== pod.namespace) return false;
-                if (!dep.selector) return false;
-                return Object.entries(dep.selector).every(([key, value]) => pod.labels![key] === value);
-            }) ||
-            state.daemonSets.find(ds => {
-                if (ds.namespace !== pod.namespace) return false;
-                if (!ds.selector) return false;
-                return Object.entries(ds.selector).every(([key, value]) => pod.labels![key] === value);
-            }) ||
-            state.statefulSets.find(ss => {
-                if (ss.namespace !== pod.namespace) return false;
-                if (!ss.selector) return false;
-                return Object.entries(ss.selector).every(([key, value]) => pod.labels![key] === value);
-            });
-
-        return matchingWorkload;
-    };
 
     // Logs state - use a Map to store logs per tab, so each tab has its own logs
     // Initialize from localStorage if in undocked mode
@@ -474,66 +449,26 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
                 const logsTarget = state.logsTarget;
                 if (!logsTarget) return;
 
-                if (logsTarget.type === 'pod') {
-                // For pod: find which deployment owns it using label matching
-                const pod = state.pods.find(p => p.name === logsTarget.podName && p.namespace === logsTarget.namespace);
-
-                let workloadFound = false;
-                let foundWorkload = '';
-
-                if (pod && pod.labels) {
-                    // Find workload (Deployment, DaemonSet, or StatefulSet) that matches this pod's labels
-                    const matchingWorkload = findWorkloadForPod(pod);
-
-                    if (matchingWorkload) {
-                        foundWorkload = `${matchingWorkload.namespace}/${matchingWorkload.name}`;
-                        workloadFound = true;
+                dispatch({
+                    type: 'OPEN_LOGS_FOR_RESOURCE',
+                    payload: {
+                        type: logsTarget.type,
+                        podName: logsTarget.podName,
+                        deploymentName: logsTarget.deploymentName,
+                        namespace: logsTarget.namespace,
+                        container: logsTarget.container,
+                        targetTabId: currentTabId, // Use current tab
                     }
-                }
-
-                // If no workload found, try old method with owner references as fallback
-                // This is mainly for Deployment detection via ReplicaSet owner chain
-                if (!workloadFound && pod?.ownerReferences) {
-                    const owner = pod.ownerReferences.find(o => o.kind === 'ReplicaSet');
-                    if (owner) {
-                        const rs = state.replicaSets.find(r => r.name === owner.name && r.namespace === pod.namespace);
-                        if (rs?.ownerReferences) {
-                            const depOwner = rs.ownerReferences.find(o => o.kind === 'Deployment');
-                            if (depOwner) {
-                                foundWorkload = `${pod.namespace}/${depOwner.name}`;
-                                workloadFound = true;
-                            }
-                        }
-                    }
-                }
-
-                // If still no workload found, select first available workload
-                if (!workloadFound && availableWorkloads.length > 0) {
-                    foundWorkload = `${availableWorkloads[0].namespace}/${availableWorkloads[0].name}`;
-                }
-
-                updateLogsState({
-                    selectedWorkload: foundWorkload,
-                    selectedPod: `${logsTarget.namespace}/${logsTarget.podName}`,
-                    selectedContainer: logsTarget.container || '',
                 });
-            } else if (logsTarget.type === 'all-pods' && logsTarget.deploymentName) {
-                // For deployment all-pods
-                updateLogsState({
-                    selectedWorkload: `${logsTarget.namespace}/${logsTarget.deploymentName}`,
-                    selectedPod: 'all-pods',
-                    selectedContainer: '',
-                });
-            }
 
-            // Clear the logs target after handling it (longer delay to ensure state updates complete)
-            setTimeout(() => {
-                dispatch({ type: 'SET_LOGS_TARGET', payload: null });
-                // Clear the processed tracker when we clear the target
-                processedLogsTargetRef.current = '';
-                hasProcessedOnceRef.current = false;
-                isProcessingLogsTargetRef.current = false; // Clear the processing flag
-            }, 500);
+                // Clear the logs target after handling it
+                setTimeout(() => {
+                    dispatch({ type: 'SET_LOGS_TARGET', payload: null });
+                    // Clear the processed tracker when we clear the target
+                    processedLogsTargetRef.current = '';
+                    hasProcessedOnceRef.current = false;
+                    isProcessingLogsTargetRef.current = false; // Clear the processing flag
+                }, 500);
             }, 100); // Small delay to ensure tab switching completes
 
             return () => clearTimeout(timer);
@@ -1002,28 +937,44 @@ export const LogsPanel: React.FC<LogsPanelProps> = ({ standalone = false, tabId 
         }
     }, [selectedWorkload, selectedPod, state.logsTarget, state.deployments.length, state.daemonSets.length, state.statefulSets.length, state.pods.length]);
 
-    // Auto-detect and update workload when pod is selected
-    // This ensures the workload dropdown shows the correct owner of the selected pod
+    // Validate and correct workload when pod is selected
+    // This is important for cache restoration - ensures the workload matches the pod
     useEffect(() => {
-        if (selectedPod && selectedPod !== 'all-pods' && selectedPod !== '') {
+        if (selectedPod && selectedPod !== 'all-pods' && selectedPod !== '' && selectedWorkload) {
             const [namespace, podName] = selectedPod.split('/');
             const pod = state.pods.find(p => p.namespace === namespace && p.name === podName);
 
             if (pod && pod.labels) {
-                // Find the workload that owns this pod
-                const matchingWorkload = findWorkloadForPod(pod);
+                // Check if current workload actually owns this pod
+                const [workloadNamespace, workloadName] = selectedWorkload.split('/');
+                
+                // Find the workload to verify it matches
+                const currentWorkload = 
+                    state.deployments.find(d => d.name === workloadName && d.namespace === workloadNamespace) ||
+                    state.daemonSets.find(ds => ds.name === workloadName && ds.namespace === workloadNamespace) ||
+                    state.statefulSets.find(ss => ss.name === workloadName && ss.namespace === workloadNamespace);
 
-                if (matchingWorkload) {
-                    const correctWorkloadId = `${matchingWorkload.namespace}/${matchingWorkload.name}`;
+                // Check if current workload's selector matches the pod's labels
+                const workloadMatchesPod = currentWorkload?.selector && 
+                    Object.entries(currentWorkload.selector).every(([key, value]) => pod.labels![key] === value);
 
-                    // Only update if it's different from current selection
-                    if (selectedWorkload !== correctWorkloadId) {
-                        updateLogsState({ selectedWorkload: correctWorkloadId });
-                    }
+                // If workload doesn't match pod, dispatch to store to find correct workload
+                if (!workloadMatchesPod) {
+                    dispatch({
+                        type: 'OPEN_LOGS_FOR_RESOURCE',
+                        payload: {
+                            type: 'pod',
+                            podName: podName,
+                            namespace: namespace,
+                            container: selectedContainer,
+                            targetTabId: currentTabId,
+                            forceRefresh: false, // Don't clear logs, just fix workload
+                        }
+                    });
                 }
             }
         }
-    }, [selectedPod, state.pods, state.deployments, state.daemonSets, state.statefulSets]);
+    }, [selectedPod, selectedWorkload, state.pods, state.deployments, state.daemonSets, state.statefulSets, currentTabId, selectedContainer]);
 
     // Update container when pod changes (but only if current container is not valid)
     useEffect(() => {
