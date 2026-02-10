@@ -1,0 +1,253 @@
+---
+# Deployment 1: NGINX web server (3 replicas, 1 container per pod)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+  namespace: test-apps
+  labels:
+    app: nginx
+    tier: frontend
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+        tier: frontend
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.24-alpine
+        ports:
+        - containerPort: 80
+          name: http
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+        volumeMounts:
+        - name: config
+          mountPath: /etc/nginx/conf.d
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: config
+        configMap:
+          name: app-config
+          items:
+          - key: nginx.conf
+            path: default.conf
+
+---
+# Service for NGINX
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+  namespace: test-apps
+  labels:
+    app: nginx
+spec:
+  type: ClusterIP
+  selector:
+    app: nginx
+  ports:
+  - port: 80
+    targetPort: 80
+    name: http
+
+---
+# Deployment 2: Multi-container application (2 replicas, 3 containers per pod)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: multi-container-app
+  namespace: test-apps
+  labels:
+    app: multi-container
+    tier: application
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: multi-container
+  template:
+    metadata:
+      labels:
+        app: multi-container
+        tier: application
+    spec:
+      containers:
+      # Main application container
+      - name: app
+        image: busybox:1.36
+        command: ['sh', '-c', 'while true; do echo "Main app running"; sleep 30; done']
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "50m"
+          limits:
+            memory: "64Mi"
+            cpu: "100m"
+        env:
+        - name: APP_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: app.properties
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: api-tokens
+              key: api-key
+      # Sidecar logging container
+      - name: log-collector
+        image: busybox:1.36
+        command: ['sh', '-c', 'while true; do echo "Collecting logs at $(date)"; sleep 20; done']
+        resources:
+          requests:
+            memory: "16Mi"
+            cpu: "25m"
+          limits:
+            memory: "32Mi"
+            cpu: "50m"
+      # Sidecar metrics container
+      - name: metrics-exporter
+        image: busybox:1.36
+        command: ['sh', '-c', 'while true; do echo "Exporting metrics at $(date)"; sleep 15; done']
+        resources:
+          requests:
+            memory: "16Mi"
+            cpu: "25m"
+          limits:
+            memory: "32Mi"
+            cpu: "50m"
+
+---
+# Deployment 3: Backend API (5 replicas, 2 containers per pod)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-api
+  namespace: test-apps
+  labels:
+    app: backend-api
+    tier: backend
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: backend-api
+  template:
+    metadata:
+      labels:
+        app: backend-api
+        tier: backend
+    spec:
+      containers:
+      - name: api
+        image: hashicorp/http-echo:0.2.3
+        args:
+          - "-text=Backend API Response"
+          - "-listen=:8080"
+        ports:
+        - containerPort: 8080
+          name: http
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+        env:
+        - name: DB_HOST
+          value: "postgres-service.databases.svc.cluster.local"
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: username
+              optional: true
+      - name: cache-sidecar
+        image: redis:7-alpine
+        command: ['redis-server', '--port', '6380']
+        ports:
+        - containerPort: 6380
+          name: cache
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "50m"
+          limits:
+            memory: "64Mi"
+            cpu: "100m"
+
+---
+# Service for Backend API
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-api-service
+  namespace: test-apps
+  labels:
+    app: backend-api
+spec:
+  type: ClusterIP
+  selector:
+    app: backend-api
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: http
+
+---
+# Deployment 4: Worker pods (4 replicas, single container)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-deployment
+  namespace: test-apps
+  labels:
+    app: worker
+    tier: workers
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+        tier: workers
+    spec:
+      containers:
+      - name: worker
+        image: busybox:1.36
+        command: ['sh', '-c', 'while true; do echo "Processing job at $(date)"; sleep 10; done']
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "50m"
+          limits:
+            memory: "64Mi"
+            cpu: "100m"
+

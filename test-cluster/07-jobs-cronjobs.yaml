@@ -1,0 +1,88 @@
+---
+# CronJob: Database backup (runs every hour)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: db-backup
+  namespace: databases
+spec:
+  schedule: "0 * * * *"  # Every hour
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: backup
+            image: postgres:15-alpine
+            command:
+            - sh
+            - -c
+            - |
+              echo "Backing up database at $(date)"
+              sleep 5
+              echo "Backup completed"
+            env:
+            - name: POSTGRES_HOST
+              value: postgres-service
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: postgres-password
+          restartPolicy: OnFailure
+
+---
+# CronJob: Cleanup job (runs daily)
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cleanup-job
+  namespace: test-apps
+spec:
+  schedule: "0 0 * * *"  # Daily at midnight
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: cleanup
+            image: busybox:1.36
+            command:
+            - sh
+            - -c
+            - |
+              echo "Running cleanup at $(date)"
+              echo "Removing old files..."
+              sleep 3
+              echo "Cleanup completed"
+          restartPolicy: OnFailure
+
+---
+# Job: One-time initialization job
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: init-job
+  namespace: test-apps
+spec:
+  template:
+    spec:
+      containers:
+      - name: init
+        image: busybox:1.36
+        command:
+        - sh
+        - -c
+        - |
+          echo "Initializing application..."
+          sleep 5
+          echo "Creating database schema..."
+          sleep 3
+          echo "Seeding initial data..."
+          sleep 2
+          echo "Initialization complete"
+      restartPolicy: Never
+  backoffLimit: 3
+
