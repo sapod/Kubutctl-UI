@@ -248,9 +248,7 @@ export const TerminalPanel: React.FC = () => {
                         setActiveTab('logs');
                         dispatch({ type: 'SET_ACTIVE_LOGS_TAB', payload: tab.id });
                       }}
-                      className={`flex items-center text-xs font-bold uppercase tracking-wider transition-colors px-2 ${
-                        state.logsTabs.length > 1 ? 'rounded-l' : 'rounded'
-                      } ${
+                      className={`flex items-center text-xs font-bold uppercase tracking-wider transition-colors px-2 rounded-l ${
                         activeTab === 'logs' && state.activeLogsTabId === tab.id 
                           ? 'text-blue-400 bg-gray-900' 
                           : 'text-gray-400 hover:text-gray-300 hover:bg-gray-600'
@@ -260,24 +258,38 @@ export const TerminalPanel: React.FC = () => {
                       <FileText size={12} className="mr-1" />
                       {index === 0 ? 'Logs' : `Logs ${index + 1}`}
                     </button>
-                    {/* Close button for extra tabs */}
-                    {state.logsTabs.length > 1 && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
+                    {/* Clear/Close button: Clear for first tab, Close for others */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (index === 0) {
+                          // First tab: Clear selections
+                          dispatch({
+                            type: 'UPDATE_LOGS_TAB',
+                            payload: {
+                              tabId: tab.id,
+                              updates: {
+                                selectedWorkload: '',
+                                selectedPod: '',
+                                selectedContainer: ''
+                              }
+                            }
+                          });
+                        } else {
+                          // Other tabs: Close tab
                           dispatch({ type: 'REMOVE_LOGS_TAB', payload: tab.id });
                           if (state.activeLogsTabId === tab.id) {
                             setActiveTab('logs');
                           }
-                        }}
-                        className={`flex items-center px-1 text-gray-500 hover:text-red-400 hover:bg-gray-600 rounded-r transition-colors ${
-                          activeTab === 'logs' && state.activeLogsTabId === tab.id ? 'bg-gray-900' : ''
-                        }`}
-                        title="Close this logs tab"
-                      >
-                        <X size={10} />
-                      </button>
-                    )}
+                        }
+                      }}
+                      className={`flex items-center px-1 text-gray-500 hover:text-red-400 hover:bg-gray-600 rounded-r transition-colors ${
+                        activeTab === 'logs' && state.activeLogsTabId === tab.id ? 'bg-gray-900' : ''
+                      }`}
+                      title="Close this logs tab"
+                    >
+                      <X size={10} />
+                    </button>
                   </div>
                 ))}
 
