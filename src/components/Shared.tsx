@@ -32,15 +32,15 @@ export const parseMemory = (value: string): number => {
 
 export const getAge = (timestamp: string) => {
   if (!timestamp) return 'N/A';
-  
+
   const date = new Date(timestamp);
   if (isNaN(date.getTime())) return 'N/A';
-  
+
   const diff = Date.now() - date.getTime();
-  
+
   // Handle negative or invalid diffs
   if (diff < 0 || !isFinite(diff)) return 'N/A';
-  
+
   const seconds = Math.floor(diff / 1000);
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);
@@ -146,12 +146,20 @@ export const ErrorBanner: React.FC = () => {
 
     useEffect(() => {
         if (state.error) {
+            // Add error to terminal log if it's not already the last entry
+            const lastLog = state.terminalOutput[state.terminalOutput.length - 1];
+            const errorLogMessage = `ERROR: ${state.error}`;
+
+            if (lastLog !== errorLogMessage) {
+                dispatch({ type: 'ADD_LOG', payload: errorLogMessage });
+            }
+
             const timer = setTimeout(() => {
                 dispatch({ type: 'SET_ERROR', payload: null });
             }, 5000); // 5 seconds display
             return () => clearTimeout(timer);
         }
-    }, [state.error, dispatch]);
+    }, [state.error, state.terminalOutput, dispatch]);
 
     if (!state.error) return null;
 

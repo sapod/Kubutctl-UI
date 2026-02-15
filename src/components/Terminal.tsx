@@ -327,8 +327,16 @@ export const TerminalPanel: React.FC = () => {
           <div className="flex-1 overflow-auto p-3 text-gray-300 font-mono text-xs leading-relaxed custom-scrollbar">
             {state.terminalOutput.map((line, i) => (
               <div key={i} className="mb-1 whitespace-pre-wrap break-all">
-                {line.startsWith('>') ? <span className="text-blue-400 font-bold mr-2">$</span> : ''}
-                {line.startsWith('>') ? <span className="text-yellow-100">{line.substring(2)}</span> : line}
+                {line.startsWith('>') ? (
+                  <>
+                    <span className="text-blue-400 font-bold mr-2">$</span>
+                    <span className="text-yellow-100">{line.substring(2)}</span>
+                  </>
+                ) : line.startsWith('ERROR:') ? (
+                  <span className="text-red-400 font-semibold">{line}</span>
+                ) : (
+                  line
+                )}
               </div>
             ))}
             <div ref={bottomRef} />
