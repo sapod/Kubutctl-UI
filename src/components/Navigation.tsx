@@ -7,12 +7,15 @@ export const NamespaceSelector: React.FC = () => {
   const { state, dispatch } = useStore();
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const listItemRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
         setIsOpen(false);
+        setHighlightedIndex(-1);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -28,14 +31,58 @@ export const NamespaceSelector: React.FC = () => {
     ns.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // Reset highlighted index when filtered list changes
+  useEffect(() => {
+    setHighlightedIndex(-1);
+  }, [searchTerm]);
+
+  // Scroll highlighted item into view
+  useEffect(() => {
+    if (highlightedIndex >= 0 && highlightedIndex < listItemRefs.current.length) {
+      listItemRefs.current[highlightedIndex]?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest'
+      });
+    }
+  }, [highlightedIndex]);
+
   const handleSelect = (ns: string) => {
     dispatch({ type: 'SELECT_NAMESPACE', payload: ns });
     setIsOpen(false);
     setSearchTerm('');
+    setHighlightedIndex(-1);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (!isOpen) return;
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setHighlightedIndex((prev) => 
+          prev < filteredNamespaces.length - 1 ? prev + 1 : prev
+        );
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setHighlightedIndex((prev) => (prev > 0 ? prev - 1 : 0));
+        break;
+      case 'Enter':
+        e.preventDefault();
+        if (highlightedIndex >= 0 && highlightedIndex < filteredNamespaces.length) {
+          handleSelect(filteredNamespaces[highlightedIndex]);
+        }
+        break;
+      case 'Escape':
+        e.preventDefault();
+        setIsOpen(false);
+        setHighlightedIndex(-1);
+        break;
+    }
   };
 
   return (
-    <div className="relative w-64" ref={wrapperRef}>
+    <div className="relative w-64" ref={wrapperRef} onKeyDown={handleKeyDown}>
       <div
         className="flex items-center justify-between w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-1.5 text-sm cursor-pointer hover:border-gray-600"
         onClick={() => setIsOpen(!isOpen)}
@@ -63,11 +110,17 @@ export const NamespaceSelector: React.FC = () => {
             {filteredNamespaces.length === 0 ? (
                <div className="px-3 py-2 text-xs text-gray-500">No namespaces found</div>
             ) : (
-              filteredNamespaces.map(ns => (
+              filteredNamespaces.map((ns, index) => (
                 <div
                   key={ns}
-                  className={`px-3 py-2 text-sm cursor-pointer hover:bg-blue-600/20 hover:text-blue-300 ${state.selectedNamespace === ns ? 'text-blue-400 font-medium' : 'text-gray-300'}`}
+                  ref={(el) => (listItemRefs.current[index] = el)}
+                  className={`px-3 py-2 text-sm cursor-pointer ${
+                    highlightedIndex === index 
+                      ? 'bg-blue-600/30 text-blue-300' 
+                      : 'hover:bg-blue-600/20 hover:text-blue-300'
+                  } ${state.selectedNamespace === ns ? 'text-blue-400 font-medium' : 'text-gray-300'}`}
                   onClick={() => handleSelect(ns)}
+                  onMouseEnter={() => setHighlightedIndex(index)}
                 >
                   {ns}
                 </div>
