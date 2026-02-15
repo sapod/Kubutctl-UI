@@ -640,8 +640,39 @@ ipcMain.handle('open-logs-window', async (event, { width, height }) => {
     return { success: true, exists: true };
   }
 
+  // Check if main window is in fullscreen BEFORE creating the new window
+  const mainIsFullscreen = mainWindow && !mainWindow.isDestroyed() && mainWindow.isFullScreen();
+
   // Get main window position to offset the logs window
-  const mainBounds = mainWindow ? mainWindow.getBounds() : { x: 0, y: 0 };
+  // If main window is fullscreen, try to open on a different display
+  let mainBounds = { x: 0, y: 0 };
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainIsFullscreen) {
+      // When in fullscreen, try to open on a different display (secondary monitor)
+      const allDisplays = screen.getAllDisplays();
+      const currentDisplay = screen.getDisplayNearestPoint(mainWindow.getBounds());
+      
+      // Find a display that's different from the current one
+      let targetDisplay = allDisplays.find(display => display.id !== currentDisplay.id);
+      
+      // If no other display available, use the current one
+      if (!targetDisplay) {
+        targetDisplay = currentDisplay;
+      }
+      
+      const { x: displayX, y: displayY, width: screenWidth, height: screenHeight } = targetDisplay.workArea;
+      const windowWidth = width || 1000;
+      const windowHeight = height || 400;
+      
+      // Center the window on the target display
+      mainBounds = {
+        x: displayX + Math.floor((screenWidth - windowWidth) / 2),
+        y: displayY + Math.floor((screenHeight - windowHeight) / 2)
+      };
+    } else {
+      mainBounds = mainWindow.getBounds();
+    }
+  }
 
   const preloadPath = isDev
     ? path.join(__dirname, 'preload.js')
@@ -653,15 +684,14 @@ ipcMain.handle('open-logs-window', async (event, { width, height }) => {
   const windowOptions = {
     width: windowWidth,
     height: windowHeight,
-    x: mainBounds.x + 50,
-    y: mainBounds.y + 50,
+    x: mainIsFullscreen ? mainBounds.x : mainBounds.x + 50,
+    y: mainIsFullscreen ? mainBounds.y : mainBounds.y + 50,
     minWidth: 600,
     minHeight: 300,
-    maxWidth: undefined,
-    maxHeight: undefined,
     fullscreen: false,
-    fullscreenable: true,
+    fullscreenable: false, // Disable fullscreen capability to prevent any fullscreen inheritance
     resizable: true,
+    parent: null, // Explicitly set no parent to avoid inheriting fullscreen state
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -681,6 +711,15 @@ ipcMain.handle('open-logs-window', async (event, { width, height }) => {
 
   logsWindow = new BrowserWindow(windowOptions);
 
+  // Block any attempt to enter fullscreen during window lifetime
+  let isInitialized = false;
+  logsWindow.on('enter-full-screen', (e) => {
+    // Prevent fullscreen from being entered
+    if (logsWindow && !logsWindow.isDestroyed()) {
+      logsWindow.setFullScreen(false);
+    }
+  });
+
   // Use the same URL as main window but with a query parameter to indicate logs-only mode
   const actualFrontendPort = process.env.FRONTEND_PORT || FRONTEND_PORT;
   const frontendUrl = `http://localhost:${actualFrontendPort}?logsOnly=true`;
@@ -688,13 +727,18 @@ ipcMain.handle('open-logs-window', async (event, { width, height }) => {
   logsWindow.loadURL(frontendUrl);
 
   logsWindow.once('ready-to-show', () => {
-    // Double-check the window size before showing
+    isInitialized = true;
+    
+    // Verify window is not in fullscreen and has correct size
     const currentBounds = logsWindow.getBounds();
 
-    // Explicitly set size again if needed
-    if (currentBounds.width !== windowWidth || currentBounds.height !== windowHeight) {
-      logsWindow.setSize(windowWidth, windowHeight);
-    }
+    // Set size and position explicitly to ensure no fullscreen state
+    logsWindow.setBounds({
+      x: mainIsFullscreen ? mainBounds.x : mainBounds.x + 50,
+      y: mainIsFullscreen ? mainBounds.y : mainBounds.y + 50,
+      width: windowWidth,
+      height: windowHeight
+    });
 
     logsWindow.show();
   });
