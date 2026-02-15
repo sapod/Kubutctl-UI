@@ -537,6 +537,13 @@ function createApplicationMenu() {
       label: 'Help',
       submenu: [
         {
+          label: 'Support',
+          click: async () => {
+            await shell.openExternal('https://github.com/sapod/Kubutctl-UI/blob/main/SUPPORT.md');
+          }
+        },
+        { type: 'separator' },
+        {
           label: 'Check for Updates...',
           click: async () => {
             await handleManualUpdateCheck();
@@ -651,19 +658,19 @@ ipcMain.handle('open-logs-window', async (event, { width, height }) => {
       // When in fullscreen, try to open on a different display (secondary monitor)
       const allDisplays = screen.getAllDisplays();
       const currentDisplay = screen.getDisplayNearestPoint(mainWindow.getBounds());
-      
+
       // Find a display that's different from the current one
       let targetDisplay = allDisplays.find(display => display.id !== currentDisplay.id);
-      
+
       // If no other display available, use the current one
       if (!targetDisplay) {
         targetDisplay = currentDisplay;
       }
-      
+
       const { x: displayX, y: displayY, width: screenWidth, height: screenHeight } = targetDisplay.workArea;
       const windowWidth = width || 1000;
       const windowHeight = height || 400;
-      
+
       // Center the window on the target display
       mainBounds = {
         x: displayX + Math.floor((screenWidth - windowWidth) / 2),
@@ -728,7 +735,7 @@ ipcMain.handle('open-logs-window', async (event, { width, height }) => {
 
   logsWindow.once('ready-to-show', () => {
     isInitialized = true;
-    
+
     // Verify window is not in fullscreen and has correct size
     const currentBounds = logsWindow.getBounds();
 
