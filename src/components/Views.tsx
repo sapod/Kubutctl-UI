@@ -352,18 +352,18 @@ export const PortForwardingPage: React.FC = () => {
                                     <span className="text-xs text-gray-500">{routine.items.length} items</span>
                                 </div>
                                 <div className="flex gap-1">
-                                    <button onClick={
-                                        async () => {
+                                    <button onClick={async () => {
                                             for (const item of routine.items) {
                                                 const id = `pf-routine-${Date.now()}-${Math.random()}`;
                                                 try {
                                                     const result = await kubectl.startPortForward(id, item.resourceType, item.resourceName, item.namespace, item.localPort, item.remotePort);
                                                     const actualLocalPort = result.localPort || item.localPort;
                                                     dispatch({ type: 'ADD_PORT_FORWARD', payload: { id, pid: result.pid, resourceName: item.resourceName, resourceType: item.resourceType as any, namespace: item.namespace, localPort: actualLocalPort, remotePort: item.remotePort, status: 'Active' }});
-                                                } catch (e) {}
+                                                } catch (e: any) {
+                                                    dispatch({ type: 'ADD_LOG', payload: `Port Forward Failed (${item.resourceType}/${item.resourceName}): ${e.message || e}` });
+                                                }
                                             }
-                                        }
-                                    } className="p-1.5 bg-green-900/30 text-green-400 rounded hover:bg-green-900/50 hover:text-white transition-colors" title="Start all port forwards in this routine">
+                                        }} className="p-1.5 bg-green-900/30 text-green-400 rounded hover:bg-green-900/50 hover:text-white transition-colors" title="Start all port forwards in this routine">
                                         <Play size={16} fill="currentColor" />
                                     </button>
                                     <button onClick={() => dispatch({ type: 'OPEN_ROUTINE_MODAL', payload: routine })}

@@ -524,7 +524,10 @@ export const kubectl = {
   },
   startPortForward: async (id: string, type: string, name: string, namespace: string, localPort: number, remotePort: number): Promise<{ pid: number; localPort?: number }> => {
       const response = await fetch(`${BACKEND_BASE_URL}/api/port-forward/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ commandArgs: ['port-forward', '-n', namespace, `${type}/${name}`, `${localPort}:${remotePort}`], metadata: { id, resourceName: name, resourceType: type, namespace, localPort, remotePort } }) });
-      if (!response.ok) throw new Error("PF start failed");
+      if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ error: 'Port forward failed' }));
+          throw new Error(errorData.error || 'Port forward failed');
+      }
       const data = await response.json();
       return { pid: data.pid, localPort: data.localPort };
   },
