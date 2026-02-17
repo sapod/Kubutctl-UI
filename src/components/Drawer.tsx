@@ -98,6 +98,34 @@ export const DetailItem = ({ label, value }: { label: string; value: string }) =
   </div>
 );
 
+const formatDuration = (startTime: string, endTime: string): string => {
+  const start = new Date(startTime).getTime();
+  const end = new Date(endTime).getTime();
+
+  if (isNaN(start) || isNaN(end)) return '-';
+
+  const durationMs = end - start;
+  if (durationMs < 0) return '-';
+
+  const seconds = Math.floor(durationMs / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (days > 0) {
+    const remainingHours = hours % 24;
+    return `${days}d ${remainingHours}h`;
+  } else if (hours > 0) {
+    const remainingMinutes = minutes % 60;
+    return `${hours}h ${remainingMinutes}m`;
+  } else if (minutes > 0) {
+    const remainingSeconds = seconds % 60;
+    return `${minutes}m ${remainingSeconds}s`;
+  } else {
+    return `${seconds}s`;
+  }
+};
+
 const formatCreationTime = (timestamp: string) => {
     if (!timestamp) return '-';
     try {
@@ -1485,9 +1513,28 @@ export const ResourceDrawer: React.FC = () => {
             )}
 
             <div className="grid grid-cols-2 gap-y-6 gap-x-4">
+               {/* Standard fields - Namespace, UID, Created for all resources */}
                <DetailItem label="Namespace" value={resource.namespace || '-'} />
-               <DetailItem label="Created" value={formatCreationTime(resource.creationTimestamp)} />
                <DetailItem label="UID" value={resource.id} />
+               <DetailItem label="Created" value={formatCreationTime(resource.creationTimestamp)} />
+
+               {/* Job-specific fields */}
+               {state.selectedResourceType === 'job' && (
+                 <>
+                   {(resource as any).raw?.status?.completionTime && (
+                     <DetailItem
+                       label={(resource as any).failed > 0 ? "Failed" : "Completed"}
+                       value={formatCreationTime((resource as any).raw.status.completionTime)}
+                     />
+                   )}
+                   {'completions' in resource && <DetailItem label="Completions" value={`${(resource as any).succeeded} / ${(resource as any).completions}`} />}
+                   {'completions' in resource && (resource as any).raw?.status?.startTime && (resource as any).raw?.status?.completionTime && (
+                     <DetailItem label="Run Time" value={formatDuration((resource as any).raw.status.startTime, (resource as any).raw.status.completionTime)} />
+                   )}
+                 </>
+               )}
+
+               {/* Pod-specific Node field */}
                {state.selectedResourceType === 'pod' ? (
                    <div>
                        <div className="text-xs text-gray-500 uppercase tracking-wide font-bold mb-1">Node</div>
@@ -1514,12 +1561,12 @@ export const ResourceDrawer: React.FC = () => {
                    'node' in resource && <DetailItem label="Node" value={(resource as any).node} />
                )}
 
+               {/* Other resource-specific fields */}
                {'replicas' in resource && <DetailItem label="Replicas" value={`${(resource as any).availableReplicas} / ${(resource as any).replicas}`} />}
                {'type' in resource && <DetailItem label="Type" value={(resource as any).type} />}
                {'clusterIP' in resource && <DetailItem label="Cluster IP" value={(resource as any).clusterIP} />}
                {'loadBalancer' in resource && <DetailItem label="Load Balancer" value={(resource as any).loadBalancer} />}
                {'schedule' in resource && <DetailItem label="Schedule" value={(resource as any).schedule} />}
-               {'completions' in resource && <DetailItem label="Completions" value={`${(resource as any).succeeded} / ${(resource as any).completions}`} />}
                {'reason' in resource && <DetailItem label="Reason" value={(resource as any).reason} />}
                {'source' in resource && <DetailItem label="Source" value={(resource as any).source.component} />}
                {'involvedObject' in resource && <DetailItem label="Object" value={`${(resource as any).involvedObject.kind}/${(resource as any).involvedObject.name}`} />}
