@@ -1,21 +1,20 @@
 # Release Notes
 
-## Version 2.6.0
+## Version 2.6.1
 
 ### Features
-- Added full support for DaemonSets and StatefulSets workloads
-- Added full support for Secrets (view, decode/encode, and management)
-- Added YAML search capability in resource drawer
+- Added support link to Help menu for easy access to documentation and support resources
+- Added job total run time information in drawer (shows duration between start and completion for completed/failed jobs)
 
 ### Improvements
-- Improved logs panel to work with all workloads (Deployment/DaemonSet/StatefulSet)
-- Improve caching in logs for better experience and storage optimization
+- Allow clearing the first logs tab (previously only additional tabs could be closed)
+- Improved namespace selection with keyboard navigation (arrow keys and Enter key support)
+- Improved logs window behavior - undocked logs window no longer opens in fullscreen when the main app is in fullscreen mode
+- Enhanced terminal output to display error logs for easier troubleshooting and debugging
+- Improved port forward error handling - now shows the real error message in terminal output when port forwarding fails
 
 ### Bug Fixes
-- Fixed z-index values in UI to ensure proper layering of modals and overlays
-- Fixed drawer not closing on AWS SSO authentication error, now closes automatically to display error message clearly
-- Fixed logs panel pod selection not being preserved after page reload if pod not in cache
-- Fixed environment variables not showing secret references in pod drawer
+- None
 
 ### Breaking Changes
 - None
