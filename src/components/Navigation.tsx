@@ -59,7 +59,7 @@ export const NamespaceSelector: React.FC = () => {
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();
-        setHighlightedIndex((prev) => 
+        setHighlightedIndex((prev) =>
           prev < filteredNamespaces.length - 1 ? prev + 1 : prev
         );
         break;
@@ -223,6 +223,7 @@ export const Sidebar: React.FC<{ currentView: string; onViewChange: (view: any) 
         { view: 'overview', icon: Activity, label: 'Overview' },
         { view: 'nodes', icon: Server, label: 'Nodes' },
         { view: 'namespaces', icon: LayoutGrid, label: 'Namespaces' },
+        { view: 'events', icon: Calendar, label: 'Events' },
       ]
     },
     {
@@ -251,12 +252,6 @@ export const Sidebar: React.FC<{ currentView: string; onViewChange: (view: any) 
         { view: 'configmaps', icon: FileText, label: 'ConfigMaps' },
         { view: 'secrets', icon: Key, label: 'Secrets' },
         { view: 'resourcequotas', icon: PieChart, label: 'Resource Quotas' },
-      ]
-    },
-    {
-      title: 'System',
-      items: [
-        { view: 'events', icon: Calendar, label: 'Events' },
       ]
     }
   ];
