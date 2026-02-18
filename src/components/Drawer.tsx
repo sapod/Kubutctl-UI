@@ -200,6 +200,9 @@ export const ResourceDrawer: React.FC = () => {
   else if (rt === 'namespace') resource = state.namespaces.find(r => r.id === state.selectedResourceId);
   else if (rt === 'event') resource = state.events.find(r => r.id === state.selectedResourceId);
   else if (rt === 'resourcequota') resource = state.resourceQuotas.find(r => r.id === state.selectedResourceId);
+  else if (rt === 'persistentvolume') resource = state.persistentVolumes.find(r => r.id === state.selectedResourceId);
+  else if (rt === 'persistentvolumeclaim') resource = state.persistentVolumeClaims.find(r => r.id === state.selectedResourceId);
+  else if (rt === 'storageclass') resource = state.storageClasses.find(r => r.id === state.selectedResourceId);
 
   useEffect(() => {
     setActiveTab('details');
@@ -967,6 +970,47 @@ export const ResourceDrawer: React.FC = () => {
           )
        }
     }
+    if (state.selectedResourceType === 'persistentvolume') {
+       const pv = resource as any;
+       if (pv.claimRef) {
+          const relatedPvc = state.persistentVolumeClaims.find(pvc =>
+             pvc.name === pv.claimRef.name && pvc.namespace === pv.claimRef.namespace
+          );
+          if (relatedPvc) {
+             childrenLinks.push(
+               <div key="pvc" className="mt-4">
+                 <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Bound Claim</h4>
+                 <div onClick={() => handleLinkClick(relatedPvc.id, 'persistentvolumeclaim')} className="cursor-pointer bg-gray-800 p-2 rounded mb-1 hover:bg-gray-700 flex justify-between" title="View PVC details">
+                    <span className="text-sm text-blue-300">{relatedPvc.name}</span>
+                    <span className="text-xs text-gray-500">PVC</span>
+                 </div>
+               </div>
+             )
+          }
+       }
+    }
+    if (state.selectedResourceType === 'persistentvolumeclaim') {
+       const pvc = resource as any;
+       // Show pods using this PVC
+       const podsUsingPvc = state.pods.filter(pod => {
+          return pod.volumes?.some((vol: any) =>
+             vol.persistentVolumeClaim?.claimName === pvc.name
+          ) && pod.namespace === pvc.namespace;
+       });
+       if (podsUsingPvc.length > 0) {
+          childrenLinks.push(
+            <div key="pods" className="mt-4">
+              <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Pods Using This Claim</h4>
+              {podsUsingPvc.map(pod => (
+                <div key={pod.id} onClick={() => handleLinkClick(pod.id, 'pod')} className="cursor-pointer bg-gray-800 p-2 rounded mb-1 hover:bg-gray-700 flex justify-between" title="View pod details">
+                   <span className="text-sm text-green-300">{pod.name}</span>
+                   <span className="text-xs text-gray-500">Pod</span>
+                </div>
+              ))}
+            </div>
+          )
+       }
+    }
     return childrenLinks;
   };
 
@@ -1311,6 +1355,123 @@ export const ResourceDrawer: React.FC = () => {
     );
   };
 
+  const renderPersistentVolumeDetails = () => {
+    if (state.selectedResourceType !== 'persistentvolume') return null;
+    const pv = resource as any;
+    
+    // Find related Storage Class
+    const relatedSc = pv.storageClass ? state.storageClasses.find(sc => sc.name === pv.storageClass) : null;
+    
+    return (
+        <div className="space-y-4 pt-2">
+            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Volume Details</h4>
+            <div className="bg-gray-800 border border-gray-700 rounded-lg p-4 space-y-3">
+                <DetailItem label="Capacity" value={pv.capacity || '-'} />
+                <DetailItem label="Access Modes" value={pv.accessModes?.join(', ') || '-'} />
+                <DetailItem label="Reclaim Policy" value={pv.reclaimPolicy || '-'} />
+                <DetailItem label="Volume Mode" value={pv.volumeMode || 'Filesystem'} />
+                <div>
+                    <div className="text-xs text-gray-500 uppercase tracking-wide font-bold mb-1">Storage Class</div>
+                    {relatedSc ? (
+                        <button
+                            onClick={() => handleLinkClick(relatedSc.id, 'storageclass')}
+                            className="text-sm text-blue-300 font-medium hover:text-blue-200 underline decoration-dotted underline-offset-2 flex items-center gap-1 transition-colors"
+                            title="View Storage Class details"
+                        >
+                            {pv.storageClass} <ExternalLink size={12} className="opacity-50 flex-shrink-0" />
+                        </button>
+                    ) : (
+                        <div className="text-sm text-gray-200 font-medium break-all">{pv.storageClass || '-'}</div>
+                    )}
+                </div>
+                {pv.claimRef && (
+                    <DetailItem
+                        label="Claim"
+                        value={`${pv.claimRef.namespace}/${pv.claimRef.name}`}
+                    />
+                )}
+            </div>
+        </div>
+    );
+  };
+
+  const renderPersistentVolumeClaimDetails = () => {
+    if (state.selectedResourceType !== 'persistentvolumeclaim') return null;
+    const pvc = resource as any;
+
+    // Find related PV and Storage Class
+    const relatedPv = pvc.volumeName ? state.persistentVolumes.find(pv => pv.name === pvc.volumeName) : null;
+    const relatedSc = pvc.storageClass ? state.storageClasses.find(sc => sc.name === pvc.storageClass) : null;
+
+    return (
+        <div className="space-y-4 pt-2">
+            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Claim Details</h4>
+            <div className="bg-gray-800 border border-gray-700 rounded-lg p-4 space-y-3">
+                <div>
+                    <div className="text-xs text-gray-500 uppercase tracking-wide font-bold mb-1">Volume</div>
+                    {relatedPv ? (
+                        <button
+                            onClick={() => handleLinkClick(relatedPv.id, 'persistentvolume')}
+                            className="text-sm text-green-300 font-medium hover:text-green-200 underline decoration-dotted underline-offset-2 flex items-center gap-1 transition-colors"
+                            title="View Persistent Volume details"
+                        >
+                            {pvc.volumeName} <ExternalLink size={12} className="opacity-50 flex-shrink-0" />
+                        </button>
+                    ) : (
+                        <div className="text-sm text-gray-200 font-medium break-all">{pvc.volumeName || 'Pending'}</div>
+                    )}
+                </div>
+                <DetailItem label="Capacity" value={pvc.capacity || 'Pending'} />
+                <DetailItem label="Access Modes" value={pvc.accessModes?.join(', ') || '-'} />
+                <DetailItem label="Volume Mode" value={pvc.volumeMode || 'Filesystem'} />
+                <div>
+                    <div className="text-xs text-gray-500 uppercase tracking-wide font-bold mb-1">Storage Class</div>
+                    {relatedSc ? (
+                        <button
+                            onClick={() => handleLinkClick(relatedSc.id, 'storageclass')}
+                            className="text-sm text-blue-300 font-medium hover:text-blue-200 underline decoration-dotted underline-offset-2 flex items-center gap-1 transition-colors"
+                            title="View Storage Class details"
+                        >
+                            {pvc.storageClass} <ExternalLink size={12} className="opacity-50 flex-shrink-0" />
+                        </button>
+                    ) : (
+                        <div className="text-sm text-gray-200 font-medium break-all">{pvc.storageClass || '-'}</div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+  };
+
+  const renderStorageClassDetails = () => {
+    if (state.selectedResourceType !== 'storageclass') return null;
+    const sc = resource as any;
+    return (
+        <div className="space-y-4 pt-2">
+            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Storage Class Configuration</h4>
+            <div className="bg-gray-800 border border-gray-700 rounded-lg p-4 space-y-3">
+                <DetailItem label="Provisioner" value={sc.provisioner || '-'} />
+                <DetailItem label="Reclaim Policy" value={sc.reclaimPolicy || 'Delete'} />
+                <DetailItem label="Volume Binding Mode" value={sc.volumeBindingMode || 'Immediate'} />
+                <DetailItem label="Allow Volume Expansion" value={sc.allowVolumeExpansion ? 'Yes' : 'No'} />
+            </div>
+            {sc.parameters && Object.keys(sc.parameters).length > 0 && (
+                <div className="space-y-3">
+                    <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Parameters</h4>
+                    <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
+                        {Object.entries(sc.parameters).map(([key, value]) => (
+                            <div key={key} className="py-2 border-b border-gray-700 last:border-0">
+                                <div className="text-xs text-gray-500 font-semibold mb-1">{key}</div>
+                                <div className="text-sm text-gray-300 font-mono break-all">{value as string}</div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+  };
+
   const showEventsTab = state.selectedResourceType !== 'event';
   const showTerminalTab = state.selectedResourceType === 'pod';
 
@@ -1573,10 +1734,10 @@ export const ResourceDrawer: React.FC = () => {
             </div>
 
             {/* Container Images for Deployments, DaemonSets, StatefulSets, ReplicaSets */}
-            {(state.selectedResourceType === 'deployment' || 
-              state.selectedResourceType === 'daemonset' || 
+            {(state.selectedResourceType === 'deployment' ||
+              state.selectedResourceType === 'daemonset' ||
               state.selectedResourceType === 'statefulset' ||
-              state.selectedResourceType === 'replicaset') && 
+              state.selectedResourceType === 'replicaset') &&
               'imageTags' in resource && (resource as any).imageTags?.length > 0 && (
               <div className="space-y-3">
                 <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Container Images</h3>
@@ -1621,6 +1782,9 @@ export const ResourceDrawer: React.FC = () => {
             {renderPodContainers()}
             {renderServicePorts()}
             {renderResourceQuota()}
+            {renderPersistentVolumeDetails()}
+            {renderPersistentVolumeClaimDetails()}
+            {renderStorageClassDetails()}
             {renderDeploymentConditions()}
             {renderRelatedResources()}
 

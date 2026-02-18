@@ -11,7 +11,8 @@ import {
     ReplaceLogsTabModal, RoutineModal, ErrorBanner, UpdateNotification, WelcomeScreen,
     OverviewPage, NodesPage, PodsPage, DeploymentsPage, ReplicaSetsPage, DaemonSetsPage, StatefulSetsPage,
     JobsPage, CronJobsPage, ServicesPage, IngressesPage, ConfigMapsPage, SecretsPage,
-    NamespacesPage, ResourceQuotasPage, PortForwardingPage, EventsPage
+    NamespacesPage, ResourceQuotasPage, PortForwardingPage, EventsPage,
+    PersistentVolumesPage, PersistentVolumeClaimsPage, StorageClassesPage
 } from './components/UI';
 import { Loader2, Plus, FileText, X } from 'lucide-react';
 import { kubectl } from './services/kubectl';
@@ -129,6 +130,9 @@ const MainLayout = () => {
       case 'resourcequotas': return <ResourceQuotasPage />;
       case 'port-forwarding': return <PortForwardingPage />;
       case 'events': return <EventsPage />;
+      case 'persistentvolumes': return <PersistentVolumesPage />;
+      case 'persistentvolumeclaims': return <PersistentVolumeClaimsPage />;
+      case 'storageclasses': return <StorageClassesPage />;
       default: return <OverviewPage />;
     }
   };

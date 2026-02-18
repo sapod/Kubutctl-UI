@@ -537,3 +537,178 @@ export const EventsPage: React.FC = () => {
         />
     );
 };
+
+export const PersistentVolumesPage: React.FC = () => {
+    const { state, dispatch } = useStore();
+
+    return (
+        <ResourceTable
+            title="Persistent Volumes"
+            data={state.persistentVolumes}
+            onSelect={(id) => dispatch({ type: 'SELECT_RESOURCE', payload: { id, type: 'persistentvolume' } })}
+            columns={[
+                {
+                    header: 'Name',
+                    accessor: (pv) => (
+                        <span className="font-medium text-gray-200">{pv.name}</span>
+                    ),
+                    sortValue: (pv) => pv.name
+                },
+                {
+                    header: 'Capacity',
+                    accessor: (pv) => pv.capacity,
+                    sortValue: (pv) => pv.capacity
+                },
+                {
+                    header: 'Access Modes',
+                    accessor: (pv) => (
+                        <span className="text-gray-300">{pv.accessModes.join(', ')}</span>
+                    ),
+                    sortValue: (pv) => pv.accessModes.join(', ')
+                },
+                {
+                    header: 'Reclaim Policy',
+                    accessor: (pv) => pv.reclaimPolicy,
+                    sortValue: (pv) => pv.reclaimPolicy
+                },
+                {
+                    header: 'Status',
+                    accessor: (pv) => <StatusBadge status={pv.status as any} />,
+                    sortValue: (pv) => pv.status
+                },
+                {
+                    header: 'Claim',
+                    accessor: (pv) => (
+                        <span className="text-gray-300">
+                            {pv.claimRef ? `${pv.claimRef.namespace}/${pv.claimRef.name}` : '-'}
+                        </span>
+                    ),
+                    sortValue: (pv) => pv.claimRef ? `${pv.claimRef.namespace}/${pv.claimRef.name}` : ''
+                },
+                {
+                    header: 'Storage Class',
+                    accessor: (pv) => pv.storageClass || '-',
+                    sortValue: (pv) => pv.storageClass
+                },
+                {
+                    header: 'Age',
+                    accessor: (pv) => getAge(pv.creationTimestamp),
+                    sortValue: (pv) => pv.creationTimestamp
+                },
+            ]}
+        />
+    );
+};
+
+export const PersistentVolumeClaimsPage: React.FC = () => {
+    const { state, dispatch } = useStore();
+
+    return (
+        <ResourceTable
+            title="Persistent Volume Claims"
+            data={state.persistentVolumeClaims}
+            onSelect={(id) => dispatch({ type: 'SELECT_RESOURCE', payload: { id, type: 'persistentvolumeclaim' } })}
+            columns={[
+                {
+                    header: 'Name',
+                    accessor: (pvc) => (
+                        <span className="font-medium text-gray-200">{pvc.name}</span>
+                    ),
+                    sortValue: (pvc) => pvc.name
+                },
+                {
+                    header: 'Namespace',
+                    accessor: (pvc) => pvc.namespace,
+                    sortValue: (pvc) => pvc.namespace
+                },
+                {
+                    header: 'Status',
+                    accessor: (pvc) => <StatusBadge status={pvc.status as any} />,
+                    sortValue: (pvc) => pvc.status
+                },
+                {
+                    header: 'Volume',
+                    accessor: (pvc) => pvc.volumeName || '-',
+                    sortValue: (pvc) => pvc.volumeName
+                },
+                {
+                    header: 'Capacity',
+                    accessor: (pvc) => pvc.capacity || '-',
+                    sortValue: (pvc) => pvc.capacity
+                },
+                {
+                    header: 'Access Modes',
+                    accessor: (pvc) => (
+                        <span className="text-gray-300">{pvc.accessModes.join(', ')}</span>
+                    ),
+                    sortValue: (pvc) => pvc.accessModes.join(', ')
+                },
+                {
+                    header: 'Storage Class',
+                    accessor: (pvc) => pvc.storageClass || '-',
+                    sortValue: (pvc) => pvc.storageClass
+                },
+                {
+                    header: 'Age',
+                    accessor: (pvc) => getAge(pvc.creationTimestamp),
+                    sortValue: (pvc) => pvc.creationTimestamp
+                },
+            ]}
+        />
+    );
+};
+
+export const StorageClassesPage: React.FC = () => {
+    const { state, dispatch } = useStore();
+
+    return (
+        <ResourceTable
+            title="Storage Classes"
+            data={state.storageClasses}
+            onSelect={(id) => dispatch({ type: 'SELECT_RESOURCE', payload: { id, type: 'storageclass' } })}
+            columns={[
+                {
+                    header: 'Name',
+                    accessor: (sc) => (
+                        <span className="font-medium text-gray-200">{sc.name}</span>
+                    ),
+                    sortValue: (sc) => sc.name
+                },
+                {
+                    header: 'Provisioner',
+                    accessor: (sc) => (
+                        <span className="text-gray-300">{sc.provisioner}</span>
+                    ),
+                    sortValue: (sc) => sc.provisioner
+                },
+                {
+                    header: 'Reclaim Policy',
+                    accessor: (sc) => sc.reclaimPolicy,
+                    sortValue: (sc) => sc.reclaimPolicy
+                },
+                {
+                    header: 'Volume Binding Mode',
+                    accessor: (sc) => sc.volumeBindingMode,
+                    sortValue: (sc) => sc.volumeBindingMode
+                },
+                {
+                    header: 'Allow Expansion',
+                    accessor: (sc) => (
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                            sc.allowVolumeExpansion ? 'bg-green-900/30 text-green-400' : 'bg-gray-700 text-gray-400'
+                        }`}>
+                            {sc.allowVolumeExpansion ? 'Yes' : 'No'}
+                        </span>
+                    ),
+                    sortValue: (sc) => sc.allowVolumeExpansion ? 'Yes' : 'No'
+                },
+                {
+                    header: 'Age',
+                    accessor: (sc) => getAge(sc.creationTimestamp),
+                    sortValue: (sc) => sc.creationTimestamp
+                },
+            ]}
+        />
+    );
+};
+

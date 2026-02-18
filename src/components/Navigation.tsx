@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../store';
-import { Layers, ChevronDown, Activity, Server, Box, Copy, Database, ListTree, PlayCircle, Clock, Globe, Anchor, Network, FileText, Key, PieChart, LayoutGrid, ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
+import { Layers, ChevronDown, Activity, Server, Box, Copy, Database, ListTree, PlayCircle, Clock, Globe, Anchor, Network, FileText, Key, PieChart, LayoutGrid, ChevronLeft, ChevronRight, Calendar, HardDrive, Disc, FolderOpen } from 'lucide-react';
 
 // --- Namespace Selector ---
 export const NamespaceSelector: React.FC = () => {
@@ -252,6 +252,14 @@ export const Sidebar: React.FC<{ currentView: string; onViewChange: (view: any) 
         { view: 'configmaps', icon: FileText, label: 'ConfigMaps' },
         { view: 'secrets', icon: Key, label: 'Secrets' },
         { view: 'resourcequotas', icon: PieChart, label: 'Resource Quotas' },
+      ]
+    },
+    {
+      title: 'Storage',
+      items: [
+        { view: 'persistentvolumeclaims', icon: Disc, label: 'Persistent Volume Claims' },
+        { view: 'persistentvolumes', icon: HardDrive, label: 'Persistent Volumes' },
+        { view: 'storageclasses', icon: FolderOpen, label: 'Storage Classes' },
       ]
     }
   ];
