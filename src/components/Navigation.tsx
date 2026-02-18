@@ -152,6 +152,41 @@ export const Sidebar: React.FC<{ currentView: string; onViewChange: (view: any) 
   const startXRef = useRef(0);
   const startWidthRef = useRef(0);
 
+  // Navigation group collapse state
+  const defaultGroupStates: Record<string, boolean> = {
+    'Cluster': true,
+    'Workloads': true,
+    'Network': true,
+    'Config': false,
+    'Storage': false
+  };
+
+  const [groupStates, setGroupStates] = useState<Record<string, boolean>>(() => {
+    const saved = localStorage.getItem('navGroupStates');
+
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        return { ...defaultGroupStates, ...parsed };
+      } catch (e) {
+        return defaultGroupStates;
+      }
+    }
+
+    return defaultGroupStates;
+  });
+
+  const toggleGroup = (groupTitle: string) => {
+    const newStates = {
+      ...groupStates,
+      [groupTitle]: !groupStates[groupTitle]
+    };
+
+    setGroupStates(newStates);
+    localStorage.setItem('navGroupStates', JSON.stringify(newStates));
+  };
+
+
   // Sidebar resize handlers
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -297,28 +332,36 @@ export const Sidebar: React.FC<{ currentView: string; onViewChange: (view: any) 
         {groups.map((group, idx) => (
           <div key={idx} className="mb-4">
              {!isCollapsed && group.title && group.items.length > 0 && (
-               <div className="px-4 py-1 text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center justify-between group cursor-pointer hover:text-gray-300">
+               <div
+                 className="px-4 py-1 text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center justify-between group cursor-pointer hover:text-gray-300 transition-colors"
+                 onClick={() => toggleGroup(group.title)}
+               >
                  {group.title}
-                 <ChevronDown size={12} />
+                 <ChevronDown
+                   size={12}
+                   className={`transition-transform duration-200 ${groupStates[group.title] ? '' : '-rotate-90'}`}
+                 />
                </div>
              )}
-             <div className="mt-1">
-               {group.items.map(item => (
-                 <button
-                   key={item.view}
-                   onClick={() => onViewChange(item.view)}
-                   className={`flex items-center w-full ${isCollapsed ? 'justify-center px-2' : 'px-4'} py-2 text-sm font-medium transition-colors border-l-2 ${
-                     currentView === item.view
-                       ? 'bg-blue-600/10 text-blue-400 border-blue-500'
-                       : 'border-transparent text-gray-400 hover:bg-gray-800 hover:text-gray-200'
-                   }`}
-                   title={isCollapsed ? item.label : undefined}
-                 >
-                   <item.icon size={16} className={isCollapsed ? '' : 'mr-3'} />
-                   {!isCollapsed && item.label}
-                 </button>
-               ))}
-             </div>
+             {groupStates[group.title] && (
+               <div className="mt-1">
+                 {group.items.map(item => (
+                   <button
+                     key={item.view}
+                     onClick={() => onViewChange(item.view)}
+                     className={`flex items-center w-full ${isCollapsed ? 'justify-center px-2' : 'px-4'} py-2 text-sm font-medium transition-colors border-l-2 ${
+                       currentView === item.view
+                         ? 'bg-blue-600/10 text-blue-400 border-blue-500'
+                         : 'border-transparent text-gray-400 hover:bg-gray-800 hover:text-gray-200'
+                     }`}
+                     title={isCollapsed ? item.label : ''}
+                   >
+                     <item.icon size={16} className={`pointer-events-none ${isCollapsed ? '' : 'mr-3'}`} />
+                     {!isCollapsed && item.label}
+                   </button>
+                 ))}
+               </div>
+             )}
           </div>
         ))}
       </div>
