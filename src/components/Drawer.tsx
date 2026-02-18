@@ -1139,6 +1139,8 @@ export const ResourceDrawer: React.FC = () => {
                        <div className="space-y-1.5">
                            {c.volumeMounts.map((vm, idx) => {
                                const vol = pod.volumes?.find(v => v.name === vm.name);
+
+                               // Check for ConfigMap
                                let cmName: string | undefined = vol?.configMap?.name;
                                let items = vol?.configMap?.items;
                                if (!cmName && vol?.projected?.sources) {
@@ -1148,7 +1150,25 @@ export const ResourceDrawer: React.FC = () => {
                                        items = cmSource.configMap.items;
                                    }
                                }
+
+                               // Check for Secret
+                               let secretName: string | undefined = vol?.secret?.secretName;
+                               let secretItems = vol?.secret?.items;
+                               if (!secretName && vol?.projected?.sources) {
+                                   const secretSource = vol.projected.sources.find((s: any) => s.secret);
+                                   if (secretSource) {
+                                       secretName = secretSource.secret.name;
+                                       secretItems = secretSource.secret.items;
+                                   }
+                               }
+
+                               // Check for PVC
+                               const pvcName: string | undefined = vol?.persistentVolumeClaim?.claimName;
+
                                const isConfigMap = !!cmName;
+                               const isSecret = !!secretName;
+                               const isPVC = !!pvcName;
+
                                let keyDisplay = '-';
                                if (isConfigMap) {
                                     if (vm.subPath) {
@@ -1160,7 +1180,20 @@ export const ResourceDrawer: React.FC = () => {
                                         if (items && items.length > 0) { keyDisplay = items.map((i: any) => i.key).join(', '); }
                                         else { keyDisplay = 'All'; }
                                     }
+                               } else if (isSecret) {
+                                    if (vm.subPath) {
+                                        if (secretItems && secretItems.length > 0) {
+                                            const item = secretItems.find((it: any) => (it.path || it.key) === vm.subPath);
+                                            keyDisplay = item ? item.key : vm.subPath;
+                                        } else { keyDisplay = vm.subPath; }
+                                    } else {
+                                        if (secretItems && secretItems.length > 0) { keyDisplay = secretItems.map((i: any) => i.key).join(', '); }
+                                        else { keyDisplay = 'All'; }
+                                    }
+                               } else if (isPVC) {
+                                    keyDisplay = vm.name; // For PVCs, show the volume name as the key
                                }
+
                                return (
                                    <div key={idx} className="flex flex-col text-xs bg-gray-900/50 p-2 rounded border border-gray-700/30">
                                        <div className="grid grid-cols-[50px_1fr] gap-1">
@@ -1176,6 +1209,33 @@ export const ResourceDrawer: React.FC = () => {
                                                        <span className="truncate">{cmName}</span>
                                                        <ExternalLink size={10} className="flex-shrink-0 opacity-50"/>
                                                    </span>
+                                               ) : isSecret ? (
+                                                   <span className="text-purple-400 hover:text-purple-300 hover:underline cursor-pointer flex items-center gap-1.5 font-medium transition-colors truncate" onClick={() => secretName && handleSecretClick(secretName, pod.namespace)} title="View Secret details">
+                                                       <Key size={12} className="flex-shrink-0" />
+                                                       <span className="truncate">{secretName}</span>
+                                                       <ExternalLink size={10} className="flex-shrink-0 opacity-50"/>
+                                                   </span>
+                                               ) : isPVC ? (
+                                                   (() => {
+                                                       const pvcObj = state.persistentVolumeClaims.find(
+                                                           pvc => pvc.name === pvcName && pvc.namespace === pod.namespace
+                                                       );
+                                                       if (pvcObj) {
+                                                           return (
+                                                               <span className="text-blue-400 hover:text-blue-300 hover:underline cursor-pointer flex items-center gap-1.5 font-medium transition-colors truncate" onClick={() => handleLinkClick(pvcObj.id, 'persistentvolumeclaim')} title="View PVC details">
+                                                                   <HardDrive size={12} className="flex-shrink-0" />
+                                                                   <span className="truncate">{pvcName}</span>
+                                                                   <ExternalLink size={10} className="flex-shrink-0 opacity-50"/>
+                                                               </span>
+                                                           );
+                                                       }
+                                                       return (
+                                                           <span className="text-gray-400 flex items-center gap-1 truncate">
+                                                               <HardDrive size={12} className="flex-shrink-0" />
+                                                               <span className="truncate">{pvcName}</span>
+                                                           </span>
+                                                       );
+                                                   })()
                                                ) : (
                                                    <span className="text-gray-500 flex items-center gap-1 truncate">
                                                        <HardDrive size={12} className="flex-shrink-0" />
@@ -1358,10 +1418,10 @@ export const ResourceDrawer: React.FC = () => {
   const renderPersistentVolumeDetails = () => {
     if (state.selectedResourceType !== 'persistentvolume') return null;
     const pv = resource as any;
-    
+
     // Find related Storage Class
     const relatedSc = pv.storageClass ? state.storageClasses.find(sc => sc.name === pv.storageClass) : null;
-    
+
     return (
         <div className="space-y-4 pt-2">
             <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Volume Details</h4>
@@ -1678,6 +1738,73 @@ export const ResourceDrawer: React.FC = () => {
                <DetailItem label="Namespace" value={resource.namespace || '-'} />
                <DetailItem label="UID" value={resource.id} />
                <DetailItem label="Created" value={formatCreationTime(resource.creationTimestamp)} />
+
+               {/* PVC Connected Workload */}
+               {state.selectedResourceType === 'persistentvolumeclaim' && (() => {
+                 const pvc = resource as any;
+                 // Find pods using this PVC
+                 const podsUsingPvc = state.pods.filter(pod => {
+                   return pod.volumes?.some((vol: any) =>
+                     vol.persistentVolumeClaim?.claimName === pvc.name
+                   ) && pod.namespace === pvc.namespace;
+                 });
+
+                 // Find connected workloads from pods
+                 const connectedWorkloads = new Map<string, { type: 'deployment' | 'statefulset' | 'daemonset'; resource: any }>();
+                 podsUsingPvc.forEach(pod => {
+                   pod.ownerReferences?.forEach(owner => {
+                     const ownerKind = owner.kind.toLowerCase();
+                     let workload: any = null;
+                     let workloadType: 'deployment' | 'statefulset' | 'daemonset' | null = null;
+
+                     if (ownerKind === 'replicaset') {
+                       // For ReplicaSets, find the parent Deployment
+                       const rs = state.replicaSets.find(r => r.id === owner.uid);
+                       if (rs?.ownerReferences) {
+                         const deploymentOwner = rs.ownerReferences.find(o => o.kind.toLowerCase() === 'deployment');
+                         if (deploymentOwner) {
+                           workload = state.deployments.find(d => d.id === deploymentOwner.uid);
+                           workloadType = 'deployment';
+                         }
+                       }
+                     } else if (ownerKind === 'statefulset') {
+                       workload = state.statefulSets.find(s => s.id === owner.uid);
+                       workloadType = 'statefulset';
+                     } else if (ownerKind === 'daemonset') {
+                       workload = state.daemonSets.find(d => d.id === owner.uid);
+                       workloadType = 'daemonset';
+                     }
+
+                     if (workload && workloadType && !connectedWorkloads.has(workload.id)) {
+                       connectedWorkloads.set(workload.id, { type: workloadType, resource: workload });
+                     }
+                   });
+                 });
+
+                 if (connectedWorkloads.size > 0) {
+                   const workloadsList = Array.from(connectedWorkloads.values());
+                   return (
+                     <div>
+                       <div className="text-xs text-gray-500 uppercase tracking-wide font-bold mb-1">
+                         Connected Workload{workloadsList.length > 1 ? 's' : ''}
+                       </div>
+                       <div className="text-sm font-medium space-y-1">
+                         {workloadsList.map((item: { type: 'deployment' | 'statefulset' | 'daemonset'; resource: any }) => (
+                           <button
+                             key={item.resource.id}
+                             onClick={(e) => { e.stopPropagation(); handleLinkClick(item.resource.id, item.type); }}
+                             className="text-purple-400 hover:text-purple-300 hover:underline flex items-center gap-1 transition-colors text-left"
+                             title={`View ${item.type} details`}
+                           >
+                             {item.resource.name} <span className="text-xs text-gray-500">({item.type})</span> <ExternalLink size={12} className="opacity-50 flex-shrink-0" />
+                           </button>
+                         ))}
+                       </div>
+                     </div>
+                   );
+                 }
+                 return null;
+               })()}
 
                {/* Job-specific fields */}
                {state.selectedResourceType === 'job' && (
