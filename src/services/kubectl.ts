@@ -254,6 +254,7 @@ const transformDeployment = (raw: any): Deployment => ({
     id: raw.metadata.uid, name: raw.metadata.name, namespace: raw.metadata.namespace, creationTimestamp: raw.metadata.creationTimestamp, labels: raw.metadata.labels || {},
     replicas: raw.spec.replicas, availableReplicas: raw.status.availableReplicas || 0, selector: raw.spec.selector?.matchLabels || {},
     resourceStats: aggregateResources(raw.spec.template?.spec?.containers), conditions: raw.status.conditions || [],
+    imageTags: (raw.spec.template?.spec?.containers || []).map((c: any) => c.image),
     raw
 });
 
@@ -261,6 +262,7 @@ const transformReplicaSet = (raw: any): ReplicaSet => ({
     id: raw.metadata.uid, name: raw.metadata.name, namespace: raw.metadata.namespace, creationTimestamp: raw.metadata.creationTimestamp, labels: raw.metadata.labels || {},
     replicas: raw.spec.replicas, availableReplicas: raw.status.availableReplicas || 0, selector: raw.spec.selector?.matchLabels || {},
     resourceStats: aggregateResources(raw.spec.template?.spec?.containers),
+    imageTags: (raw.spec.template?.spec?.containers || []).map((c: any) => c.image),
     raw
 });
 
@@ -272,6 +274,7 @@ const transformDaemonSet = (raw: any): DaemonSet => ({
     numberAvailable: raw.status.numberAvailable || 0,
     selector: raw.spec.selector?.matchLabels || {},
     resourceStats: aggregateResources(raw.spec.template?.spec?.containers),
+    imageTags: (raw.spec.template?.spec?.containers || []).map((c: any) => c.image),
     raw
 });
 
@@ -282,6 +285,7 @@ const transformStatefulSet = (raw: any): StatefulSet => ({
     currentReplicas: raw.status.currentReplicas || 0,
     selector: raw.spec.selector?.matchLabels || {},
     resourceStats: aggregateResources(raw.spec.template?.spec?.containers),
+    imageTags: (raw.spec.template?.spec?.containers || []).map((c: any) => c.image),
     raw
 });
 

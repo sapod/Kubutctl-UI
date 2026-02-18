@@ -94,6 +94,7 @@ export interface Deployment extends K8sResource {
   selector: Record<string, string>;
   resourceStats: ResourceStats;
   conditions: DeploymentCondition[];
+  imageTags: string[];
 }
 
 export interface ReplicaSet extends K8sResource {
@@ -101,6 +102,7 @@ export interface ReplicaSet extends K8sResource {
   availableReplicas: number;
   selector: Record<string, string>;
   resourceStats: ResourceStats;
+  imageTags: string[];
 }
 
 export interface DaemonSet extends K8sResource {
@@ -110,6 +112,7 @@ export interface DaemonSet extends K8sResource {
   numberAvailable: number;
   selector: Record<string, string>;
   resourceStats: ResourceStats;
+  imageTags: string[];
 }
 
 export interface StatefulSet extends K8sResource {
@@ -118,6 +121,7 @@ export interface StatefulSet extends K8sResource {
   currentReplicas: number;
   selector: Record<string, string>;
   resourceStats: ResourceStats;
+  imageTags: string[];
 }
 
 export interface Job extends K8sResource {

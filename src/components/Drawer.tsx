@@ -1572,6 +1572,31 @@ export const ResourceDrawer: React.FC = () => {
                {'involvedObject' in resource && <DetailItem label="Object" value={`${(resource as any).involvedObject.kind}/${(resource as any).involvedObject.name}`} />}
             </div>
 
+            {/* Container Images for Deployments, DaemonSets, StatefulSets, ReplicaSets */}
+            {(state.selectedResourceType === 'deployment' || 
+              state.selectedResourceType === 'daemonset' || 
+              state.selectedResourceType === 'statefulset' ||
+              state.selectedResourceType === 'replicaset') && 
+              'imageTags' in resource && (resource as any).imageTags?.length > 0 && (
+              <div className="space-y-3">
+                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Container Images</h3>
+                <div className="flex flex-col gap-2">
+                  {(() => {
+                    // Extract container details from raw manifest when drawer is opened
+                    const containers = (resource as any).raw?.spec?.template?.spec?.containers || [];
+                    return containers.map((c: any, i: number) => (
+                      <div key={i} className="bg-gray-800/50 border border-gray-700/50 rounded p-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm font-semibold text-gray-200">{c.name}</span>
+                        </div>
+                        <div className="text-xs font-mono text-blue-300 break-all">{c.image}</div>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              </div>
+            )}
+
             {state.selectedResourceType === 'event' && 'message' in resource && (
               <div className="space-y-3">
                 <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Message</h3>
