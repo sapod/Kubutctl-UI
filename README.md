@@ -9,18 +9,18 @@ Kubectl-UI is available as a native desktop application for macOS, Windows, and 
 ### Download Pre-built Application
 
 **macOS:**
-- **Apple Silicon (M1/M2/M3):** [⬇️ Download DMG](https://github.com/sapod/Kubutctl-UI/releases/download/v2.6.1/Kubectl-UI-2.6.1-arm64.dmg) | [All Releases](https://github.com/sapod/Kubutctl-UI/releases)
-- **Intel:** [⬇️ Download DMG](https://github.com/sapod/Kubutctl-UI/releases/download/v2.6.1/Kubectl-UI-2.6.1.dmg) | [All Releases](https://github.com/sapod/Kubutctl-UI/releases)
+- **Apple Silicon (M1/M2/M3):** [⬇️ Download DMG](https://github.com/sapod/Kubutctl-UI/releases/download/v2.7.0/Kubectl-UI-2.7.0-arm64.dmg) | [All Releases](https://github.com/sapod/Kubutctl-UI/releases)
+- **Intel:** [⬇️ Download DMG](https://github.com/sapod/Kubutctl-UI/releases/download/v2.7.0/Kubectl-UI-2.7.0.dmg) | [All Releases](https://github.com/sapod/Kubutctl-UI/releases)
 
 **Windows:**
-- [⬇️ Download Installer (.exe)](https://github.com/sapod/Kubutctl-UI/releases/download/v2.6.1/Kubectl-UI-Setup-2.6.1.exe) | [All Releases](https://github.com/sapod/Kubutctl-UI/releases)
+- [⬇️ Download Installer (.exe)](https://github.com/sapod/Kubutctl-UI/releases/download/v2.7.0/Kubectl-UI-Setup-2.7.0.exe) | [All Releases](https://github.com/sapod/Kubutctl-UI/releases)
 
 **Linux:**
-- **AppImage (Universal):** [⬇️ Download](https://github.com/sapod/Kubutctl-UI/releases/download/v2.6.1/Kubectl-UI-2.6.1.AppImage) | [All Releases](https://github.com/sapod/Kubutctl-UI/releases)
-- **Debian/Ubuntu (.deb):** [⬇️ Download](https://github.com/sapod/Kubutctl-UI/releases/download/v2.6.1/kubectl-ui_2.6.1_amd64.deb) | [All Releases](https://github.com/sapod/Kubutctl-UI/releases)
-- **Red Hat/Fedora (.rpm):** [⬇️ Download](https://github.com/sapod/Kubutctl-UI/releases/download/v2.6.1/kubectl-ui-2.6.1.x86_64.rpm) | [All Releases](https://github.com/sapod/Kubutctl-UI/releases)
+- **AppImage (Universal):** [⬇️ Download](https://github.com/sapod/Kubutctl-UI/releases/download/v2.7.0/Kubectl-UI-2.7.0.AppImage) | [All Releases](https://github.com/sapod/Kubutctl-UI/releases)
+- **Debian/Ubuntu (.deb):** [⬇️ Download](https://github.com/sapod/Kubutctl-UI/releases/download/v2.7.0/kubectl-ui_2.7.0_amd64.deb) | [All Releases](https://github.com/sapod/Kubutctl-UI/releases)
+- **Red Hat/Fedora (.rpm):** [⬇️ Download](https://github.com/sapod/Kubutctl-UI/releases/download/v2.7.0/kubectl-ui-2.7.0.x86_64.rpm) | [All Releases](https://github.com/sapod/Kubutctl-UI/releases)
 
-> **Note**: Download links point to version 2.6.1. For other versions or to always get the latest, visit the [Releases page](https://github.com/sapod/Kubutctl-UI/releases).
+> **Note**: Download links point to version 2.7.0. For other versions or to always get the latest, visit the [Releases page](https://github.com/sapod/Kubutctl-UI/releases).
 
 ### Installation Instructions
 
