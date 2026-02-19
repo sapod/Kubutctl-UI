@@ -1,17 +1,16 @@
 # Release Notes
 
-## Version 2.6.1
+## Version 2.7.0
 
 ### Features
-- Added support link to Help menu for easy access to documentation and support resources
-- Added job total run time information in drawer (shows duration between start and completion for completed/failed jobs)
+- Show container tags in workloads - deployments, daemonsets, statefulsets and replicasets
+- Add storage navigation group and views for PV, PVC and storage classes
+- Enhance the volume display in pods to include PVCs with link to resource
 
 ### Improvements
-- Allow clearing the first logs tab (previously only additional tabs could be closed)
-- Improved namespace selection with keyboard navigation (arrow keys and Enter key support)
-- Improved logs window behavior - undocked logs window no longer opens in fullscreen when the main app is in fullscreen mode
-- Enhanced terminal output to display error logs for easier troubleshooting and debugging
-- Improved port forward error handling - now shows the real error message in terminal output when port forwarding fails
+- Improve navigation to collapse and open groups + move events to cluster group
+- Improve AWS SSO error handling - writing error message to terminal and verifying connection whenever needed
+- Disable cluster name editing to avoid context breaking
 
 ### Bug Fixes
 - None
