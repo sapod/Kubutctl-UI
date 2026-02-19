@@ -43,9 +43,7 @@ const MainLayout = () => {
   const { state, dispatch } = useStore();
   const verificationInProgressRef = useRef(false);
 
-  // Detect inactivity and verify connection when app becomes active
-  useEffect(() => {
-    const verifyConnection = async (isRecoveringFromAwsSso = false) => {
+  const verifyConnection = async (isRecoveringFromAwsSso = false) => {
       if (verificationInProgressRef.current) return;
       verificationInProgressRef.current = true;
 
@@ -59,6 +57,9 @@ const MainLayout = () => {
         // Update last active timestamp
         dispatch({ type: 'UPDATE_LAST_ACTIVE_TIMESTAMP', payload: Date.now() });
 
+        // Clear verification flag on success
+        dispatch({ type: 'SET_VERIFYING_CONNECTION', payload: false });
+
         // If we were recovering from AWS SSO login, reload the app to refresh data
         if (isRecoveringFromAwsSso) {
           setTimeout(() => {
@@ -66,20 +67,20 @@ const MainLayout = () => {
           }, 300);
         }
       } catch (error: any) {
+        dispatch({ type: 'SET_VERIFYING_CONNECTION', payload: false });
         // Connection failed - might need AWS SSO login
         if (error.message?.includes('error validating') ||
             error.message?.includes('couldn\'t get current server API group list') ||
             error.message?.includes('token is expired')) {
           dispatch({ type: 'CLOSE_DRAWER_SILENTLY' });
-          dispatch({ type: 'SET_AWS_SSO_LOGIN_REQUIRED', payload: true });
-          dispatch({ type: 'SET_ERROR', payload: 'AWS SSO authentication required' });
         }
       } finally {
-        dispatch({ type: 'SET_VERIFYING_CONNECTION', payload: false });
         verificationInProgressRef.current = false;
       }
     };
 
+  // Detect inactivity and verify connection when app becomes active
+  useEffect(() => {
     // Shared logic for checking inactivity
     const checkInactivityAndVerify = () => {
       const timeSinceLastActive = Date.now() - state.lastActiveTimestamp;
@@ -122,6 +123,10 @@ const MainLayout = () => {
       window.removeEventListener('focus', handleFocus);
     };
   }, [state.lastActiveTimestamp, state.awsSsoLoginRequired, dispatch]);
+
+  useEffect(() => { // initial check on mount
+    verifyConnection();
+  }, []);
 
   const renderView = () => {
     switch (state.view) {

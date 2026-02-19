@@ -435,7 +435,7 @@ function reducer(state: AppState, action: Action): AppState {
       saveLogsTabs([defaultTab], defaultTab.id);
       return { ...state, logsTabs: [defaultTab], activeLogsTabId: defaultTab.id };
     }
-    case 'SET_AWS_SSO_LOGIN_REQUIRED': return { ...state, awsSsoLoginRequired: action.payload };
+    case 'SET_AWS_SSO_LOGIN_REQUIRED': return { ...state, awsSsoLoginRequired: action.payload, isVerifyingConnection: false };
     case 'SET_EXTERNAL_CONTEXT_MISMATCH': {
       // When external context mismatch is detected, unselect cluster and show overlay
       if (action.payload) {
