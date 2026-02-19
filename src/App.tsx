@@ -11,7 +11,8 @@ import {
     ReplaceLogsTabModal, RoutineModal, ErrorBanner, UpdateNotification, WelcomeScreen,
     OverviewPage, NodesPage, PodsPage, DeploymentsPage, ReplicaSetsPage, DaemonSetsPage, StatefulSetsPage,
     JobsPage, CronJobsPage, ServicesPage, IngressesPage, ConfigMapsPage, SecretsPage,
-    NamespacesPage, ResourceQuotasPage, PortForwardingPage, EventsPage
+    NamespacesPage, ResourceQuotasPage, PortForwardingPage, EventsPage,
+    PersistentVolumesPage, PersistentVolumeClaimsPage, StorageClassesPage
 } from './components/UI';
 import { Loader2, Plus, FileText, X } from 'lucide-react';
 import { kubectl } from './services/kubectl';
@@ -26,13 +27,23 @@ const isLogsOnlyMode = () => {
   return params.get('logsOnly') === 'true';
 };
 
+// Helper function to extract error message from various error formats
+const extractErrorMessage = (err: any): string => {
+  if (err instanceof Error) {
+    return err.message;
+  } else if (typeof err === 'string') {
+    return err;
+  } else if (err && typeof err === 'object') {
+    return err.stderr || err.error || err.message || JSON.stringify(err);
+  }
+  return 'Unknown error occurred';
+};
+
 const MainLayout = () => {
   const { state, dispatch } = useStore();
   const verificationInProgressRef = useRef(false);
 
-  // Detect inactivity and verify connection when app becomes active
-  useEffect(() => {
-    const verifyConnection = async (isRecoveringFromAwsSso = false) => {
+  const verifyConnection = async (isRecoveringFromAwsSso = false) => {
       if (verificationInProgressRef.current) return;
       verificationInProgressRef.current = true;
 
@@ -46,6 +57,9 @@ const MainLayout = () => {
         // Update last active timestamp
         dispatch({ type: 'UPDATE_LAST_ACTIVE_TIMESTAMP', payload: Date.now() });
 
+        // Clear verification flag on success
+        dispatch({ type: 'SET_VERIFYING_CONNECTION', payload: false });
+
         // If we were recovering from AWS SSO login, reload the app to refresh data
         if (isRecoveringFromAwsSso) {
           setTimeout(() => {
@@ -53,20 +67,20 @@ const MainLayout = () => {
           }, 300);
         }
       } catch (error: any) {
+        dispatch({ type: 'SET_VERIFYING_CONNECTION', payload: false });
         // Connection failed - might need AWS SSO login
         if (error.message?.includes('error validating') ||
             error.message?.includes('couldn\'t get current server API group list') ||
             error.message?.includes('token is expired')) {
           dispatch({ type: 'CLOSE_DRAWER_SILENTLY' });
-          dispatch({ type: 'SET_AWS_SSO_LOGIN_REQUIRED', payload: true });
-          dispatch({ type: 'SET_ERROR', payload: 'AWS SSO authentication required' });
         }
       } finally {
-        dispatch({ type: 'SET_VERIFYING_CONNECTION', payload: false });
         verificationInProgressRef.current = false;
       }
     };
 
+  // Detect inactivity and verify connection when app becomes active
+  useEffect(() => {
     // Shared logic for checking inactivity
     const checkInactivityAndVerify = () => {
       const timeSinceLastActive = Date.now() - state.lastActiveTimestamp;
@@ -110,6 +124,10 @@ const MainLayout = () => {
     };
   }, [state.lastActiveTimestamp, state.awsSsoLoginRequired, dispatch]);
 
+  useEffect(() => { // initial check on mount
+    verifyConnection();
+  }, []);
+
   const renderView = () => {
     switch (state.view) {
       case 'overview': return <OverviewPage />;
@@ -129,6 +147,9 @@ const MainLayout = () => {
       case 'resourcequotas': return <ResourceQuotasPage />;
       case 'port-forwarding': return <PortForwardingPage />;
       case 'events': return <EventsPage />;
+      case 'persistentvolumes': return <PersistentVolumesPage />;
+      case 'persistentvolumeclaims': return <PersistentVolumeClaimsPage />;
+      case 'storageclasses': return <StorageClassesPage />;
       default: return <OverviewPage />;
     }
   };
@@ -215,8 +236,9 @@ const MainLayout = () => {
                                                    dispatch({ type: 'ADD_LOG', payload: result.stdout });
                                                }
                                            } catch (err: any) {
-                                               dispatch({ type: 'ADD_LOG', payload: `AWS SSO login error: ${err.error || err.stderr}` });
-                                               dispatch({ type: 'SET_ERROR', payload: `AWS SSO login failed: ${err.error || err.stderr}` });
+                                               const errorMessage = extractErrorMessage(err);
+                                               dispatch({ type: 'ADD_LOG', payload: `AWS SSO login error: ${errorMessage}` });
+                                               dispatch({ type: 'SET_ERROR', payload: `AWS SSO login failed: ${errorMessage}` });
                                            }
                                        } else {
                                            dispatch({ type: 'SET_ERROR', payload: 'Command execution not available. Please run "aws sso login" in your terminal.' });
@@ -347,10 +369,11 @@ const MainLayout = () => {
 
                                  await electron.executeCommand(command);
                                  dispatch({ type: 'ADD_LOG', payload: `Opened ${url} in default browser` });
-                             } catch (err: any) {
-                                 console.error('Failed to open browser:', err);
-                                 dispatch({ type: 'ADD_LOG', payload: `Error opening browser: ${err.error || err}` });
-                             }
+                            } catch (err: any) {
+                                const errorMessage = extractErrorMessage(err);
+                                console.error('Failed to open browser:', err);
+                                dispatch({ type: 'ADD_LOG', payload: `Error opening browser: ${errorMessage}` });
+                            }
                          } else {
                              // Web browser environment - open in new tab
                              window.open(url, '_blank');

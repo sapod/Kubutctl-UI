@@ -106,7 +106,55 @@ const getInitialCachedResources = () => {
 const storedResources = getInitialCachedResources();
 
 const initialState: AppState = {
-  view: initialClusterState.view, isLoading: false, isContextSwitching: false, error: null, awsSsoLoginRequired: false, externalContextMismatch: false, isVerifyingConnection: false, lastActiveTimestamp: Date.now(), currentClusterId: initialClusterId, selectedNamespace: getStoredNamespace(initialClusterId), clusters: storedClusters, nodes: [], pods: storedResources.pods, deployments: storedResources.deployments, replicaSets: storedResources.replicaSets, daemonSets: storedResources.daemonSets, statefulSets: storedResources.statefulSets, jobs: [], cronJobs: [], services: [], ingresses: [], configMaps: [], secrets: [], namespaces: [], events: [], resourceQuotas: [], portForwards: [], routines: getStoredRoutines(), terminalOutput: ['Welcome to Kubectl-UI', 'Initializing application...'], selectedResourceId: null, selectedResourceType: null, resourceHistory: [], drawerOpen: false, isAddClusterModalOpen: false, isCatalogOpen: false, isPortForwardModalOpen: false, portForwardModalData: null, isRoutineModalOpen: false, routineModalData: null, isShellModalOpen: false, shellModalData: null, isConfirmationModalOpen: false, confirmationModalData: null, isReplaceLogsTabModalOpen: false, replaceLogsTabModalData: null, logsTarget: null,
+  view: initialClusterState.view,
+  isLoading: false,
+  isContextSwitching: false,
+  error: null,
+  awsSsoLoginRequired: false,
+  externalContextMismatch: false,
+  isVerifyingConnection: false,
+  lastActiveTimestamp: Date.now(),
+  currentClusterId: initialClusterId,
+  selectedNamespace: getStoredNamespace(initialClusterId),
+  clusters: storedClusters,
+  nodes: [],
+  pods: storedResources.pods,
+  deployments: storedResources.deployments,
+  replicaSets: storedResources.replicaSets,
+  daemonSets: storedResources.daemonSets,
+  statefulSets: storedResources.statefulSets,
+  jobs: [],
+  cronJobs: [],
+  services: [],
+  ingresses: [],
+  configMaps: [],
+  secrets: [],
+  namespaces: [],
+  events: [],
+  resourceQuotas: [],
+  persistentVolumes: [],
+  persistentVolumeClaims: [],
+  storageClasses: [],
+  portForwards: [],
+  routines: getStoredRoutines(),
+  terminalOutput: ['Welcome to Kubectl-UI', 'Initializing application...'],
+  selectedResourceId: null,
+  selectedResourceType: null,
+  resourceHistory: [],
+  drawerOpen: false,
+  isAddClusterModalOpen: false,
+  isCatalogOpen: false,
+  isPortForwardModalOpen: false,
+  portForwardModalData: null,
+  isRoutineModalOpen: false,
+  routineModalData: null,
+  isShellModalOpen: false,
+  shellModalData: null,
+  isConfirmationModalOpen: false,
+  confirmationModalData: null,
+  isReplaceLogsTabModalOpen: false,
+  replaceLogsTabModalData: null,
+  logsTarget: null,
   logsTabs: storedLogsTabs.tabs,
   activeLogsTabId: storedLogsTabs.activeTabId,
   isStoreInitialized: false,
@@ -168,7 +216,7 @@ function reducer(state: AppState, action: Action): AppState {
     case 'UPDATE_CLUSTER': { const updated = state.clusters.map(c => c.id === action.payload.id ? action.payload : c); localStorage.setItem('kube_clusters', JSON.stringify(updated)); return { ...state, clusters: updated }; }
     case 'TOGGLE_ADD_CLUSTER_MODAL': return { ...state, isAddClusterModalOpen: action.payload };
     case 'TOGGLE_CATALOG_MODAL': return { ...state, isCatalogOpen: action.payload };
-    case 'DELETE_RESOURCE': { let next = { ...state }; if (action.payload.type === 'pod') next.pods = state.pods.filter(p => p.id !== action.payload.id); if (action.payload.type === 'deployment') next.deployments = state.deployments.filter(d => d.id !== action.payload.id); if (action.payload.type === 'job') next.jobs = state.jobs.filter(d => d.id !== action.payload.id); if (action.payload.type === 'replicaset') next.replicaSets = state.replicaSets.filter(d => d.id !== action.payload.id); return next; }
+    case 'DELETE_RESOURCE': { let next = { ...state }; if (action.payload.type === 'pod') next.pods = state.pods.filter(p => p.id !== action.payload.id); if (action.payload.type === 'deployment') next.deployments = state.deployments.filter(d => d.id !== action.payload.id); if (action.payload.type === 'job') next.jobs = state.jobs.filter(d => d.id !== action.payload.id); if (action.payload.type === 'replicaset') next.replicaSets = state.replicaSets.filter(d => d.id !== action.payload.id); if (action.payload.type === 'persistentvolume') next.persistentVolumes = state.persistentVolumes.filter(pv => pv.id !== action.payload.id); if (action.payload.type === 'persistentvolumeclaim') next.persistentVolumeClaims = state.persistentVolumeClaims.filter(pvc => pvc.id !== action.payload.id); if (action.payload.type === 'storageclass') next.storageClasses = state.storageClasses.filter(sc => sc.id !== action.payload.id); return next; }
     case 'BULK_DELETE_RESOURCE': { let next = { ...state }; if (action.payload.type === 'pod') next.pods = state.pods.filter(p => !action.payload.ids.includes(p.id)); return next; }
     case 'SCALE_DEPLOYMENT': return { ...state, deployments: state.deployments.map(d => d.id === action.payload.id ? { ...d, replicas: action.payload.replicas } : d) };
     case 'ROLLOUT_RESTART': return { ...state, terminalOutput: [...state.terminalOutput, `${action.payload.type} restarted.`] };
@@ -387,7 +435,7 @@ function reducer(state: AppState, action: Action): AppState {
       saveLogsTabs([defaultTab], defaultTab.id);
       return { ...state, logsTabs: [defaultTab], activeLogsTabId: defaultTab.id };
     }
-    case 'SET_AWS_SSO_LOGIN_REQUIRED': return { ...state, awsSsoLoginRequired: action.payload };
+    case 'SET_AWS_SSO_LOGIN_REQUIRED': return { ...state, awsSsoLoginRequired: action.payload, isVerifyingConnection: false };
     case 'SET_EXTERNAL_CONTEXT_MISMATCH': {
       // When external context mismatch is detected, unselect cluster and show overlay
       if (action.payload) {
@@ -395,7 +443,7 @@ function reducer(state: AppState, action: Action): AppState {
       }
       return { ...state, externalContextMismatch: action.payload };
     }
-    case 'UPDATE_RESOURCE': { const { id, type, data } = action.payload; if (!data) return state; const update = (list: any[]) => list.map(item => (item.id === id || item.name === data.name) ? (type === 'pod' ? { ...data, cpuUsage: item.cpuUsage, memoryUsage: item.memoryUsage } : data) : item); let k: keyof AppState | undefined; if (type === 'pod') k = 'pods'; else if (type === 'deployment') k = 'deployments'; else if (type === 'replicaset') k = 'replicaSets'; else if (type === 'job') k = 'jobs'; else if (type === 'cronjob') k = 'cronJobs'; else if (type === 'node') k = 'nodes'; else if (type === 'service') k = 'services'; else if (type === 'ingress') k = 'ingresses'; else if (type === 'configmap') k = 'configMaps'; else if (type === 'namespace') k = 'namespaces'; else if (type === 'resourcequota') k = 'resourceQuotas'; if (k) return { ...state, [k]: update((state as any)[k]) }; return state; }
+    case 'UPDATE_RESOURCE': { const { id, type, data } = action.payload; if (!data) return state; const update = (list: any[]) => list.map(item => (item.id === id || item.name === data.name) ? (type === 'pod' ? { ...data, cpuUsage: item.cpuUsage, memoryUsage: item.memoryUsage } : data) : item); let k: keyof AppState | undefined; if (type === 'pod') k = 'pods'; else if (type === 'deployment') k = 'deployments'; else if (type === 'replicaset') k = 'replicaSets'; else if (type === 'job') k = 'jobs'; else if (type === 'cronjob') k = 'cronJobs'; else if (type === 'node') k = 'nodes'; else if (type === 'service') k = 'services'; else if (type === 'ingress') k = 'ingresses'; else if (type === 'configmap') k = 'configMaps'; else if (type === 'namespace') k = 'namespaces'; else if (type === 'resourcequota') k = 'resourceQuotas'; else if (type === 'persistentvolume') k = 'persistentVolumes'; else if (type === 'persistentvolumeclaim') k = 'persistentVolumeClaims'; else if (type === 'storageclass') k = 'storageClasses'; if (k) return { ...state, [k]: update((state as any)[k]) }; return state; }
     default: return state;
   }
 }
@@ -837,6 +885,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       else if (type === 'configmap') res = state.configMaps.find(r => r.id === id);
       else if (type === 'namespace') res = state.namespaces.find(r => r.id === id);
       else if (type === 'resourcequota') res = state.resourceQuotas.find(r => r.id === id);
+      else if (type === 'persistentvolume') res = state.persistentVolumes.find(r => r.id === id);
+      else if (type === 'persistentvolumeclaim') res = state.persistentVolumeClaims.find(r => r.id === id);
+      else if (type === 'storageclass') res = state.storageClasses.find(r => r.id === id);
 
       if (res) {
         // Resource exists - restore drawer state
@@ -877,6 +928,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               else if (type === 'namespace') res = state.namespaces.find(r => r.id === id);
               else if (type === 'event') res = state.events.find(r => r.id === id);
               else if (type === 'resourcequota') res = state.resourceQuotas.find(r => r.id === id);
+              else if (type === 'persistentvolume') res = state.persistentVolumes.find(r => r.id === id);
+              else if (type === 'persistentvolumeclaim') res = state.persistentVolumeClaims.find(r => r.id === id);
+              else if (type === 'storageclass') res = state.storageClasses.find(r => r.id === id);
 
               if (res) {
                 try {
@@ -1247,6 +1301,41 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         case 'resourcequotas':
           return { resourceQuotas: await kubectl.getResourceQuotas(ns, notify) };
+
+        case 'persistentvolumes': {
+          const persistentVolumes = await kubectl.getPersistentVolumes(notify);
+          // Fetch PVCs and Storage Classes in background
+          if (isMounted) {
+            Promise.all([
+              kubectl.getPersistentVolumeClaims(ns, false),
+              kubectl.getStorageClasses(false)
+            ]).then(([pvcs, scs]) => {
+              if (isMounted) dispatch({ type: 'SET_DATA', payload: { persistentVolumeClaims: pvcs, storageClasses: scs } });
+            }).catch(() => {});
+          }
+          return { persistentVolumes };
+        }
+
+        case 'persistentvolumeclaims': {
+          const persistentVolumeClaims = await kubectl.getPersistentVolumeClaims(ns, notify);
+          // Fetch PVs, Storage Classes, and Pods in background
+          if (isMounted) {
+            Promise.all([
+              kubectl.getPersistentVolumes(false),
+              kubectl.getStorageClasses(false),
+              kubectl.getPods(ns, false)
+            ]).then(([pvs, scs, pods]) => {
+              if (isMounted) {
+                const podsPreserved = preserveMetrics(pods, currentPods);
+                dispatch({ type: 'SET_DATA', payload: { persistentVolumes: pvs, storageClasses: scs, pods: podsPreserved } });
+              }
+            }).catch(() => {});
+          }
+          return { persistentVolumeClaims };
+        }
+
+        case 'storageclasses':
+          return { storageClasses: await kubectl.getStorageClasses(notify) };
 
         case 'port-forwarding':
           return { portForwards: await kubectl.getPortForwards(notify) };

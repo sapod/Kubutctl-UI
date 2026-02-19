@@ -1,6 +1,7 @@
 import {
   Node, Pod, Deployment, ReplicaSet, DaemonSet, StatefulSet, Job, CronJob, Service, Ingress,
-  ConfigMap, Secret, Namespace, K8sEvent, ResourceQuota, ResourceStatus, PortForward, ResourceStats
+  ConfigMap, Secret, Namespace, K8sEvent, ResourceQuota, ResourceStatus, PortForward, ResourceStats,
+  PersistentVolume, PersistentVolumeClaim, StorageClass
 } from '../types';
 import { BACKEND_BASE_URL, BACKEND_PORT } from '../consts';
 
@@ -34,6 +35,9 @@ export const KUBECTL_COMMANDS: Record<string, CommandDefinition> = {
   getSecrets: { command: (ns: string) => `kubectl get secrets ${ns === 'All Namespaces' ? '--all-namespaces' : `-n ${ns}`} -o json`, shouldVerify: false },
   getEvents: { command: (ns: string) => `kubectl get events ${ns === 'All Namespaces' ? '--all-namespaces' : `-n ${ns}`} -o json`, shouldVerify: false },
   getResourceQuotas: { command: (ns: string) => `kubectl get resourcequotas ${ns === 'All Namespaces' ? '--all-namespaces' : `-n ${ns}`} -o json`, shouldVerify: false },
+  getPersistentVolumeClaims: { command: (ns: string) => `kubectl get persistentvolumeclaims ${ns === 'All Namespaces' ? '--all-namespaces' : `-n ${ns}`} -o json`, shouldVerify: false },
+  getPersistentVolumes: { command: () => `kubectl get persistentvolumes -o json`, shouldVerify: false },
+  getStorageClasses: { command: () => `kubectl get storageclasses -o json`, shouldVerify: false },
   deleteResource: {
     command: (type: string, name: string, ns: string) => `kubectl delete ${type} ${name} -n ${ns} --now`,
     shouldVerify: true,
@@ -136,6 +140,9 @@ export const KUBECTL_COMMANDS: Record<string, CommandDefinition> = {
   getSecret: { command: (name: string, ns: string) => `kubectl get secret ${name} -n ${ns} -o json`, shouldVerify: false },
   getNamespace: { command: (name: string) => `kubectl get namespace ${name} -o json`, shouldVerify: false },
   getResourceQuota: { command: (name: string, ns: string) => `kubectl get resourcequota ${name} -n ${ns} -o json`, shouldVerify: false },
+  getPersistentVolumeClaim: { command: (name: string, ns: string) => `kubectl get persistentvolumeclaim ${name} -n ${ns} -o json`, shouldVerify: false },
+  getPersistentVolume: { command: (name: string) => `kubectl get persistentvolume ${name} -o json`, shouldVerify: false },
+  getStorageClass: { command: (name: string) => `kubectl get storageclass ${name} -o json`, shouldVerify: false },
 };
 
 const parseCpuStr = (v: string): number => {
@@ -190,11 +197,11 @@ const transformPod = (raw: any): Pod => {
     let status = raw.status.phase;
     if (raw.metadata.deletionTimestamp) status = 'Terminating';
     const isReady = raw.status.conditions?.some((c: any) => c.type === 'Ready' && c.status === 'True') ?? false;
-    
+
     // Extract related ConfigMaps and Secrets from containers
     const relatedConfigMaps = new Set<string>();
     const relatedSecrets = new Set<string>();
-    
+
     raw.spec.containers.forEach((c: any) => {
       // From env
       c.env?.forEach((e: any) => {
@@ -205,7 +212,7 @@ const transformPod = (raw: any): Pod => {
           relatedSecrets.add(e.valueFrom.secretKeyRef.name);
         }
       });
-      
+
       // From envFrom
       c.envFrom?.forEach((ef: any) => {
         if (ef.configMapRef) {
@@ -215,7 +222,7 @@ const transformPod = (raw: any): Pod => {
           relatedSecrets.add(ef.secretRef.name);
         }
       });
-      
+
       // From volume mounts
       c.volumeMounts?.forEach((vm: any) => {
         const vol = raw.spec.volumes?.find((v: any) => v.name === vm.name);
@@ -227,7 +234,7 @@ const transformPod = (raw: any): Pod => {
         }
       });
     });
-    
+
     return {
       id: raw.metadata.uid, name: raw.metadata.name, namespace: raw.metadata.namespace, creationTimestamp: raw.metadata.creationTimestamp, labels: raw.metadata.labels || {},
       ownerReferences: raw.metadata.ownerReferences, status: status as ResourceStatus, isReady,
@@ -242,8 +249,8 @@ const transformPod = (raw: any): Pod => {
         resources: c.resources,
         volumeMounts: c.volumeMounts || []
       })),
-      volumes: raw.spec.volumes || [], 
-      resourceStats: aggregateResources(raw.spec.containers), 
+      volumes: raw.spec.volumes || [],
+      resourceStats: aggregateResources(raw.spec.containers),
       relatedConfigMaps: Array.from(relatedConfigMaps),
       relatedSecrets: Array.from(relatedSecrets),
       raw
@@ -254,6 +261,7 @@ const transformDeployment = (raw: any): Deployment => ({
     id: raw.metadata.uid, name: raw.metadata.name, namespace: raw.metadata.namespace, creationTimestamp: raw.metadata.creationTimestamp, labels: raw.metadata.labels || {},
     replicas: raw.spec.replicas, availableReplicas: raw.status.availableReplicas || 0, selector: raw.spec.selector?.matchLabels || {},
     resourceStats: aggregateResources(raw.spec.template?.spec?.containers), conditions: raw.status.conditions || [],
+    imageTags: (raw.spec.template?.spec?.containers || []).map((c: any) => c.image),
     raw
 });
 
@@ -261,6 +269,7 @@ const transformReplicaSet = (raw: any): ReplicaSet => ({
     id: raw.metadata.uid, name: raw.metadata.name, namespace: raw.metadata.namespace, creationTimestamp: raw.metadata.creationTimestamp, labels: raw.metadata.labels || {},
     replicas: raw.spec.replicas, availableReplicas: raw.status.availableReplicas || 0, selector: raw.spec.selector?.matchLabels || {},
     resourceStats: aggregateResources(raw.spec.template?.spec?.containers),
+    imageTags: (raw.spec.template?.spec?.containers || []).map((c: any) => c.image),
     raw
 });
 
@@ -272,6 +281,7 @@ const transformDaemonSet = (raw: any): DaemonSet => ({
     numberAvailable: raw.status.numberAvailable || 0,
     selector: raw.spec.selector?.matchLabels || {},
     resourceStats: aggregateResources(raw.spec.template?.spec?.containers),
+    imageTags: (raw.spec.template?.spec?.containers || []).map((c: any) => c.image),
     raw
 });
 
@@ -282,6 +292,7 @@ const transformStatefulSet = (raw: any): StatefulSet => ({
     currentReplicas: raw.status.currentReplicas || 0,
     selector: raw.spec.selector?.matchLabels || {},
     resourceStats: aggregateResources(raw.spec.template?.spec?.containers),
+    imageTags: (raw.spec.template?.spec?.containers || []).map((c: any) => c.image),
     raw
 });
 
@@ -325,7 +336,7 @@ const transformConfigMap = (raw: any): ConfigMap => ({
 });
 
 const transformSecret = (raw: any): Secret => ({
-    id: raw.metadata.uid, name: raw.metadata.name, namespace: raw.metadata.namespace, creationTimestamp: raw.metadata.creationTimestamp, labels: raw.metadata.labels || {}, 
+    id: raw.metadata.uid, name: raw.metadata.name, namespace: raw.metadata.namespace, creationTimestamp: raw.metadata.creationTimestamp, labels: raw.metadata.labels || {},
     type: raw.type || 'Opaque',
     data: raw.data || {},
     raw
@@ -339,6 +350,51 @@ const transformEvent = (raw: any): K8sEvent => ({
 
 const transformResourceQuota = (raw: any): ResourceQuota => ({
     id: raw.metadata.uid, name: raw.metadata.name, namespace: raw.metadata.namespace, creationTimestamp: raw.metadata.creationTimestamp, labels: raw.metadata.labels || {}, spec: raw.spec, status: raw.status,
+    raw
+});
+
+const transformPersistentVolume = (raw: any): PersistentVolume => ({
+    id: raw.metadata.uid,
+    name: raw.metadata.name,
+    namespace: raw.metadata.namespace || '',
+    creationTimestamp: raw.metadata.creationTimestamp,
+    labels: raw.metadata.labels || {},
+    capacity: raw.spec.capacity?.storage || '',
+    accessModes: raw.spec.accessModes || [],
+    reclaimPolicy: raw.spec.persistentVolumeReclaimPolicy || '',
+    status: raw.status?.phase || 'Unknown',
+    storageClass: raw.spec.storageClassName || '',
+    claimRef: raw.spec.claimRef ? { name: raw.spec.claimRef.name, namespace: raw.spec.claimRef.namespace } : undefined,
+    volumeMode: raw.spec.volumeMode || 'Filesystem',
+    raw
+});
+
+const transformPersistentVolumeClaim = (raw: any): PersistentVolumeClaim => ({
+    id: raw.metadata.uid,
+    name: raw.metadata.name,
+    namespace: raw.metadata.namespace,
+    creationTimestamp: raw.metadata.creationTimestamp,
+    labels: raw.metadata.labels || {},
+    status: raw.status?.phase || 'Unknown',
+    volumeName: raw.spec.volumeName || '',
+    capacity: raw.status?.capacity?.storage || '',
+    accessModes: raw.spec.accessModes || [],
+    storageClass: raw.spec.storageClassName || '',
+    volumeMode: raw.spec.volumeMode || 'Filesystem',
+    raw
+});
+
+const transformStorageClass = (raw: any): StorageClass => ({
+    id: raw.metadata.uid,
+    name: raw.metadata.name,
+    namespace: '',
+    creationTimestamp: raw.metadata.creationTimestamp,
+    labels: raw.metadata.labels || {},
+    provisioner: raw.provisioner || '',
+    reclaimPolicy: raw.reclaimPolicy || 'Delete',
+    volumeBindingMode: raw.volumeBindingMode || 'Immediate',
+    allowVolumeExpansion: raw.allowVolumeExpansion || false,
+    parameters: raw.parameters || {},
     raw
 });
 
@@ -550,13 +606,34 @@ export const kubectl = {
   getSecrets: async (ns = 'All Namespaces', notify = true) => (await executeWithVerification(KUBECTL_COMMANDS.getSecrets, [ns], notify)).items?.map(transformSecret) || [],
   getEvents: async (ns = 'All Namespaces', notify = true) => (await executeWithVerification(KUBECTL_COMMANDS.getEvents, [ns], notify)).items?.map(transformEvent) || [],
   getResourceQuotas: async (ns = 'All Namespaces', notify = true) => (await executeWithVerification(KUBECTL_COMMANDS.getResourceQuotas, [ns], notify)).items?.map(transformResourceQuota) || [],
+  getPersistentVolumes: async (notify = true) => (await executeWithVerification(KUBECTL_COMMANDS.getPersistentVolumes, [], notify)).items?.map(transformPersistentVolume) || [],
+  getPersistentVolumeClaims: async (ns = 'All Namespaces', notify = true) => (await executeWithVerification(KUBECTL_COMMANDS.getPersistentVolumeClaims, [ns], notify)).items?.map(transformPersistentVolumeClaim) || [],
+  getStorageClasses: async (notify = true) => (await executeWithVerification(KUBECTL_COMMANDS.getStorageClasses, [], notify)).items?.map(transformStorageClass) || [],
   getPortForwards: async(_notify = true): Promise<PortForward[]> => {
       try { const res = await fetch(`${BACKEND_BASE_URL}/api/port-forward/list`); const data = await res.json(); return data.items || []; } catch (e) { return []; }
   },
   getResource: async (type: string, name: string, ns: string, notify = true): Promise<any> => {
       try {
-          const mapping: any = { pod: [KUBECTL_COMMANDS.getPod, transformPod], deployment: [KUBECTL_COMMANDS.getDeployment, transformDeployment], replicaset: [KUBECTL_COMMANDS.getReplicaSet, transformReplicaSet], daemonset: [KUBECTL_COMMANDS.getDaemonSet, transformDaemonSet], statefulset: [KUBECTL_COMMANDS.getStatefulSet, transformStatefulSet], job: [KUBECTL_COMMANDS.getJob, transformJob], cronjob: [KUBECTL_COMMANDS.getCronJob, transformCronJob], node: [KUBECTL_COMMANDS.getNode, transformNode], service: [KUBECTL_COMMANDS.getService, transformService], ingress: [KUBECTL_COMMANDS.getIngress, transformIngress], configmap: [KUBECTL_COMMANDS.getConfigMap, transformConfigMap], secret: [KUBECTL_COMMANDS.getSecret, transformSecret], namespace: [KUBECTL_COMMANDS.getNamespace, transformNamespace], resourcequota: [KUBECTL_COMMANDS.getResourceQuota, transformResourceQuota] };
-          const [cmdDef, transform] = mapping[type]; const args = type === 'node' || type === 'namespace' ? [name] : [name, ns];
+          const mapping: any = {
+              pod: [KUBECTL_COMMANDS.getPod, transformPod],
+              deployment: [KUBECTL_COMMANDS.getDeployment, transformDeployment],
+              replicaset: [KUBECTL_COMMANDS.getReplicaSet, transformReplicaSet],
+              daemonset: [KUBECTL_COMMANDS.getDaemonSet, transformDaemonSet],
+              statefulset: [KUBECTL_COMMANDS.getStatefulSet, transformStatefulSet],
+              job: [KUBECTL_COMMANDS.getJob, transformJob],
+              cronjob: [KUBECTL_COMMANDS.getCronJob, transformCronJob],
+              node: [KUBECTL_COMMANDS.getNode, transformNode],
+              service: [KUBECTL_COMMANDS.getService, transformService],
+              ingress: [KUBECTL_COMMANDS.getIngress, transformIngress],
+              configmap: [KUBECTL_COMMANDS.getConfigMap, transformConfigMap],
+              secret: [KUBECTL_COMMANDS.getSecret, transformSecret],
+              namespace: [KUBECTL_COMMANDS.getNamespace, transformNamespace],
+              resourcequota: [KUBECTL_COMMANDS.getResourceQuota, transformResourceQuota],
+              persistentvolume: [KUBECTL_COMMANDS.getPersistentVolume, transformPersistentVolume],
+              persistentvolumeclaim: [KUBECTL_COMMANDS.getPersistentVolumeClaim, transformPersistentVolumeClaim],
+              storageclass: [KUBECTL_COMMANDS.getStorageClass, transformStorageClass]
+          };
+          const [cmdDef, transform] = mapping[type]; const args = type === 'node' || type === 'namespace' || type === 'persistentvolume' || type === 'storageclass' ? [name] : [name, ns];
           const data = await executeWithVerification(cmdDef, args, notify); return transform(data);
       } catch (e) { return null; }
   }

@@ -147,7 +147,6 @@ export const ClusterCatalogModal: React.FC = () => {
     const [searchQuery, setSearchQuery] = useState('');
 
     // Edit State
-    const [editName, setEditName] = useState('');
     const [editInitials, setEditInitials] = useState('');
     const [editColor, setEditColor] = useState('');
     const [editTextColor, setEditTextColor] = useState('');
@@ -172,7 +171,7 @@ export const ClusterCatalogModal: React.FC = () => {
 
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, [editingId, editName, editInitials, editColor, editTextColor]);
+    }, [editingId, editInitials, editColor, editTextColor]);
 
     const loadContexts = async () => {
         setIsLoadingContexts(true);
@@ -191,7 +190,6 @@ export const ClusterCatalogModal: React.FC = () => {
         if (cluster) {
           const updated: Cluster = {
             ...cluster,
-            name: editName,
             initials: editInitials,
             color: editColor,
             textColor: editTextColor
@@ -209,7 +207,6 @@ export const ClusterCatalogModal: React.FC = () => {
       }
 
       setEditingId(cluster.id);
-      setEditName(cluster.name);
       setEditInitials(cluster.initials);
       setEditColor(cluster.color);
       setEditTextColor(cluster.textColor);
@@ -218,7 +215,6 @@ export const ClusterCatalogModal: React.FC = () => {
     const saveEdit = (cluster: Cluster) => {
       const updated: Cluster = {
         ...cluster,
-        name: editName,
         initials: editInitials,
         color: editColor,
         textColor: editTextColor
@@ -330,15 +326,7 @@ export const ClusterCatalogModal: React.FC = () => {
                               >
                                   {editingId === cluster.id ? editInitials : cluster.initials}
                               </div>
-                              {editingId === cluster.id ? (
-                                  <input
-                                  className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-blue-500 w-64"
-                                  value={editName}
-                                  onChange={e => setEditName(e.target.value)}
-                                  />
-                              ) : (
-                                  <div className="font-semibold text-gray-200">{cluster.name}</div>
-                              )}
+                              <div className="font-semibold text-gray-200">{cluster.name}</div>
                               </div>
                               <div className="flex gap-2">
                               <button

@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useStore } from '../store';
 import { Server, Box, Layers, Info, Trash2, ArrowUp, ArrowDown, Search, MoreVertical, StopCircle, AlertTriangle, Play,
     Plus, Edit2 } from 'lucide-react';
-import { ResourceStatus, Deployment } from '../types';
+import { ResourceStatus, Deployment, DaemonSet, StatefulSet, ReplicaSet } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { kubectl } from '../services/kubectl';
 import { StatusBadge, getAge, parseCpu, parseMemory } from './Shared';
@@ -273,6 +273,15 @@ export const DeploymentsPage: React.FC = () => {
                     </div>
                 )},
                 { header: 'Age', accessor: (d) => getAge(d.creationTimestamp), sortValue: (d) => d.creationTimestamp },
+                { header: 'Tags', accessor: (d: Deployment) => (
+                    <div className="flex flex-col gap-0.5">
+                      {d.imageTags?.map((image, i) => (
+                        <span key={i} className="text-xs font-mono text-gray-400" title={image}>
+                          {image.includes(':') ? image.split(':')[1] : 'latest'}
+                        </span>
+                      ))}
+                    </div>
+                ), sortValue: (d) => d.imageTags?.[0] || '' },
             ]}
         />
     );
@@ -280,17 +289,92 @@ export const DeploymentsPage: React.FC = () => {
 
 export const ReplicaSetsPage: React.FC = () => {
     const { state, dispatch } = useStore();
-    return <ResourceTable title="ReplicaSets" data={state.replicaSets} enableMultiSelect onBulkDelete={(ids) => kubectl.deleteResources(ids, 'replicaset', state.replicaSets.filter(d => ids.includes(d.id)).map(i => ({ name: i.name, namespace: i.namespace })))} onSelect={(id) => dispatch({ type: 'SELECT_RESOURCE', payload: { id, type: 'replicaset' } })} columns={[ { header: 'Name', accessor: (r) => <span className="font-medium text-gray-200">{r.name}</span>, sortValue: (r) => r.name }, { header: 'Namespace', accessor: (r) => r.namespace, sortValue: (r) => r.namespace }, { header: 'Desired', accessor: (r) => r.replicas }, { header: 'Available', accessor: (r) => r.availableReplicas }, { header: 'Age', accessor: (r) => getAge(r.creationTimestamp), sortValue: (r) => r.creationTimestamp }, ]} />;
+    return (
+        <ResourceTable
+            title="ReplicaSets"
+            data={state.replicaSets}
+            enableMultiSelect
+            onBulkDelete={(ids) => kubectl.deleteResources(ids, 'replicaset', state.replicaSets.filter(d => ids.includes(d.id)).map(i => ({ name: i.name, namespace: i.namespace })))}
+            onSelect={(id) => dispatch({ type: 'SELECT_RESOURCE', payload: { id, type: 'replicaset' } })}
+            columns={[
+                { header: 'Name', accessor: (r) => <span className="font-medium text-gray-200">{r.name}</span>, sortValue: (r) => r.name },
+                { header: 'Namespace', accessor: (r) => r.namespace, sortValue: (r) => r.namespace },
+                { header: 'Desired', accessor: (r) => r.replicas },
+                { header: 'Available', accessor: (r) => r.availableReplicas },
+                { header: 'Age', accessor: (r) => getAge(r.creationTimestamp), sortValue: (r) => r.creationTimestamp },
+                { header: 'Tags', accessor: (r: ReplicaSet) => (
+                    <div className="flex flex-col gap-0.5">
+                      {r.imageTags?.map((image, i) => (
+                        <span key={i} className="text-xs font-mono text-gray-400" title={image}>
+                          {image.includes(':') ? image.split(':')[1] : 'latest'}
+                        </span>
+                      ))}
+                    </div>
+                ), sortValue: (r) => r.imageTags?.[0] || '' },
+            ]}
+        />
+    );
 };
 
 export const DaemonSetsPage: React.FC = () => {
     const { state, dispatch } = useStore();
-    return <ResourceTable title="DaemonSets" data={state.daemonSets} enableMultiSelect onBulkDelete={(ids) => kubectl.deleteResources(ids, 'daemonset', state.daemonSets.filter(d => ids.includes(d.id)).map(i => ({ name: i.name, namespace: i.namespace })))} onSelect={(id) => dispatch({ type: 'SELECT_RESOURCE', payload: { id, type: 'daemonset' } })} columns={[ { header: 'Name', accessor: (d) => <span className="font-medium text-gray-200">{d.name}</span>, sortValue: (d) => d.name }, { header: 'Namespace', accessor: (d) => d.namespace, sortValue: (d) => d.namespace }, { header: 'Desired', accessor: (d) => d.desiredNumberScheduled }, { header: 'Current', accessor: (d) => d.currentNumberScheduled }, { header: 'Ready', accessor: (d) => d.numberReady }, { header: 'Available', accessor: (d) => d.numberAvailable }, { header: 'Age', accessor: (d) => getAge(d.creationTimestamp), sortValue: (d) => d.creationTimestamp }, ]} />;
+    return (
+        <ResourceTable
+            title="DaemonSets"
+            data={state.daemonSets}
+            enableMultiSelect
+            onBulkDelete={(ids) => kubectl.deleteResources(ids, 'daemonset', state.daemonSets.filter(d => ids.includes(d.id)).map(i => ({ name: i.name, namespace: i.namespace })))}
+            onSelect={(id) => dispatch({ type: 'SELECT_RESOURCE', payload: { id, type: 'daemonset' } })}
+            columns={[
+                { header: 'Name', accessor: (d) => <span className="font-medium text-gray-200">{d.name}</span>, sortValue: (d) => d.name },
+                { header: 'Namespace', accessor: (d) => d.namespace, sortValue: (d) => d.namespace },
+                { header: 'Desired', accessor: (d) => d.desiredNumberScheduled },
+                { header: 'Current', accessor: (d) => d.currentNumberScheduled },
+                { header: 'Ready', accessor: (d) => d.numberReady },
+                { header: 'Available', accessor: (d) => d.numberAvailable },
+                { header: 'Age', accessor: (d) => getAge(d.creationTimestamp), sortValue: (d) => d.creationTimestamp },
+                { header: 'Tags', accessor: (d: DaemonSet) => (
+                    <div className="flex flex-col gap-0.5">
+                      {d.imageTags?.map((image, i) => (
+                        <span key={i} className="text-xs font-mono text-gray-400" title={image}>
+                          {image.includes(':') ? image.split(':')[1] : 'latest'}
+                        </span>
+                      ))}
+                    </div>
+                ), sortValue: (d) => d.imageTags?.[0] || '' },
+            ]}
+        />
+    );
 };
 
 export const StatefulSetsPage: React.FC = () => {
     const { state, dispatch } = useStore();
-    return <ResourceTable title="StatefulSets" data={state.statefulSets} enableMultiSelect onBulkDelete={(ids) => kubectl.deleteResources(ids, 'statefulset', state.statefulSets.filter(d => ids.includes(d.id)).map(i => ({ name: i.name, namespace: i.namespace })))} onSelect={(id) => dispatch({ type: 'SELECT_RESOURCE', payload: { id, type: 'statefulset' } })} columns={[ { header: 'Name', accessor: (s) => <span className="font-medium text-gray-200">{s.name}</span>, sortValue: (s) => s.name }, { header: 'Namespace', accessor: (s) => s.namespace, sortValue: (s) => s.namespace }, { header: 'Desired', accessor: (s) => s.replicas }, { header: 'Current', accessor: (s) => s.currentReplicas }, { header: 'Ready', accessor: (s) => s.readyReplicas }, { header: 'Age', accessor: (s) => getAge(s.creationTimestamp), sortValue: (s) => s.creationTimestamp }, ]} />;
+    return (
+        <ResourceTable
+            title="StatefulSets"
+            data={state.statefulSets}
+            enableMultiSelect
+            onBulkDelete={(ids) => kubectl.deleteResources(ids, 'statefulset', state.statefulSets.filter(d => ids.includes(d.id)).map(i => ({ name: i.name, namespace: i.namespace })))}
+            onSelect={(id) => dispatch({ type: 'SELECT_RESOURCE', payload: { id, type: 'statefulset' } })}
+            columns={[
+                { header: 'Name', accessor: (s) => <span className="font-medium text-gray-200">{s.name}</span>, sortValue: (s) => s.name },
+                { header: 'Namespace', accessor: (s) => s.namespace, sortValue: (s) => s.namespace },
+                { header: 'Desired', accessor: (s) => s.replicas },
+                { header: 'Current', accessor: (s) => s.currentReplicas },
+                { header: 'Ready', accessor: (s) => s.readyReplicas },
+                { header: 'Age', accessor: (s) => getAge(s.creationTimestamp), sortValue: (s) => s.creationTimestamp },
+                { header: 'Tags', accessor: (s: StatefulSet) => (
+                    <div className="flex flex-col gap-0.5">
+                      {s.imageTags?.map((image, i) => (
+                        <span key={i} className="text-xs font-mono text-gray-400" title={image}>
+                          {image.includes(':') ? image.split(':')[1] : 'latest'}
+                        </span>
+                      ))}
+                    </div>
+                ), sortValue: (s) => s.imageTags?.[0] || '' },
+            ]}
+        />
+    );
 };
 
 export const JobsPage: React.FC = () => {
@@ -453,3 +537,178 @@ export const EventsPage: React.FC = () => {
         />
     );
 };
+
+export const PersistentVolumesPage: React.FC = () => {
+    const { state, dispatch } = useStore();
+
+    return (
+        <ResourceTable
+            title="Persistent Volumes"
+            data={state.persistentVolumes}
+            onSelect={(id) => dispatch({ type: 'SELECT_RESOURCE', payload: { id, type: 'persistentvolume' } })}
+            columns={[
+                {
+                    header: 'Name',
+                    accessor: (pv) => (
+                        <span className="font-medium text-gray-200">{pv.name}</span>
+                    ),
+                    sortValue: (pv) => pv.name
+                },
+                {
+                    header: 'Capacity',
+                    accessor: (pv) => pv.capacity,
+                    sortValue: (pv) => pv.capacity
+                },
+                {
+                    header: 'Access Modes',
+                    accessor: (pv) => (
+                        <span className="text-gray-300">{pv.accessModes.join(', ')}</span>
+                    ),
+                    sortValue: (pv) => pv.accessModes.join(', ')
+                },
+                {
+                    header: 'Reclaim Policy',
+                    accessor: (pv) => pv.reclaimPolicy,
+                    sortValue: (pv) => pv.reclaimPolicy
+                },
+                {
+                    header: 'Status',
+                    accessor: (pv) => <StatusBadge status={pv.status as any} />,
+                    sortValue: (pv) => pv.status
+                },
+                {
+                    header: 'Claim',
+                    accessor: (pv) => (
+                        <span className="text-gray-300">
+                            {pv.claimRef ? `${pv.claimRef.namespace}/${pv.claimRef.name}` : '-'}
+                        </span>
+                    ),
+                    sortValue: (pv) => pv.claimRef ? `${pv.claimRef.namespace}/${pv.claimRef.name}` : ''
+                },
+                {
+                    header: 'Storage Class',
+                    accessor: (pv) => pv.storageClass || '-',
+                    sortValue: (pv) => pv.storageClass
+                },
+                {
+                    header: 'Age',
+                    accessor: (pv) => getAge(pv.creationTimestamp),
+                    sortValue: (pv) => pv.creationTimestamp
+                },
+            ]}
+        />
+    );
+};
+
+export const PersistentVolumeClaimsPage: React.FC = () => {
+    const { state, dispatch } = useStore();
+
+    return (
+        <ResourceTable
+            title="Persistent Volume Claims"
+            data={state.persistentVolumeClaims}
+            onSelect={(id) => dispatch({ type: 'SELECT_RESOURCE', payload: { id, type: 'persistentvolumeclaim' } })}
+            columns={[
+                {
+                    header: 'Name',
+                    accessor: (pvc) => (
+                        <span className="font-medium text-gray-200">{pvc.name}</span>
+                    ),
+                    sortValue: (pvc) => pvc.name
+                },
+                {
+                    header: 'Namespace',
+                    accessor: (pvc) => pvc.namespace,
+                    sortValue: (pvc) => pvc.namespace
+                },
+                {
+                    header: 'Status',
+                    accessor: (pvc) => <StatusBadge status={pvc.status as any} />,
+                    sortValue: (pvc) => pvc.status
+                },
+                {
+                    header: 'Volume',
+                    accessor: (pvc) => pvc.volumeName || '-',
+                    sortValue: (pvc) => pvc.volumeName
+                },
+                {
+                    header: 'Capacity',
+                    accessor: (pvc) => pvc.capacity || '-',
+                    sortValue: (pvc) => pvc.capacity
+                },
+                {
+                    header: 'Access Modes',
+                    accessor: (pvc) => (
+                        <span className="text-gray-300">{pvc.accessModes.join(', ')}</span>
+                    ),
+                    sortValue: (pvc) => pvc.accessModes.join(', ')
+                },
+                {
+                    header: 'Storage Class',
+                    accessor: (pvc) => pvc.storageClass || '-',
+                    sortValue: (pvc) => pvc.storageClass
+                },
+                {
+                    header: 'Age',
+                    accessor: (pvc) => getAge(pvc.creationTimestamp),
+                    sortValue: (pvc) => pvc.creationTimestamp
+                },
+            ]}
+        />
+    );
+};
+
+export const StorageClassesPage: React.FC = () => {
+    const { state, dispatch } = useStore();
+
+    return (
+        <ResourceTable
+            title="Storage Classes"
+            data={state.storageClasses}
+            onSelect={(id) => dispatch({ type: 'SELECT_RESOURCE', payload: { id, type: 'storageclass' } })}
+            columns={[
+                {
+                    header: 'Name',
+                    accessor: (sc) => (
+                        <span className="font-medium text-gray-200">{sc.name}</span>
+                    ),
+                    sortValue: (sc) => sc.name
+                },
+                {
+                    header: 'Provisioner',
+                    accessor: (sc) => (
+                        <span className="text-gray-300">{sc.provisioner}</span>
+                    ),
+                    sortValue: (sc) => sc.provisioner
+                },
+                {
+                    header: 'Reclaim Policy',
+                    accessor: (sc) => sc.reclaimPolicy,
+                    sortValue: (sc) => sc.reclaimPolicy
+                },
+                {
+                    header: 'Volume Binding Mode',
+                    accessor: (sc) => sc.volumeBindingMode,
+                    sortValue: (sc) => sc.volumeBindingMode
+                },
+                {
+                    header: 'Allow Expansion',
+                    accessor: (sc) => (
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                            sc.allowVolumeExpansion ? 'bg-green-900/30 text-green-400' : 'bg-gray-700 text-gray-400'
+                        }`}>
+                            {sc.allowVolumeExpansion ? 'Yes' : 'No'}
+                        </span>
+                    ),
+                    sortValue: (sc) => sc.allowVolumeExpansion ? 'Yes' : 'No'
+                },
+                {
+                    header: 'Age',
+                    accessor: (sc) => getAge(sc.creationTimestamp),
+                    sortValue: (sc) => sc.creationTimestamp
+                },
+            ]}
+        />
+    );
+};
+

@@ -94,6 +94,7 @@ export interface Deployment extends K8sResource {
   selector: Record<string, string>;
   resourceStats: ResourceStats;
   conditions: DeploymentCondition[];
+  imageTags: string[];
 }
 
 export interface ReplicaSet extends K8sResource {
@@ -101,6 +102,7 @@ export interface ReplicaSet extends K8sResource {
   availableReplicas: number;
   selector: Record<string, string>;
   resourceStats: ResourceStats;
+  imageTags: string[];
 }
 
 export interface DaemonSet extends K8sResource {
@@ -110,6 +112,7 @@ export interface DaemonSet extends K8sResource {
   numberAvailable: number;
   selector: Record<string, string>;
   resourceStats: ResourceStats;
+  imageTags: string[];
 }
 
 export interface StatefulSet extends K8sResource {
@@ -118,6 +121,7 @@ export interface StatefulSet extends K8sResource {
   currentReplicas: number;
   selector: Record<string, string>;
   resourceStats: ResourceStats;
+  imageTags: string[];
 }
 
 export interface Job extends K8sResource {
@@ -199,6 +203,33 @@ export interface ResourceQuota extends K8sResource {
   };
 }
 
+export interface PersistentVolume extends K8sResource {
+  capacity: string;
+  accessModes: string[];
+  reclaimPolicy: string;
+  status: 'Available' | 'Bound' | 'Released' | 'Failed';
+  storageClass: string;
+  claimRef?: { name: string; namespace: string };
+  volumeMode: string;
+}
+
+export interface PersistentVolumeClaim extends K8sResource {
+  status: 'Pending' | 'Bound' | 'Lost';
+  volumeName: string;
+  capacity: string;
+  accessModes: string[];
+  storageClass: string;
+  volumeMode: string;
+}
+
+export interface StorageClass extends K8sResource {
+  provisioner: string;
+  reclaimPolicy: string;
+  volumeBindingMode: string;
+  allowVolumeExpansion: boolean;
+  parameters: Record<string, string>;
+}
+
 export interface PortForward {
   id: string;
   pid?: number; // System process ID
@@ -254,7 +285,10 @@ export type View =
   | 'namespaces'
   | 'resourcequotas'
   | 'port-forwarding'
-  | 'events';
+  | 'events'
+  | 'persistentvolumes'
+  | 'persistentvolumeclaims'
+  | 'storageclasses';
 
 export interface AppState {
   isStoreInitialized: boolean;
@@ -284,11 +318,14 @@ export interface AppState {
   namespaces: Namespace[];
   events: K8sEvent[];
   resourceQuotas: ResourceQuota[];
+  persistentVolumes: PersistentVolume[];
+  persistentVolumeClaims: PersistentVolumeClaim[];
+  storageClasses: StorageClass[];
   portForwards: PortForward[];
   routines: PortForwardRoutine[];
   terminalOutput: string[];
   selectedResourceId: string | null;
-  selectedResourceType: 'pod' | 'deployment' | 'replicaset' | 'daemonset' | 'statefulset' | 'job' | 'cronjob' | 'node' | 'service' | 'ingress' | 'configmap' | 'secret' | 'namespace' | 'event' | 'resourcequota' | null;
+  selectedResourceType: 'pod' | 'deployment' | 'replicaset' | 'daemonset' | 'statefulset' | 'job' | 'cronjob' | 'node' | 'service' | 'ingress' | 'configmap' | 'secret' | 'namespace' | 'event' | 'resourcequota' | 'persistentvolume' | 'persistentvolumeclaim' | 'storageclass' | null;
   resourceHistory: { id: string; type: AppState['selectedResourceType'] }[]; // Call stack for navigation
   drawerOpen: boolean;
   isAddClusterModalOpen: boolean;
