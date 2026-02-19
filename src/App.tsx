@@ -27,6 +27,18 @@ const isLogsOnlyMode = () => {
   return params.get('logsOnly') === 'true';
 };
 
+// Helper function to extract error message from various error formats
+const extractErrorMessage = (err: any): string => {
+  if (err instanceof Error) {
+    return err.message;
+  } else if (typeof err === 'string') {
+    return err;
+  } else if (err && typeof err === 'object') {
+    return err.stderr || err.error || err.message || JSON.stringify(err);
+  }
+  return 'Unknown error occurred';
+};
+
 const MainLayout = () => {
   const { state, dispatch } = useStore();
   const verificationInProgressRef = useRef(false);
@@ -219,8 +231,9 @@ const MainLayout = () => {
                                                    dispatch({ type: 'ADD_LOG', payload: result.stdout });
                                                }
                                            } catch (err: any) {
-                                               dispatch({ type: 'ADD_LOG', payload: `AWS SSO login error: ${err.error || err.stderr}` });
-                                               dispatch({ type: 'SET_ERROR', payload: `AWS SSO login failed: ${err.error || err.stderr}` });
+                                               const errorMessage = extractErrorMessage(err);
+                                               dispatch({ type: 'ADD_LOG', payload: `AWS SSO login error: ${errorMessage}` });
+                                               dispatch({ type: 'SET_ERROR', payload: `AWS SSO login failed: ${errorMessage}` });
                                            }
                                        } else {
                                            dispatch({ type: 'SET_ERROR', payload: 'Command execution not available. Please run "aws sso login" in your terminal.' });
@@ -351,10 +364,11 @@ const MainLayout = () => {
 
                                  await electron.executeCommand(command);
                                  dispatch({ type: 'ADD_LOG', payload: `Opened ${url} in default browser` });
-                             } catch (err: any) {
-                                 console.error('Failed to open browser:', err);
-                                 dispatch({ type: 'ADD_LOG', payload: `Error opening browser: ${err.error || err}` });
-                             }
+                            } catch (err: any) {
+                                const errorMessage = extractErrorMessage(err);
+                                console.error('Failed to open browser:', err);
+                                dispatch({ type: 'ADD_LOG', payload: `Error opening browser: ${errorMessage}` });
+                            }
                          } else {
                              // Web browser environment - open in new tab
                              window.open(url, '_blank');

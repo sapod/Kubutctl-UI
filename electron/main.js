@@ -65,7 +65,9 @@ ipcMain.handle('execute-command', async (event, command) => {
   return new Promise((resolve, reject) => {
     exec(command, (error, stdout, stderr) => {
       if (error) {
-        reject({ error: error.message, stderr });
+        // Reject with a descriptive error message that includes both error and stderr
+        const errorMessage = stderr || error.message || 'Command execution failed';
+        reject(new Error(errorMessage));
       } else {
         resolve({ stdout, stderr });
       }
