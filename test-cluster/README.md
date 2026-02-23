@@ -10,6 +10,29 @@ The test cluster uses **kind** (Kubernetes in Docker) to create a local multi-no
 - **3 namespaces** with different types of applications
 - **Multiple resource types** for comprehensive testing
 - **NGINX Ingress Controller** for testing ingress resources
+- **Automatic TLS configuration** to prevent Docker Hub certificate issues
+
+### TLS Fix Included
+
+The cluster includes automatic TLS configuration to prevent certificate verification errors when pulling images from Docker Hub. This is configured in `kind-config.yaml` using `containerdConfigPatches`:
+
+```yaml
+containerdConfigPatches:
+- |-
+  [plugins."io.containerd.grpc.v1.cri".registry]
+    [plugins."io.containerd.grpc.v1.cri".registry.configs."registry-1.docker.io".tls]
+      insecure_skip_verify = true
+    [plugins."io.containerd.grpc.v1.cri".registry.configs."docker.io".tls]
+      insecure_skip_verify = true
+```
+
+**What this does:**
+- Configures containerd inside cluster nodes to skip TLS certificate verification
+- Prevents `ImagePullBackOff` errors due to TLS certificate issues
+- Applied automatically during cluster creation
+- No manual configuration or restarts needed
+
+**Note:** This is safe for local development clusters but should not be used in production.
 
 ## Prerequisites
 
@@ -47,11 +70,14 @@ chmod +x start-cluster.sh stop-cluster.sh
 
 This will:
 1. Create a kind cluster with 3 nodes
-2. Install NGINX Ingress Controller
-3. Deploy all test resources
-4. Automatically configure your kubeconfig (~/.kube/config)
+2. Apply TLS configuration automatically (via kind-config.yaml)
+3. Deploy all test resources to multiple namespaces
+4. Install NGINX Ingress Controller
+5. Automatically configure your kubeconfig (~/.kube/config)
 
 The cluster will be added to your kubeconfig as `kind-kubectl-ui-test` - no manual configuration needed!
+
+**Note:** The TLS configuration is built into the cluster creation process, so you don't need to run any separate fix scripts.
 
 ### Stop the Cluster
 
@@ -289,6 +315,8 @@ kubectl describe pod <pod-name> -n test-apps
 kubectl get nodes
 kubectl describe node <node-name>
 ```
+
+**Note:** If you see `ImagePullBackOff` errors, the TLS configuration is already applied automatically during cluster creation. The issue may be network-related rather than TLS certificate-related.
 
 ### Ingress not working
 ```bash

@@ -163,10 +163,15 @@ spec:
     spec:
       containers:
       - name: api
-        image: hashicorp/http-echo:0.2.3
-        args:
-          - "-text=Backend API Response"
-          - "-listen=:8080"
+        image: busybox:1.36
+        command:
+        - sh
+        - -c
+        - |
+          echo "Starting Backend API Server..."
+          while true; do
+            echo -e "HTTP/1.1 200 OK\r\nContent-Length: 22\r\n\r\nBackend API Response" | nc -l -p 8080
+          done
         ports:
         - containerPort: 8080
           name: http
@@ -219,7 +224,7 @@ spec:
     name: http
 
 ---
-# Deployment 4: Worker pods (4 replicas, single container)
+# Deployment 4: Worker pods (4 replicas, single container with shared storage)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -242,7 +247,15 @@ spec:
       containers:
       - name: worker
         image: busybox:1.36
-        command: ['sh', '-c', 'while true; do echo "Processing job at $(date)"; sleep 10; done']
+        command:
+        - sh
+        - -c
+        - |
+          echo "Worker started at $(date)" > /shared/worker-${HOSTNAME}.log
+          while true; do 
+            echo "Processing job at $(date)" | tee -a /shared/worker-${HOSTNAME}.log
+            sleep 10
+          done
         resources:
           requests:
             memory: "32Mi"
@@ -250,4 +263,16 @@ spec:
           limits:
             memory: "64Mi"
             cpu: "100m"
+        volumeMounts:
+        - name: shared-data
+          mountPath: /shared
+        env:
+        - name: HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+      volumes:
+      - name: shared-data
+        persistentVolumeClaim:
+          claimName: shared-storage
 

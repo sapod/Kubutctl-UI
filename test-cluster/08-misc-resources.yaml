@@ -1,13 +1,15 @@
 ---
 # PersistentVolumeClaim for shared storage
+# Note: kind's local-path provisioner will automatically create the PV
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: shared-storage
   namespace: test-apps
 spec:
+  storageClassName: local-path
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce
   resources:
     requests:
       storage: 500Mi
