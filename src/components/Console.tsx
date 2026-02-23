@@ -2,13 +2,15 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useStore } from '../store';
 import { Terminal, FileText, ExternalLink, Plus, X } from 'lucide-react';
 import { LogsPanel } from './LogsPanel';
+import TerminalTab from './TerminalTab';
+import { BACKEND_WS_BASE_URL } from '../consts';
 
 export const ConsolePanel: React.FC = () => {
     const { state, dispatch } = useStore();
     const bottomRef = React.useRef<HTMLDivElement>(null);
 
     // Tab state - persist across refreshes but reset on fresh app start
-    const [activeTab, setActiveTab] = useState<'terminal' | 'logs'>('terminal');
+    const [activeTab, setActiveTab] = useState<'terminal' | 'logs' | 'terminalTab'>('terminal');
 
     // Track if we've completed initial restoration (to prevent saving during init)
     const hasRestoredRef = useRef(false);
@@ -38,8 +40,11 @@ export const ConsolePanel: React.FC = () => {
         }
 
         const saved = localStorage.getItem('terminalActiveTab');
-        if (saved === 'logs' || saved === 'terminal') {
-            setActiveTab(saved);
+        // If last active tab was a terminal tab, reset to console since terminal tabs don't persist
+        if (saved === 'terminalTab') {
+            setActiveTab('terminal');
+        } else if (saved === 'logs' || saved === 'terminal') {
+            setActiveTab(saved as 'terminal' | 'logs' | 'terminalTab');
         }
         hasRestoredRef.current = true;
     }, [state.isStoreInitialized]);
@@ -98,6 +103,13 @@ export const ConsolePanel: React.FC = () => {
         prevActiveLogsTabIdRef.current = state.activeLogsTabId;
         prevActiveTabDeploymentRef.current = currentDeployment;
     }, [state.activeLogsTabId, state.logsTabs]);
+
+    // Switch to terminal tab when a new terminal is added
+    useEffect(() => {
+        if (state.terminalTabs.length > 0 && state.activeTerminalTabId) {
+            setActiveTab('terminalTab');
+        }
+    }, [state.terminalTabs.length, state.activeTerminalTabId]);
 
     // Handle opening logs window
     const handleUndockLogs = async () => {
@@ -319,6 +331,48 @@ export const ConsolePanel: React.FC = () => {
                 )}
               </div>
             )}
+
+            {/* Terminal tabs - show pod terminal tabs */}
+            {state.terminalTabs.length > 0 && (
+              <div className="flex items-stretch gap-1 ml-2 bg-gray-700 rounded-md px-1 py-0.5">
+                {state.terminalTabs.map((tab, index) => (
+                  <div key={tab.id} className="flex items-stretch">
+                    <button
+                      onClick={() => {
+                        setActiveTab('terminalTab');
+                        dispatch({ type: 'SET_ACTIVE_TERMINAL_TAB', payload: tab.id });
+                      }}
+                      className={`flex items-center text-xs font-bold uppercase tracking-wider transition-colors px-2 rounded-l ${
+                        activeTab === 'terminalTab' && state.activeTerminalTabId === tab.id 
+                          ? 'text-blue-400 bg-gray-900' 
+                          : 'text-gray-400 hover:text-gray-300 hover:bg-gray-600'
+                      }`}
+                      title={`${tab.podName} / ${tab.container}`}
+                    >
+                      <Terminal size={12} className="mr-1" />
+                        {`Terminal ${index + 1}`}
+                    </button>
+                    {/* Close button */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        dispatch({ type: 'REMOVE_TERMINAL_TAB', payload: tab.id });
+                        // If closing active tab, switch to console
+                        if (state.activeTerminalTabId === tab.id) {
+                          setActiveTab('terminal');
+                        }
+                      }}
+                      className={`flex items-center px-1 text-gray-500 hover:text-red-400 hover:bg-gray-600 rounded-r transition-colors ${
+                        activeTab === 'terminalTab' && state.activeTerminalTabId === tab.id ? 'bg-gray-900' : ''
+                      }`}
+                      title="Close this terminal"
+                    >
+                      <X size={10} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -346,6 +400,24 @@ export const ConsolePanel: React.FC = () => {
         {/* Logs content - render active tab's LogsPanel */}
         {activeTab === 'logs' && isLogsMode === 'docked' && (
           <LogsPanel tabId={state.activeLogsTabId} />
+        )}
+
+        {/* Terminal tab content - render ALL terminals but only show active one */}
+        {activeTab === 'terminalTab' && state.terminalTabs.length > 0 && (
+          <div className="flex-1 overflow-hidden relative">
+            {state.terminalTabs.map((tab) => (
+              <div
+                key={tab.id}
+                className="absolute inset-0"
+                style={{ display: tab.id === state.activeTerminalTabId ? 'block' : 'none' }}
+              >
+                <TerminalTab
+                  tab={tab}
+                  backendWsBaseUrl={BACKEND_WS_BASE_URL}
+                />
+              </div>
+            ))}
+          </div>
         )}
       </div>
     );

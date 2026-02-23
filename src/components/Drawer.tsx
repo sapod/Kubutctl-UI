@@ -5,11 +5,9 @@ import { kubectl } from '../services/kubectl';
 import { Box, X, Globe, ArrowRightCircle, Container as ContainerIcon, Network,
     FileText, RotateCw, Trash2, ChevronDown, AlertTriangle, Maximize2, Minimize2,
     HardDrive, ExternalLink, ArrowLeft, StopCircle, Play, History, Edit2, Save,
-    Key, Copy, Check, Search, Eye, EyeOff } from 'lucide-react';
+    Key, Copy, Check, Search, Eye, EyeOff, Terminal } from 'lucide-react';
 import { StatusBadge, getAge, isMatch, resolvePortName, parseCpu, parseMemory } from './Shared';
-import PodTerminal from './PodTerminal';
 import yaml from 'js-yaml';
-import { BACKEND_WS_BASE_URL } from '../consts';
 
 // --- Drawer Table Component ---
 export const DrawerTable = ({ columns, data, onRowClick, storageKey, defaultSort }: {
@@ -151,8 +149,6 @@ export const ResourceDrawer: React.FC = () => {
   const [copiedId, setCopiedId] = useState<string | null>(null); // Track which copy button was clicked
   const [revealedSecrets, setRevealedSecrets] = useState<Set<string>>(new Set()); // Track which secret keys are revealed
 
-  // Terminal container selection
-  const [terminalContainer, setTerminalContainer] = useState<string>('');
 
   // YAML Edit State
   const [isEditingYaml, setIsEditingYaml] = useState(false);
@@ -209,31 +205,9 @@ export const ResourceDrawer: React.FC = () => {
     setExpandedCmKey(null);
     setIsEditingYaml(false);
     setExpandedContainers(new Set()); // Reset expanded containers when resource changes
-    setTerminalContainer(''); // Reset terminal container selection
     setRevealedSecrets(new Set()); // Reset revealed secrets when resource changes
   }, [state.selectedResourceId, state.selectedResourceType]);
 
-  // Helper to get terminal target (for terminal tab)
-  const getTerminalTarget = (): { pod: Pod, containers: string[] } | null => {
-      if (!resource) return null;
-      if (state.selectedResourceType === 'pod') {
-          const p = resource as Pod;
-          if (!p.containers) return null;
-          return { pod: p, containers: p.containers.map(c => c.name) };
-      }
-      return null;
-  };
-
-  const terminalTarget = getTerminalTarget();
-
-  // Auto-select first container for terminal when tab is opened
-  useEffect(() => {
-      if (activeTab === 'terminal' && terminalTarget && terminalTarget.containers.length > 0) {
-          if (!terminalContainer || !terminalTarget.containers.includes(terminalContainer)) {
-              setTerminalContainer(terminalTarget.containers[0]);
-          }
-      }
-  }, [activeTab, terminalTarget, terminalContainer]);
 
   // Handle Cmd/Ctrl+F for YAML search
   useEffect(() => {
@@ -1533,7 +1507,6 @@ export const ResourceDrawer: React.FC = () => {
   };
 
   const showEventsTab = state.selectedResourceType !== 'event';
-  const showTerminalTab = state.selectedResourceType === 'pod';
 
   const getEventsToDisplay = () => {
     if (!resource) return [];
@@ -1624,7 +1597,6 @@ export const ResourceDrawer: React.FC = () => {
       <div className="flex border-b border-gray-800 px-6 bg-gray-900">
         <button onClick={() => setActiveTab('details')} className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide ${activeTab === 'details' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>Details</button>
         <button onClick={() => setActiveTab('yaml')} className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide ${activeTab === 'yaml' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>YAML</button>
-        {showTerminalTab && (<button onClick={() => setActiveTab('terminal')} className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide ${activeTab === 'terminal' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>Terminal</button>)}
         {showEventsTab && (<button onClick={() => setActiveTab('events')} className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide ${activeTab === 'events' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>Events</button>)}
       </div>
 
@@ -1671,8 +1643,81 @@ export const ResourceDrawer: React.FC = () => {
             )}
             {state.selectedResourceType === 'pod' && (
               <div className="flex gap-2 mb-4">
-                 {(resource as Pod).containers.length === 1 ? (
-                   // Single container: direct button
+                 {(() => {
+                   // Helper to find the workload for this pod
+                   const findWorkloadForPod = (pod: Pod): string => {
+                     if (!pod.ownerReferences || pod.ownerReferences.length === 0) {
+                       return ''; // Standalone pod
+                     }
+
+                     const owner = pod.ownerReferences[0];
+                     const ownerKind = owner.kind.toLowerCase();
+
+                     if (ownerKind === 'replicaset') {
+                       // For ReplicaSets, find the parent Deployment
+                       const rs = state.replicaSets.find(r => r.id === owner.uid);
+                       if (rs?.ownerReferences) {
+                         const deploymentOwner = rs.ownerReferences.find(o => o.kind.toLowerCase() === 'deployment');
+                         if (deploymentOwner) {
+                           const deployment = state.deployments.find(d => d.id === deploymentOwner.uid);
+                           if (deployment) {
+                             return `${deployment.namespace}/${deployment.name}`;
+                           }
+                         }
+                       }
+                     } else if (ownerKind === 'statefulset') {
+                       const statefulSet = state.statefulSets.find(s => s.id === owner.uid);
+                       if (statefulSet) {
+                         return `${statefulSet.namespace}/${statefulSet.name}`;
+                       }
+                     } else if (ownerKind === 'daemonset') {
+                       const daemonSet = state.daemonSets.find(d => d.id === owner.uid);
+                       if (daemonSet) {
+                         return `${daemonSet.namespace}/${daemonSet.name}`;
+                       }
+                     }
+
+                     return '';
+                   };
+
+                   const workloadName = findWorkloadForPod(resource as Pod);
+
+                   // Helper to open terminal for a specific container
+                   const handleOpenTerminal = (containerName: string) => {
+                     // Check terminal tab limit
+                     if (state.terminalTabs.length >= 3) {
+                       dispatch({
+                         type: 'OPEN_CONFIRMATION_MODAL',
+                         payload: {
+                           title: 'Terminal Tab Limit Reached',
+                           message: 'You can have a maximum of 3 terminal tabs open. Please close an existing terminal tab before opening a new one.',
+                           onConfirm: () => {
+                             dispatch({ type: 'CLOSE_CONFIRMATION_MODAL' });
+                           }
+                         }
+                       });
+                       return;
+                     }
+
+                     const terminalId = `term-${Date.now()}`;
+                     dispatch({
+                       type: 'ADD_TERMINAL_TAB',
+                       payload: {
+                         id: terminalId,
+                         workloadName: workloadName,
+                         podName: resource.name,
+                         namespace: resource.namespace,
+                         container: containerName,
+                         shell: '/bin/sh'
+                       }
+                     });
+                     // Close drawer after opening terminal
+                     dispatch({ type: 'CLOSE_DRAWER' });
+                   };
+
+                   return (resource as Pod).containers.length === 1 ? (
+                   // Single container: direct buttons
+                   <>
                    <button
                      onClick={() => {
                        dispatch({
@@ -1690,8 +1735,17 @@ export const ResourceDrawer: React.FC = () => {
                    >
                      <FileText size={14} className="mr-2" /> LOGS
                    </button>
+                   <button
+                     onClick={() => handleOpenTerminal((resource as Pod).containers[0].name)}
+                     className="flex-1 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-blue-300"
+                     title="Open terminal to container"
+                   >
+                     <Terminal size={14} className="mr-2" /> TERMINAL
+                   </button>
+                   </>
                  ) : (
-                   // Multiple containers: dropdown
+                   // Multiple containers: dropdowns
+                   <>
                    <div className="relative flex-1">
                      <button
                        onClick={(e) => {
@@ -1729,7 +1783,36 @@ export const ResourceDrawer: React.FC = () => {
                        ))}
                      </div>
                    </div>
-                 )}
+                   <div className="relative flex-1">
+                     <button
+                       onClick={(e) => {
+                         e.stopPropagation();
+                         const btn = e.currentTarget;
+                         const dropdown = btn.nextElementSibling as HTMLElement;
+                         if (dropdown) {
+                           dropdown.classList.toggle('hidden');
+                         }
+                       }}
+                       className="w-full bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800 rounded py-1.5 flex items-center justify-center text-sm transition-colors text-blue-300"
+                       title="Open terminal"
+                     >
+                       <Terminal size={14} className="mr-2" /> TERMINAL ▾
+                     </button>
+                     <div className="hidden absolute top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-700 rounded shadow-lg z-50 max-h-48 overflow-y-auto">
+                       {(resource as Pod).containers.map(container => (
+                         <button
+                           key={container.name}
+                           onClick={() => handleOpenTerminal(container.name)}
+                           className="w-full px-3 py-2 text-left text-sm text-gray-200 hover:bg-gray-700 transition-colors"
+                         >
+                           {container.name}
+                         </button>
+                       ))}
+                     </div>
+                   </div>
+                   </>
+                 );
+                 })()}
               </div>
             )}
 
@@ -2068,32 +2151,6 @@ export const ResourceDrawer: React.FC = () => {
                     );
                 }))}
             </div>
-        )}
-        {activeTab === 'terminal' && (
-            <div className="flex-1 flex flex-col -mx-6 -mb-6 h-full overflow-hidden">
-                <div className="bg-gray-850 px-6 py-2 border-b border-gray-800 flex-shrink-0">
-                  <span className="text-xs text-gray-500 font-bold uppercase tracking-widest">
-                    Interactive Shell - {resource.name}
-                  </span>
-                    <br/>
-                    {terminalTarget && terminalTarget.containers.length > 1 && (
-                    <select
-                      className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-blue-500"
-                      value={terminalContainer}
-                      onChange={(e) => setTerminalContainer(e.target.value)}
-                    >
-                      {terminalTarget.containers.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  )}
-                </div>
-                <div className="flex-1 relative overflow-hidden">
-                  {terminalTarget && terminalTarget.containers.length > 0 && (
-                    <PodTerminal
-                      wsUrl={`${BACKEND_WS_BASE_URL}/exec?ns=${resource.namespace}&pod=${resource.name}&container=${terminalContainer}&shell=/bin/sh`}
-                    />
-                  )}
-                </div>
-              </div>
         )}
       </div>
     </div>

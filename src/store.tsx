@@ -157,6 +157,8 @@ const initialState: AppState = {
   logsTarget: null,
   logsTabs: storedLogsTabs.tabs,
   activeLogsTabId: storedLogsTabs.activeTabId,
+  terminalTabs: [],
+  activeTerminalTabId: '',
   isStoreInitialized: false,
 };
 
@@ -434,6 +436,20 @@ function reducer(state: AppState, action: Action): AppState {
       const defaultTab = createEmptyLogsTab('logs-1');
       saveLogsTabs([defaultTab], defaultTab.id);
       return { ...state, logsTabs: [defaultTab], activeLogsTabId: defaultTab.id };
+    }
+    case 'ADD_TERMINAL_TAB': {
+      const newTabs = [...state.terminalTabs, action.payload];
+      return { ...state, terminalTabs: newTabs, activeTerminalTabId: action.payload.id };
+    }
+    case 'REMOVE_TERMINAL_TAB': {
+      const newTabs = state.terminalTabs.filter(t => t.id !== action.payload);
+      const newActiveId = state.activeTerminalTabId === action.payload && newTabs.length > 0
+        ? newTabs[0].id
+        : state.activeTerminalTabId;
+      return { ...state, terminalTabs: newTabs, activeTerminalTabId: newActiveId };
+    }
+    case 'SET_ACTIVE_TERMINAL_TAB': {
+      return { ...state, activeTerminalTabId: action.payload };
     }
     case 'SET_AWS_SSO_LOGIN_REQUIRED': return { ...state, awsSsoLoginRequired: action.payload, isVerifyingConnection: false };
     case 'SET_EXTERNAL_CONTEXT_MISMATCH': {
