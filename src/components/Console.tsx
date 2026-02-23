@@ -3,7 +3,7 @@ import { useStore } from '../store';
 import { Terminal, FileText, ExternalLink, Plus, X } from 'lucide-react';
 import { LogsPanel } from './LogsPanel';
 
-export const TerminalPanel: React.FC = () => {
+export const ConsolePanel: React.FC = () => {
     const { state, dispatch } = useStore();
     const bottomRef = React.useRef<HTMLDivElement>(null);
 
@@ -143,7 +143,7 @@ export const TerminalPanel: React.FC = () => {
                 if (!isOpen) {
                     // Window not open, switch to docked mode
                     setIsLogsMode('docked');
-                    // Keep terminal tab active initially
+                    // Keep console tab active initially
                 }
                 // If isOpen is true, stay in 'window' mode
             });
@@ -233,9 +233,9 @@ export const TerminalPanel: React.FC = () => {
               className={`flex items-center text-xs font-bold uppercase tracking-wider transition-colors ${
                 activeTab === 'terminal' || isLogsMode === 'window' ? 'text-blue-400' : 'text-gray-400 hover:text-gray-300'
               }`}
-              title="Terminal output"
+              title="Application console output"
             >
-              <Terminal size={12} className="mr-2" /> Terminal
+              <Terminal size={12} className="mr-2" /> Console
             </button>
 
             {/* Logs tabs - only show when docked (not when logs are in separate window) */}

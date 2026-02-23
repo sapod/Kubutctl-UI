@@ -6,7 +6,7 @@ import { LogsPanel } from './components/LogsPanel';
 import { ConnectionVerificationOverlay } from './components/ConnectionVerificationOverlay';
 import { INACTIVITY_THRESHOLD_MS } from './consts';
 import {
-    Sidebar, TerminalPanel, ResourceDrawer, ClusterHotbar, AddClusterModal,
+    Sidebar, ConsolePanel, ResourceDrawer, ClusterHotbar, AddClusterModal,
     NamespaceSelector, ClusterCatalogModal, PortForwardModal, ShellModal, ConfirmationModal,
     ReplaceLogsTabModal, RoutineModal, ErrorBanner, UpdateNotification, WelcomeScreen,
     OverviewPage, NodesPage, PodsPage, DeploymentsPage, ReplicaSetsPage, DaemonSetsPage, StatefulSetsPage,
@@ -299,8 +299,8 @@ const MainLayout = () => {
                {!hasValidCluster ? <WelcomeScreen /> : renderView()}
             </div>
 
-            {/* Terminal Panel - Only show when cluster is selected */}
-            {hasValidCluster && <TerminalPanel />}
+            {/* Console Panel - Only show when cluster is selected */}
+            {hasValidCluster && <ConsolePanel />}
         </div>
 
         {/* Overlays */}
