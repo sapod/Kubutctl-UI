@@ -449,6 +449,7 @@ export type Action =
   | { type: 'ADD_TERMINAL_TAB'; payload: TerminalTabState }
   | { type: 'REMOVE_TERMINAL_TAB'; payload: string }
   | { type: 'SET_ACTIVE_TERMINAL_TAB'; payload: string }
+  | { type: 'RESET_TERMINAL_TABS' }
   | { type: 'SET_AWS_SSO_LOGIN_REQUIRED'; payload: boolean }
   | { type: 'SET_EXTERNAL_CONTEXT_MISMATCH'; payload: boolean }
   | { type: 'UPDATE_RESOURCE'; payload: { id: string; type: string; data: any } };

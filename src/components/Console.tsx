@@ -40,14 +40,19 @@ export const ConsolePanel: React.FC = () => {
         }
 
         const saved = localStorage.getItem('terminalActiveTab');
-        // If last active tab was a terminal tab, reset to console since terminal tabs don't persist
+        // If last active tab was a terminal tab, check if there are actually terminal tabs
         if (saved === 'terminalTab') {
-            setActiveTab('terminal');
+            // If there are terminal tabs restored, show them; otherwise reset to console
+            if (state.terminalTabs.length > 0) {
+                setActiveTab('terminalTab');
+            } else {
+                setActiveTab('terminal');
+            }
         } else if (saved === 'logs' || saved === 'terminal') {
             setActiveTab(saved as 'terminal' | 'logs' | 'terminalTab');
         }
         hasRestoredRef.current = true;
-    }, [state.isStoreInitialized]);
+    }, [state.isStoreInitialized, state.terminalTabs.length]);
 
     // Save activeTab to localStorage whenever it changes (but only after restoration)
     useEffect(() => {
