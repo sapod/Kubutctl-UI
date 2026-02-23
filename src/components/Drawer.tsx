@@ -8,6 +8,7 @@ import { Box, X, Globe, ArrowRightCircle, Container as ContainerIcon, Network,
     Key, Copy, Check, Search, Eye, EyeOff, Terminal } from 'lucide-react';
 import { StatusBadge, getAge, isMatch, resolvePortName, parseCpu, parseMemory } from './Shared';
 import yaml from 'js-yaml';
+import { FileExplorer } from './FileExplorer';
 
 // --- Drawer Table Component ---
 export const DrawerTable = ({ columns, data, onRowClick, storageKey, defaultSort }: {
@@ -143,7 +144,7 @@ const formatCreationTime = (timestamp: string) => {
 // --- Drawer (Resource Details) ---
 export const ResourceDrawer: React.FC = () => {
   const { state, dispatch } = useStore();
-  const [activeTab, setActiveTab] = useState<'details' | 'yaml' | 'events' | 'terminal'>('details');
+  const [activeTab, setActiveTab] = useState<'details' | 'yaml' | 'events' | 'terminal' | 'files'>('details');
   const [expandedCmKey, setExpandedCmKey] = useState<string | null>(null);
   const [expandedContainers, setExpandedContainers] = useState<Set<number>>(new Set());
   const [copiedId, setCopiedId] = useState<string | null>(null); // Track which copy button was clicked
@@ -1507,6 +1508,7 @@ export const ResourceDrawer: React.FC = () => {
   };
 
   const showEventsTab = state.selectedResourceType !== 'event';
+  const showFilesTab = state.selectedResourceType === 'persistentvolume';
 
   const getEventsToDisplay = () => {
     if (!resource) return [];
@@ -1597,6 +1599,7 @@ export const ResourceDrawer: React.FC = () => {
       <div className="flex border-b border-gray-800 px-6 bg-gray-900">
         <button onClick={() => setActiveTab('details')} className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide ${activeTab === 'details' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>Details</button>
         <button onClick={() => setActiveTab('yaml')} className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide ${activeTab === 'yaml' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>YAML</button>
+        {showFilesTab && (<button onClick={() => setActiveTab('files')} className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide ${activeTab === 'files' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>Files</button>)}
         {showEventsTab && (<button onClick={() => setActiveTab('events')} className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors uppercase tracking-wide ${activeTab === 'events' ? 'border-blue-500 text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>Events</button>)}
       </div>
 
@@ -2150,6 +2153,16 @@ export const ResourceDrawer: React.FC = () => {
                     </div>
                     );
                 }))}
+            </div>
+        )}
+        {activeTab === 'files' && state.selectedResourceType === 'persistentvolume' && (
+            <div className="flex-1 -mx-6 -mb-6 flex flex-col overflow-hidden">
+                <div className="flex-1 overflow-hidden px-6">
+                    <FileExplorer 
+                        pvName={resource.name}
+                        namespace={resource.namespace || 'default'}
+                    />
+                </div>
             </div>
         )}
       </div>
