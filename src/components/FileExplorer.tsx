@@ -11,16 +11,39 @@ interface FileItem {
 }
 
 interface FileExplorerProps {
-  pvName: string;
+  resourceType: 'pv' | 'pod';
+  resourceName: string;
   namespace: string;
+  rootPath?: string;
+  containers?: string[];
 }
 
-export const FileExplorer: React.FC<FileExplorerProps> = ({ pvName, namespace }) => {
-  const [currentPath, setCurrentPath] = useState('/');
+export const FileExplorer: React.FC<FileExplorerProps> = ({
+  resourceType,
+  resourceName,
+  namespace,
+  rootPath = '/',
+  containers = []
+}) => {
+  // Calculate initial container and path
+  const initialContainer = containers[0] || '';
+  // For pods, use __WORKDIR__ placeholder to let the container use its default working directory
+  const initialPath = resourceType === 'pod' ? '__WORKDIR__' : rootPath;
+
+  const [selectedContainer, setSelectedContainer] = useState<string>(initialContainer);
+  const [currentPath, setCurrentPath] = useState(initialPath);
   const [files, setFiles] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [downloadingPaths, setDownloadingPaths] = useState<Set<string>>(new Set());
+
+  // Effect to update path when container selection changes
+  useEffect(() => {
+    if (resourceType === 'pod' && selectedContainer) {
+      // When switching containers in a pod, go back to the working directory
+      setCurrentPath('__WORKDIR__');
+    }
+  }, [selectedContainer]);
 
   // Fetch files for the current path
   const fetchFiles = async (path: string) => {
@@ -28,14 +51,23 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ pvName, namespace })
     setError(null);
 
     try {
-      const response = await fetch(`${BACKEND_BASE_URL}/api/pv/files?pvName=${encodeURIComponent(pvName)}&namespace=${encodeURIComponent(namespace)}&path=${encodeURIComponent(path)}`);
+      const containerParam = selectedContainer ? `&container=${encodeURIComponent(selectedContainer)}` : '';
+      const response = await fetch(
+        `${BACKEND_BASE_URL}/api/files?resourceType=${resourceType}&resourceName=${encodeURIComponent(resourceName)}&namespace=${encodeURIComponent(namespace)}&path=${encodeURIComponent(path)}${containerParam}`
+      );
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch files: ${response.statusText}`);
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Failed to fetch files: ${response.statusText}`);
       }
 
       const data = await response.json();
       setFiles(data.files || []);
+
+      // If the response includes actualPath (from __WORKDIR__ resolution), update currentPath
+      if (data.actualPath && path === '__WORKDIR__') {
+        setCurrentPath(data.actualPath);
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to load files');
       setFiles([]);
@@ -47,7 +79,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ pvName, namespace })
   // Load files when component mounts or path changes
   useEffect(() => {
     fetchFiles(currentPath);
-  }, [currentPath, pvName, namespace]);
+  }, [currentPath, resourceName, namespace, resourceType, selectedContainer]);
 
   // Navigate to a directory
   const navigateToDirectory = (dirPath: string) => {
@@ -56,10 +88,11 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ pvName, namespace })
 
   // Go up one directory
   const navigateUp = () => {
-    if (currentPath === '/') return;
+    if (currentPath === '/' || currentPath === '__WORKDIR__') return;
     const parts = currentPath.split('/').filter(Boolean);
     parts.pop();
-    setCurrentPath('/' + parts.join('/'));
+    const newPath = '/' + parts.join('/');
+    setCurrentPath(newPath === '' ? (resourceType === 'pod' ? '__WORKDIR__' : '/') : newPath);
   };
 
   // Download a file or folder
@@ -67,14 +100,16 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ pvName, namespace })
     setDownloadingPaths(prev => new Set(prev).add(item.path));
 
     try {
-      const endpoint = item.isDirectory
-        ? `/api/pv/download-folder`
-        : `/api/pv/download-file`;
+      const endpoint = item.isDirectory ? '/api/download-folder' : '/api/download-file';
+      const containerParam = selectedContainer ? `&container=${encodeURIComponent(selectedContainer)}` : '';
 
-      const response = await fetch(`${BACKEND_BASE_URL}${endpoint}?pvName=${encodeURIComponent(pvName)}&namespace=${encodeURIComponent(namespace)}&path=${encodeURIComponent(item.path)}`);
+      const response = await fetch(
+        `${BACKEND_BASE_URL}${endpoint}?resourceType=${resourceType}&resourceName=${encodeURIComponent(resourceName)}&namespace=${encodeURIComponent(namespace)}&path=${encodeURIComponent(item.path)}${containerParam}`
+      );
 
       if (!response.ok) {
-        throw new Error(`Download failed: ${response.statusText}`);
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Download failed: ${response.statusText}`);
       }
 
       // Get filename from Content-Disposition header or use default
@@ -136,6 +171,23 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ pvName, namespace })
 
   // Render breadcrumb navigation
   const renderBreadcrumbs = () => {
+    // Handle __WORKDIR__ placeholder - only show when we're still at the placeholder
+    if (currentPath === '__WORKDIR__') {
+      return (
+        <div className="flex items-center gap-2 text-sm mb-4">
+          <button
+            onClick={() => setCurrentPath('/')}
+            className="flex items-center gap-1 text-blue-400 hover:text-blue-300 transition-colors"
+            title="Go to root"
+          >
+            <Home size={14} />
+            <span>loading...</span>
+          </button>
+        </div>
+      );
+    }
+
+    // Normal path rendering
     const parts = currentPath.split('/').filter(Boolean);
 
     return (
@@ -174,7 +226,23 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({ pvName, namespace })
         {renderBreadcrumbs()}
 
         <div className="flex items-center gap-2">
-          {currentPath !== '/' && (
+          {/* Container selector for multi-container pods */}
+          {resourceType === 'pod' && containers.length > 1 && (
+            <select
+              value={selectedContainer}
+              onChange={(e) => setSelectedContainer(e.target.value)}
+              className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded text-xs text-gray-300 border border-gray-700 transition-colors"
+              title="Select container"
+            >
+              {containers.map((container) => (
+                <option key={container} value={container}>
+                  {container}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {currentPath !== '/' && currentPath !== '__WORKDIR__' && (
             <button
               onClick={navigateUp}
               className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 rounded text-xs text-gray-300 transition-colors"

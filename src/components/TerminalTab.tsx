@@ -118,7 +118,7 @@ export default function TerminalTab({ tab, backendWsBaseUrl }: Props) {
   }, []);
 
   return (
-    <div ref={containerRef} className="flex flex-col h-full overflow-hidden">
+    <div ref={containerRef} className="flex flex-col h-full w-full overflow-hidden">
       {/* Header with workload/pod/container info */}
       <div className="bg-gray-900 border-b border-gray-800 px-4 py-2 flex flex-wrap items-center gap-4 text-xs flex-shrink-0">
         {tab.workloadName && (
@@ -133,7 +133,7 @@ export default function TerminalTab({ tab, backendWsBaseUrl }: Props) {
         <span className="text-gray-200">{tab.container}</span>
       </div>
       {/* Terminal */}
-      <div ref={termRef} className="flex-1 w-full overflow-hidden" />
+      <div ref={termRef} className="flex-1 w-full overflow-hidden" style={{ minHeight: 0 }} />
     </div>
   );
 }

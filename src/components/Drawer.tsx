@@ -452,9 +452,8 @@ export const ResourceDrawer: React.FC = () => {
     dispatch({ type: 'DRILL_DOWN_RESOURCE', payload: { id, type } });
   };
 
-  const copyToClipboard = (text: string, id: string, label: string = 'Text') => {
+  const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text).then(() => {
-      console.log(`${label} copied to clipboard: ${text}`);
       // Show copied indicator
       setCopiedId(id);
       // Hide after 2 seconds
@@ -719,7 +718,7 @@ export const ResourceDrawer: React.FC = () => {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          copyToClipboard(rule.host || '*', `ingress-host-${i}`, 'Host');
+                          copyToClipboard(rule.host || '*', `ingress-host-${i}`);
                         }}
                         className="text-gray-600 hover:text-blue-400 transition-colors"
                         title="Copy host"
@@ -1508,7 +1507,7 @@ export const ResourceDrawer: React.FC = () => {
   };
 
   const showEventsTab = state.selectedResourceType !== 'event';
-  const showFilesTab = state.selectedResourceType === 'persistentvolume';
+  const showFilesTab = state.selectedResourceType === 'persistentvolume' || state.selectedResourceType === 'pod';
 
   const getEventsToDisplay = () => {
     if (!resource) return [];
@@ -1574,7 +1573,7 @@ export const ResourceDrawer: React.FC = () => {
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    copyToClipboard(resource.name, 'resource-name', 'Resource name');
+                    copyToClipboard(resource.name, 'resource-name');
                   }}
                   className="text-gray-500 hover:text-blue-400 transition-colors flex-shrink-0"
                   title="Copy resource name"
@@ -2155,12 +2154,18 @@ export const ResourceDrawer: React.FC = () => {
                 }))}
             </div>
         )}
-        {activeTab === 'files' && state.selectedResourceType === 'persistentvolume' && (
+        {activeTab === 'files' && (state.selectedResourceType === 'persistentvolume' || state.selectedResourceType === 'pod') && (
             <div className="flex-1 -mx-6 -mb-6 flex flex-col overflow-hidden">
                 <div className="flex-1 overflow-hidden px-6">
-                    <FileExplorer 
-                        pvName={resource.name}
+                    <FileExplorer
+                        resourceType={state.selectedResourceType === 'persistentvolume' ? 'pv' : 'pod'}
+                        resourceName={resource.name}
                         namespace={resource.namespace || 'default'}
+                        rootPath='/'
+                        containers={state.selectedResourceType === 'pod'
+                            ? (resource as any).containers?.map((c: any) => c.name) || []
+                            : []
+                        }
                     />
                 </div>
             </div>

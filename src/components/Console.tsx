@@ -409,14 +409,14 @@ export const ConsolePanel: React.FC = () => {
 
         {/* Terminal tab content - render ALL terminals always but only show when active */}
         {state.terminalTabs.length > 0 && (
-          <div 
+          <div
             className="flex-1 overflow-hidden relative"
-            style={{ display: activeTab === 'terminalTab' ? 'flex' : 'none' }}
+            style={{ display: activeTab === 'terminalTab' ? 'flex' : 'none', minHeight: 0 }}
           >
             {state.terminalTabs.map((tab) => (
               <div
                 key={tab.id}
-                className="absolute inset-0"
+                className="absolute inset-0 overflow-hidden"
                 style={{ display: tab.id === state.activeTerminalTabId ? 'block' : 'none' }}
               >
                 <TerminalTab

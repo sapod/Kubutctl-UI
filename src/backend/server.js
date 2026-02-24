@@ -326,10 +326,10 @@ app.post('/api/port-forward/start', (req, res) => {
     let stderrOutput = '';
     let capturedPort = null;
     let responded = false;
-    
+
     // Check if using random port (port 0) - look for "0:xxxx" in any argument
     const isRandomPort = commandArgs.some(arg => String(arg).match(/^0:\d+$/));
-    
+
     // Function to send success response (defined first so tryCapturingPort can use it)
     const sendSuccessResponse = () => {
         if (responded) return;
@@ -363,16 +363,16 @@ app.post('/api/port-forward/start', (req, res) => {
         }
         res.json(response);
     };
-    
+
     // Function to try capturing port from output
     const tryCapturingPort = (output, source) => {
         if (capturedPort) return; // Already captured
-        
+
         // kubectl outputs: "Forwarding from 127.0.0.1:xxxxx -> yyyy" or "Forwarding from [::1]:xxxxx -> yyyy"
         const match = output.match(/Forwarding from .*?:(\d+)/);
         if (match) {
             capturedPort = parseInt(match[1], 10);
-            
+
             // If using random port, respond immediately after capturing
             if (isRandomPort) {
                 clearTimeout(startupCheck);
@@ -380,12 +380,12 @@ app.post('/api/port-forward/start', (req, res) => {
             }
         }
     };
-    
+
     const onStderr = (data) => {
         const output = data.toString();
         stderrOutput += output;
         if (DEBUG) console.error(`[PF-Err ${pid}]: ${output}`);
-        
+
         // Try to capture port from stderr too (kubectl sometimes outputs here)
         tryCapturingPort(output, 'stderr');
     };
@@ -399,7 +399,7 @@ app.post('/api/port-forward/start', (req, res) => {
     const onStdout = (data) => {
         const output = data.toString();
         if (DEBUG) console.log(`[PF-Out ${pid}]: ${output}`);
-        
+
         // Try to capture port from stdout
         tryCapturingPort(output, 'stdout');
     };
@@ -642,10 +642,10 @@ wss.on('connection', async (ws, req) => {
 // Helper function to find a pod that mounts a specific PV
 const findPodForPV = (pvName, namespace, callback) => {
     console.log(`[findPodForPV] Looking for PV: ${pvName}`);
-    
+
     // Step 1: Get the PV to find which PVC is bound to it
     const getPvCommand = `${kubectlPath} get pv ${pvName} -o json`;
-    
+
     exec(getPvCommand, { maxBuffer: 1024 * 1024 * 10 }, (error, pvStdout) => {
         if (error) {
             console.error(`[findPodForPV] Failed to get PV:`, error.message);
@@ -671,160 +671,148 @@ const findPodForPV = (pvName, namespace, callback) => {
             return callback(new Error('PV is not bound to any PVC'), null);
         }
 
-        // Step 2: Find pods using this specific PVC
-        const findPodCommand = `${kubectlPath} get pods -n ${pvcNamespace} -o json`;
-        
-        exec(findPodCommand, { maxBuffer: 1024 * 1024 * 10 }, (error, stdout) => {
-            if (error) {
-                console.error(`[findPodForPV] Failed to get pods:`, error.message);
-                return callback(new Error(`Failed to find pods: ${error.message}`), null);
+        // Step 2: Get the PVC to check for labels
+        const getPvcCommand = `${kubectlPath} get pvc ${pvcName} -n ${pvcNamespace} -o json`;
+
+        exec(getPvcCommand, { maxBuffer: 1024 * 1024 * 10 }, (error, pvcStdout) => {
+            let appLabel = null;
+
+            if (!error) {
+                try {
+                    const pvc = JSON.parse(pvcStdout);
+                    appLabel = pvc.metadata?.labels?.app;
+                    if (appLabel) {
+                        console.log(`[findPodForPV] Found app label on PVC: ${appLabel}`);
+                    }
+                } catch (e) {
+                    console.log(`[findPodForPV] Could not parse PVC, will search all pods`);
+                }
             }
 
-            let pods;
-            try {
-                const result = JSON.parse(stdout);
-                pods = result.items || [];
-                console.log(`[findPodForPV] Found ${pods.length} pods in namespace ${pvcNamespace}`);
-            } catch (e) {
-                console.error(`[findPodForPV] Failed to parse pods JSON:`, e.message);
-                return callback(new Error('Failed to parse pod list'), null);
-            }
+            // Helper function to search for pods
+            const searchPods = (labelSelector, fallbackToAll = false) => {
+                let labelSelectorCmd = labelSelector ? ` -l ${labelSelector}` : '';
+                const findPodCommand = `${kubectlPath} get pods -n ${pvcNamespace} --field-selector=status.phase=Running${labelSelectorCmd} -o json`;
 
-            // Find a running pod that uses this specific PVC
-            let targetPod = null;
-            let mountPath = null;
+                exec(findPodCommand, { maxBuffer: 1024 * 1024 * 50 }, (error, stdout) => {
+                    if (error) {
+                        console.error(`[findPodForPV] Failed to get pods:`, error.message);
+                        return callback(new Error(`Failed to find pods: ${error.message}`), null);
+                    }
 
-            for (const pod of pods) {
-                if (pod.status?.phase !== 'Running') continue;
-                
-                const volumes = pod.spec?.volumes || [];
-                for (const volume of volumes) {
-                    if (volume.persistentVolumeClaim?.claimName === pvcName) {
-                        console.log(`[findPodForPV] Pod ${pod.metadata.name} uses PVC ${pvcName}`);
-                        const containers = pod.spec?.containers || [];
-                        for (const container of containers) {
-                            const volumeMounts = container.volumeMounts || [];
-                            for (const mount of volumeMounts) {
-                                if (mount.name === volume.name) {
-                                    targetPod = pod.metadata.name;
-                                    mountPath = mount.mountPath;
-                                    console.log(`[findPodForPV] Using pod: ${targetPod}, mount: ${mountPath}`);
-                                    break;
+                    let pods;
+                    try {
+                        const result = JSON.parse(stdout);
+                        pods = result.items || [];
+                        console.log(`[findPodForPV] Found ${pods.length} running pods`);
+                    } catch (e) {
+                        console.error(`[findPodForPV] Failed to parse pods JSON:`, e.message);
+                        return callback(new Error('Failed to parse pod list'), null);
+                    }
+
+                    // Find a running pod that uses this specific PVC
+                    let targetPod = null;
+                    let mountPath = null;
+                    let targetContainer = null;
+
+                    for (const pod of pods) {
+                        const volumes = pod.spec?.volumes || [];
+                        for (const volume of volumes) {
+                            if (volume.persistentVolumeClaim?.claimName === pvcName) {
+                                console.log(`[findPodForPV] Pod ${pod.metadata.name} uses PVC ${pvcName}`);
+                                const containers = pod.spec?.containers || [];
+                                for (const container of containers) {
+                                    const volumeMounts = container.volumeMounts || [];
+                                    for (const mount of volumeMounts) {
+                                        if (mount.name === volume.name) {
+                                            targetPod = pod.metadata.name;
+                                            targetContainer = container.name;
+                                            mountPath = mount.mountPath;
+                                            console.log(`[findPodForPV] Using pod: ${targetPod}, container: ${targetContainer}, mount: ${mountPath}`);
+                                            break;
+                                        }
+                                    }
+                                    if (targetPod) break;
                                 }
                             }
                             if (targetPod) break;
                         }
+                        if (targetPod) break;
                     }
-                    if (targetPod) break;
-                }
-                if (targetPod) break;
-            }
 
-            if (!targetPod || !mountPath) {
-                console.error(`[findPodForPV] No running pod found using PVC ${pvcName}`);
-                return callback(
-                    new Error(`No running pod found using PVC "${pvcName}". Deploy a pod that mounts this PVC to browse its files.`),
-                    null
-                );
-            }
+                    // If no pod found and we were using label selector, try without label selector
+                    if (!targetPod && labelSelector && fallbackToAll) {
+                        console.log(`[findPodForPV] No pod found with label selector, trying all pods`);
+                        return searchPods(null, false);
+                    }
 
-            console.log(`[findPodForPV] Success - pod: ${targetPod}, mountPath: ${mountPath}`);
-            callback(null, { podName: targetPod, mountPath, namespace: pvcNamespace });
+                    if (!targetPod || !mountPath) {
+                        console.error(`[findPodForPV] No running pod found using PVC ${pvcName}`);
+                        return callback(
+                            new Error(`No running pod found using PVC "${pvcName}". Deploy a pod that mounts this PVC to browse its files.`),
+                            null
+                        );
+                    }
+
+                    console.log(`[findPodForPV] Success - pod: ${targetPod}, container: ${targetContainer}, mountPath: ${mountPath}`);
+                    callback(null, { podName: targetPod, containerName: targetContainer, mountPath, namespace: pvcNamespace });
+                });
+            };
+
+            // Start search: first with app label if available, otherwise all pods
+            if (appLabel) {
+                searchPods(`app=${appLabel}`, true);
+            } else {
+                searchPods(null, false);
+            }
         });
     });
 };
 
-// List files in a PV path
-app.get('/api/pv/files', async (req, res) => {
-    const { pvName, namespace, path: targetPath } = req.query;
+// Helper function to list files in a pod - receives all parameters including res
+const listFilesInPod = (podName, podNamespace, fullPath, targetPath, container, res) => {
+    const containerArg = container ? `-c ${container}` : '';
 
-    if (!pvName || !namespace || !targetPath) {
-        return res.status(400).json({ error: 'Missing required parameters: pvName, namespace, path' });
-    }
+    // Helper to list files once we know the actual path
+    const performListing = (actualPath, responseMetadata = {}) => {
+        const pathArg = actualPath ? `"${actualPath}"` : '';
+        const lsCommand = `${kubectlPath} exec -n ${podNamespace} ${podName} ${containerArg} -- ls -la --full-time ${pathArg}`;
 
-    console.log(`[PV Files] Request for PV: ${pvName}, namespace: ${namespace}, path: ${targetPath}`);
-
-    findPodForPV(pvName, namespace, (err, podInfo) => {
-        if (err) {
-            console.error(`[PV Files] Error finding pod:`, err.message);
-            return res.status(404).json({ error: err.message });
-        }
-
-        const { podName: targetPod, mountPath, namespace: podNamespace } = podInfo;
-        console.log(`[PV Files] Found pod: ${targetPod}, mountPath: ${mountPath}, namespace: ${podNamespace}`);
-
-        // Construct the full path in the pod
-        const fullPath = targetPath === '/' ? mountPath : path.join(mountPath, targetPath);
-        console.log(`[PV Files] Listing path: ${fullPath}`);
-
-        // List files in the directory - use simpler ls command for better compatibility
-        const lsCommand = `${kubectlPath} exec -n ${podNamespace} ${targetPod} -- ls -la "${fullPath}"`;
-        
         exec(lsCommand, { maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
             if (error) {
-                console.error(`[PV Files] ls command failed:`, stderr || error.message);
-                console.error(`[PV Files] Full output:`, stdout);
-                
-                // Check if it's a permission error
                 const errorMsg = stderr || error.message || '';
                 if (errorMsg.includes('Forbidden') || errorMsg.includes('cannot create resource "pods/exec"')) {
-                    return res.status(403).json({ 
+                    return res.status(403).json({
                         error: `Permission denied: You don't have 'pods/exec' permission in namespace "${podNamespace}". Contact your cluster administrator to grant you access.`
                     });
                 }
-                
+
                 return res.status(500).json({ error: `Failed to list files: ${stderr || error.message}` });
             }
 
-            console.log(`[PV Files] ls output:`, stdout);
-
-            // Parse ls -la output
             const lines = stdout.split('\n').filter(line => line.trim());
             const files = [];
 
-            for (let i = 1; i < lines.length; i++) { // Skip first line (total)
+            // Use actualPath for building file paths, fallback to targetPath
+            const basePath = actualPath || targetPath;
+
+            for (let i = 1; i < lines.length; i++) {
                 const line = lines[i];
                 const parts = line.split(/\s+/);
-                
-                // ls -la output format (without --time-style):
-                // drwxr-xr-x 2 user group 4096 Feb 23 10:30 dirname
-                // -rw-r--r-- 1 user group 1234 Feb 23 10:30 filename
-                
-                if (parts.length < 8) continue;
-                
+
+                if (parts.length < 9) continue;
+
                 const permissions = parts[0];
-                
-                // Find where the filename starts (after time)
-                // Format: permissions links user group size month day time filename
-                // The filename is everything from index 8 onwards
-                let nameStartIdx = 8;
-                
-                // Handle year vs time in column 7
-                if (parts[7] && parts[7].includes(':')) {
-                    nameStartIdx = 8; // time format (HH:MM)
-                } else {
-                    nameStartIdx = 8; // year format (YYYY)
-                }
-                
+                const nameStartIdx = 8;
                 const name = parts.slice(nameStartIdx).join(' ');
-                
-                // Skip . and ..
+
                 if (name === '.' || name === '..') continue;
-                
+
                 const isDirectory = permissions.startsWith('d');
                 const size = parseInt(parts[4]) || 0;
-                
-                // Try to construct modification time from parts
-                let modTime = '';
-                try {
-                    // Month Day Time/Year
-                    modTime = `${parts[5]} ${parts[6]} ${parts[7]}`;
-                } catch (e) {
-                    modTime = '';
-                }
-                
-                const itemPath = targetPath === '/' ? `/${name}` : `${targetPath}/${name}`.replace('//', '/');
-                
+                const modTime = `${parts[5]} ${parts[6]} ${parts[7]}`;
+                const itemPath = basePath === '/' ? `/${name}` : `${basePath}/${name}`.replace('//', '/');
+
                 files.push({
                     name,
                     path: itemPath,
@@ -834,108 +822,185 @@ app.get('/api/pv/files', async (req, res) => {
                 });
             }
 
-            console.log(`[PV Files] Parsed ${files.length} files`);
-            res.json({ files });
+            res.json({ files, ...responseMetadata });
         });
-    });
+    };
+
+    // If fullPath is __WORKDIR__, first get the actual working directory with pwd
+    if (fullPath === '__WORKDIR__') {
+        const pwdCommand = `${kubectlPath} exec -n ${podNamespace} ${podName} ${containerArg} -- pwd`;
+
+        exec(pwdCommand, { maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+            if (error) {
+                // Fall back to listing without path
+                performListing('', {});
+            } else {
+                const actualWorkDir = stdout.trim();
+                // List files in the working directory and include the actual path in response
+                performListing(actualWorkDir, { actualPath: actualWorkDir });
+            }
+        });
+    } else {
+        // Normal path listing
+        performListing(fullPath, {});
+    }
+};
+
+// Unified file listing endpoint (handles both PV and Pod)
+app.get('/api/files', async (req, res) => {
+    const { resourceType, resourceName, namespace, path: targetPath, container } = req.query;
+
+    if (!resourceType || !resourceName || !namespace || !targetPath) {
+        return res.status(400).json({ error: 'Missing required parameters: resourceType, resourceName, namespace, path' });
+    }
+
+    if (resourceType !== 'pv' && resourceType !== 'pod') {
+        return res.status(400).json({ error: 'resourceType must be either "pv" or "pod"' });
+    }
+
+    if (resourceType === 'pod') {
+        // For pods, directly use the pod name and path
+        listFilesInPod(resourceName, namespace, targetPath, targetPath, container, res);
+    } else {
+        // For PVs, find a pod that mounts the PV
+        findPodForPV(resourceName, namespace, (err, podInfo) => {
+            if (err) {
+                return res.status(404).json({ error: err.message });
+            }
+
+            const { podName, containerName, mountPath, namespace: podNamespace } = podInfo;
+            const fullPath = targetPath === '/' ? mountPath : path.join(mountPath, targetPath);
+
+            listFilesInPod(podName, podNamespace, fullPath, targetPath, containerName, res);
+        });
+    }
 });
 
-// Download a single file from PV
-app.get('/api/pv/download-file', async (req, res) => {
-    const { pvName, namespace, path: targetPath } = req.query;
+// Helper function to download a file from a pod
+const downloadFileFromPod = (podName, podNamespace, fullPath, fileName, container, res) => {
+    // Use kubectl exec with cat instead of kubectl cp to avoid tar warnings in output
+    const containerArg = container ? `-c ${container}` : '';
+    const catCommand = `${kubectlPath} exec -n ${podNamespace} ${podName} ${containerArg} -- cat "${fullPath}"`;
 
-    if (!pvName || !namespace || !targetPath) {
+    const child = spawn('sh', ['-c', catCommand], {
+        stdio: ['ignore', 'pipe', 'pipe']
+    });
+
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Type', 'application/octet-stream');
+
+    child.stdout.pipe(res);
+
+    // Handle stderr for errors only
+    child.stderr.on('data', (data) => {
+        const errorMsg = data.toString();
+
+        // Only treat as error if it's a real error
+        if (errorMsg.includes('Forbidden') || errorMsg.includes('cannot create resource "pods/exec"') || errorMsg.includes('error:')) {
+            if (!res.headersSent) {
+                res.status(403).json({
+                    error: `Permission denied: You don't have 'pods/exec' permission in namespace "${podNamespace}".`
+                });
+            }
+        }
+    });
+
+    child.on('error', (err) => {
+        if (!res.headersSent) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+};
+
+// Unified file download endpoint (handles both PV and Pod)
+app.get('/api/download-file', async (req, res) => {
+    const { resourceType, resourceName, namespace, path: targetPath, container } = req.query;
+
+    if (!resourceType || !resourceName || !namespace || !targetPath) {
         return res.status(400).json({ error: 'Missing required parameters' });
     }
 
-    findPodForPV(pvName, namespace, (err, podInfo) => {
-        if (err) {
-            return res.status(404).json({ error: err.message });
-        }
+    if (resourceType !== 'pv' && resourceType !== 'pod') {
+        return res.status(400).json({ error: 'resourceType must be either "pv" or "pod"' });
+    }
 
-        const { podName: targetPod, mountPath, namespace: podNamespace } = podInfo;
-        const fullPath = targetPath === '/' ? mountPath : path.join(mountPath, targetPath);
-        const fileName = path.basename(targetPath);
+    const fileName = path.basename(targetPath);
 
-        // Use kubectl cp to download the file
-        const child = spawn(kubectlPath, ['cp', `${podNamespace}/${targetPod}:${fullPath}`, '-']);
-        
-        res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-        res.setHeader('Content-Type', 'application/octet-stream');
-        
-        child.stdout.pipe(res);
-        
-        child.stderr.on('data', (data) => {
-            const errorMsg = data.toString();
-            console.error('Download error:', errorMsg);
-            
-            // Check for permission errors
-            if (errorMsg.includes('Forbidden') || errorMsg.includes('cannot create resource "pods/exec"')) {
-                if (!res.headersSent) {
-                    res.status(403).json({ 
-                        error: `Permission denied: You don't have 'pods/exec' permission in namespace "${podNamespace}".`
-                    });
-                }
+    if (resourceType === 'pod') {
+        downloadFileFromPod(resourceName, namespace, targetPath, fileName, container, res);
+    } else {
+        findPodForPV(resourceName, namespace, (err, podInfo) => {
+            if (err) {
+                return res.status(404).json({ error: err.message });
             }
+
+            const { podName, containerName, mountPath, namespace: podNamespace } = podInfo;
+            const fullPath = targetPath === '/' ? mountPath : path.join(mountPath, targetPath);
+
+            downloadFileFromPod(podName, podNamespace, fullPath, fileName, containerName, res);
         });
-        
-        child.on('error', (err) => {
-            console.error('Download spawn error:', err);
-            if (!res.headersSent) {
-                res.status(500).json({ error: err.message });
-            }
-        });
-    });
+    }
 });
 
-// Download a folder as tar.gz from PV
-app.get('/api/pv/download-folder', async (req, res) => {
-    const { pvName, namespace, path: targetPath } = req.query;
+// Helper function to download a folder from a pod as tar.gz
+const downloadFolderFromPod = (podName, podNamespace, fullPath, folderName, container, res) => {
+    const containerArg = container ? `-c ${container}` : '';
+    const tarCommand = `${kubectlPath} exec -n ${podNamespace} ${podName} ${containerArg} -- sh -c 'tar czf - -C "${fullPath}" . 2>/dev/null'`;
 
-    if (!pvName || !namespace || !targetPath) {
+    const child = spawn('sh', ['-c', tarCommand]);
+
+    res.setHeader('Content-Disposition', `attachment; filename="${folderName}.tar.gz"`);
+    res.setHeader('Content-Type', 'application/gzip');
+
+    child.stdout.pipe(res);
+
+    child.stderr.on('data', (data) => {
+        const errorMsg = data.toString();
+
+        if (errorMsg.includes('Forbidden') || errorMsg.includes('cannot create resource "pods/exec"')) {
+            if (!res.headersSent) {
+                res.status(403).json({
+                    error: `Permission denied: You don't have 'pods/exec' permission in namespace "${podNamespace}".`
+                });
+            }
+        }
+    });
+
+    child.on('error', (err) => {
+        if (!res.headersSent) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+};
+
+// Unified folder download endpoint (handles both PV and Pod)
+app.get('/api/download-folder', async (req, res) => {
+    const { resourceType, resourceName, namespace, path: targetPath, container } = req.query;
+
+    if (!resourceType || !resourceName || !namespace || !targetPath) {
         return res.status(400).json({ error: 'Missing required parameters' });
     }
 
-    findPodForPV(pvName, namespace, (err, podInfo) => {
-        if (err) {
-            return res.status(404).json({ error: err.message });
-        }
+    if (resourceType !== 'pv' && resourceType !== 'pod') {
+        return res.status(400).json({ error: 'resourceType must be either "pv" or "pod"' });
+    }
 
-        const { podName: targetPod, mountPath, namespace: podNamespace } = podInfo;
-        const fullPath = targetPath === '/' ? mountPath : path.join(mountPath, targetPath);
-        const folderName = path.basename(targetPath) || 'root';
+    const folderName = path.basename(targetPath) || 'root';
 
-        // Create a tar archive in the pod and stream it
-        const tarCommand = `${kubectlPath} exec -n ${podNamespace} ${targetPod} -- tar czf - -C "${fullPath}" .`;
-        
-        const child = spawn('sh', ['-c', tarCommand]);
-        
-        res.setHeader('Content-Disposition', `attachment; filename="${folderName}.tar.gz"`);
-        res.setHeader('Content-Type', 'application/gzip');
-        
-        child.stdout.pipe(res);
-        
-        child.stderr.on('data', (data) => {
-            const errorMsg = data.toString();
-            console.error('Download folder error:', errorMsg);
-            
-            // Check for permission errors
-            if (errorMsg.includes('Forbidden') || errorMsg.includes('cannot create resource "pods/exec"')) {
-                if (!res.headersSent) {
-                    res.status(403).json({ 
-                        error: `Permission denied: You don't have 'pods/exec' permission in namespace "${podNamespace}".`
-                    });
-                }
+    if (resourceType === 'pod') {
+        downloadFolderFromPod(resourceName, namespace, targetPath, folderName, container, res);
+    } else {
+        findPodForPV(resourceName, namespace, (err, podInfo) => {
+            if (err) {
+                return res.status(404).json({ error: err.message });
             }
+
+            const { podName, containerName, mountPath, namespace: podNamespace } = podInfo;
+            const fullPath = targetPath === '/' ? mountPath : path.join(mountPath, targetPath);
+
+            downloadFolderFromPod(podName, podNamespace, fullPath, folderName, containerName, res);
         });
-        
-        child.on('error', (err) => {
-            console.error('Download folder spawn error:', err);
-            if (!res.headersSent) {
-                res.status(500).json({ error: err.message });
-            }
-        });
-    });
+    }
 });
 
 server.listen(port, () => {
