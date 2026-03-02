@@ -14,7 +14,6 @@ interface FileExplorerProps {
   resourceType: 'pv' | 'pod';
   resourceName: string;
   namespace: string;
-  rootPath?: string;
   containers?: string[];
 }
 
@@ -22,13 +21,13 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
   resourceType,
   resourceName,
   namespace,
-  rootPath = '/',
   containers = []
 }) => {
   // Calculate initial container and path
   const initialContainer = containers[0] || '';
   // For pods, use __WORKDIR__ placeholder to let the container use its default working directory
-  const initialPath = resourceType === 'pod' ? '__WORKDIR__' : rootPath;
+  // For PVs, use __MOUNTDIR__ placeholder to resolve the actual mount path
+  const initialPath = resourceType === 'pod' ? '__WORKDIR__' : '__MOUNTDIR__';
 
   const [selectedContainer, setSelectedContainer] = useState<string>(initialContainer);
   const [currentPath, setCurrentPath] = useState(initialPath);
@@ -64,8 +63,8 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
       const data = await response.json();
       setFiles(data.files || []);
 
-      // If the response includes actualPath (from __WORKDIR__ resolution), update currentPath
-      if (data.actualPath && path === '__WORKDIR__') {
+      // If the response includes actualPath (from __WORKDIR__ or __MOUNTDIR__ resolution), update currentPath
+      if (data.actualPath && (path === '__WORKDIR__' || path === '__MOUNTDIR__')) {
         setCurrentPath(data.actualPath);
       }
     } catch (err: any) {
@@ -88,11 +87,11 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
 
   // Go up one directory
   const navigateUp = () => {
-    if (currentPath === '/' || currentPath === '__WORKDIR__') return;
+    if (currentPath === '/' || currentPath === '__WORKDIR__' || currentPath === '__MOUNTDIR__') return;
     const parts = currentPath.split('/').filter(Boolean);
     parts.pop();
     const newPath = '/' + parts.join('/');
-    setCurrentPath(newPath === '' ? (resourceType === 'pod' ? '__WORKDIR__' : '/') : newPath);
+    setCurrentPath(newPath === '' ? (resourceType === 'pod' ? '__WORKDIR__' : '__MOUNTDIR__') : newPath);
   };
 
   // Download a file or folder
@@ -171,8 +170,8 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
 
   // Render breadcrumb navigation
   const renderBreadcrumbs = () => {
-    // Handle __WORKDIR__ placeholder - only show when we're still at the placeholder
-    if (currentPath === '__WORKDIR__') {
+    // Handle __WORKDIR__ or __MOUNTDIR__ placeholder - only show when we're still at the placeholder
+    if (currentPath === '__WORKDIR__' || currentPath === '__MOUNTDIR__') {
       return (
         <div className="flex items-center gap-2 text-sm mb-4">
           <button

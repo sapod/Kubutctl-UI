@@ -2161,7 +2161,6 @@ export const ResourceDrawer: React.FC = () => {
                         resourceType={state.selectedResourceType === 'persistentvolume' ? 'pv' : 'pod'}
                         resourceName={resource.name}
                         namespace={resource.namespace || 'default'}
-                        rootPath='/'
                         containers={state.selectedResourceType === 'pod'
                             ? (resource as any).containers?.map((c: any) => c.name) || []
                             : []

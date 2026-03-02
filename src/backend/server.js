@@ -842,7 +842,7 @@ const listFilesInPod = (podName, podNamespace, fullPath, targetPath, container, 
         });
     } else {
         // Normal path listing
-        performListing(fullPath, {});
+        performListing(fullPath, { actualPath: fullPath });
     }
 };
 
@@ -869,7 +869,8 @@ app.get('/api/files', async (req, res) => {
             }
 
             const { podName, containerName, mountPath, namespace: podNamespace } = podInfo;
-            const fullPath = targetPath === '/' ? mountPath : path.join(mountPath, targetPath);
+            // For __MOUNTDIR__, resolve to actual mount path; otherwise use targetPath directly
+            const fullPath = targetPath === '__MOUNTDIR__' ? mountPath : targetPath;
 
             listFilesInPod(podName, podNamespace, fullPath, targetPath, containerName, res);
         });
