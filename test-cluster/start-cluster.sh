@@ -237,30 +237,21 @@ kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main
 echo -e "${GREEN}✓ Ingress controller resources created${NC}"
 echo ""
 
-echo -e "${YELLOW}Waiting for ingress controller to be ready (max 60s)...${NC}"
-if kubectl wait --namespace ingress-nginx \
+echo -e "${YELLOW}Waiting for ingress controller to be ready (max 120s)...${NC}"
+kubectl wait --namespace ingress-nginx \
   --for=condition=ready pod \
   --selector=app.kubernetes.io/component=controller \
-  --timeout=60s 2>/dev/null; then
-  echo -e "${GREEN}✓ Ingress controller is ready${NC}"
-  echo ""
+  --timeout=120s 2>/dev/null || echo -e "${YELLOW}Ingress controller still starting, will apply ingresses anyway...${NC}"
 
-  # Now create the ingresses
-  echo -e "${BLUE}Creating Ingresses...${NC}"
-  if kubectl apply -f "${SCRIPT_DIR}/06-ingresses.yaml"; then
-    echo -e "${GREEN}✓ Ingresses created successfully${NC}"
-    echo ""
-    echo -e "${BLUE}Ingresses:${NC}"
-    kubectl get ingress -n test-apps
-  else
-    echo -e "${YELLOW}⚠️  Could not create ingresses${NC}"
-    echo -e "${YELLOW}   You can manually apply later with: kubectl apply -f ${SCRIPT_DIR}/06-ingresses.yaml${NC}"
-  fi
+echo -e "${BLUE}Creating Ingresses...${NC}"
+if kubectl apply -f "${SCRIPT_DIR}/06-ingresses.yaml"; then
+  echo -e "${GREEN}✓ Ingresses created successfully${NC}"
+  echo ""
+  echo -e "${BLUE}Ingresses:${NC}"
+  kubectl get ingress -n test-apps
 else
-  echo -e "${YELLOW}⚠️  Ingress controller is still starting up${NC}"
-  echo -e "${YELLOW}   This is normal - it will continue starting in the background${NC}"
-  echo -e "${YELLOW}   You can create ingresses manually later with:${NC}"
-  echo -e "${YELLOW}   kubectl apply -f ${SCRIPT_DIR}/06-ingresses.yaml${NC}"
+  echo -e "${YELLOW}⚠️  Could not create ingresses${NC}"
+  echo -e "${YELLOW}   You can manually apply later with: kubectl apply -f ${SCRIPT_DIR}/06-ingresses.yaml${NC}"
 fi
 
 echo ""
