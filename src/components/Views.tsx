@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useStore } from '../store';
 import { Server, Box, Layers, Info, Trash2, ArrowUp, ArrowDown, Search, MoreVertical, StopCircle, AlertTriangle, Play,
     Plus, Edit2 } from 'lucide-react';
@@ -420,12 +420,70 @@ export const ResourceQuotasPage: React.FC = () => {
 export const PortForwardingPage: React.FC = () => {
     const { state, dispatch } = useStore();
     const handleStop = async (ids: string[]) => { const items = state.portForwards.filter(d => ids.includes(d.id)); for (const i of items) { if (i.pid) await kubectl.stopPortForward(i.pid); } dispatch({ type: 'BULK_REMOVE_PORT_FORWARD', payload: ids }); };
+    
+    const [routinesHeight, setRoutinesHeight] = useState(() => {
+        const saved = localStorage.getItem('routinesHeight');
+        return saved ? parseInt(saved) : window.innerHeight * 0.25;
+    });
+    const [isResizing, setIsResizing] = useState(false);
+    const resizingRef = useRef(false);
+    const startYRef = useRef(0);
+    const startHeightRef = useRef(0);
+
+    const handleMouseDown = (e: React.MouseEvent) => {
+        e.preventDefault();
+        resizingRef.current = true;
+        startYRef.current = e.clientY;
+        startHeightRef.current = routinesHeight;
+        setIsResizing(true);
+        document.body.style.cursor = 'ns-resize';
+        document.body.style.userSelect = 'none';
+    };
+
+    useEffect(() => {
+        const handleMouseMove = (e: MouseEvent) => {
+            if (!resizingRef.current) return;
+            const diff = startYRef.current - e.clientY;
+            const newHeight = startHeightRef.current + diff;
+            const containerHeight = window.innerHeight - 48;
+            const minHeight = 150;
+            const maxHeight = containerHeight * 0.6;
+            const constrainedHeight = Math.max(minHeight, Math.min(maxHeight, newHeight));
+            setRoutinesHeight(constrainedHeight);
+        };
+
+        const handleMouseUp = () => {
+            if (resizingRef.current) {
+                resizingRef.current = false;
+                setIsResizing(false);
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+                localStorage.setItem('routinesHeight', routinesHeight.toString());
+            }
+        };
+
+        if (isResizing) {
+            document.addEventListener('mousemove', handleMouseMove);
+            document.addEventListener('mouseup', handleMouseUp);
+        }
+
+        return () => {
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+        };
+    }, [isResizing, routinesHeight]);
+
     return (
         <div className="flex flex-col h-full">
-            <div className="flex-1 overflow-hidden border-b border-gray-800">
+            <div className="flex-1 overflow-hidden border-b border-gray-800" style={{ height: `calc(100% - ${routinesHeight}px)` }}>
                 <ResourceTable title="Active Forwarding" data={state.portForwards} enableMultiSelect onBulkDelete={handleStop} onSelect={() => {}} columns={[ { header: 'Resource', accessor: (pf) => <span className="font-medium text-gray-200">{pf.resourceType}/{pf.resourceName}</span> }, { header: 'Namespace', accessor: (pf) => pf.namespace }, { header: 'Local Port', accessor: (pf) => <span className="text-blue-300 font-mono text-sm">{pf.localPort}</span> }, { header: 'Remote Port', accessor: (pf) => <span className="text-gray-400 font-mono text-sm">{pf.remotePort}</span> }, { header: 'Status', accessor: (pf) => <StatusBadge status={pf.status} /> }, { header: 'Actions', accessor: (pf) => <button onClick={(e) => { e.stopPropagation(); handleStop([pf.id]); }} className="text-red-400 hover:text-red-300 p-1 rounded hover:bg-red-900/30" title="Stop port forwarding"><StopCircle size={16} /></button> }, ]} />
             </div>
-            <div className="h-1/3 min-h-[250px] bg-gray-900 p-6 overflow-y-auto custom-scrollbar">
+            <div
+                onMouseDown={handleMouseDown}
+                className={`h-0.5 cursor-ns-resize hover:bg-blue-500 transition-colors ${isResizing ? 'bg-blue-500' : 'bg-transparent'}`}
+                style={{ zIndex: 200 }}
+            />
+            <div className="bg-gray-900 p-6 overflow-y-auto custom-scrollbar" style={{ height: routinesHeight, minHeight: 150 }}>
                 <div className="flex justify-between items-center mb-4"> <h3 className="text-lg font-bold text-gray-200">Saved Routines</h3> <button onClick={() => dispatch({ type: 'OPEN_ROUTINE_MODAL', payload: null })} className="text-blue-400 hover:text-blue-300 flex items-center gap-1 text-sm font-medium" title="Create a new port forwarding routine"><Plus size={16} /> Create Routine</button> </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {state.routines.map(routine => (
