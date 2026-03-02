@@ -362,6 +362,9 @@ export interface AppState {
   // Logs Panel State (persisted across docked/undocked modes) - now an array of tabs
   logsTabs: LogsTabState[];
   activeLogsTabId: string;
+  // Terminal Panel State - array of terminal tabs
+  terminalTabs: TerminalTabState[];
+  activeTerminalTabId: string;
 }
 
 // Single logs tab state
@@ -380,6 +383,16 @@ export interface LogsTabState {
   autoRefreshEnabled: boolean;
   autoRefreshInterval: number;
   lastUpdated?: number; // Timestamp to track forced updates
+}
+
+// Single terminal tab state
+export interface TerminalTabState {
+  id: string;
+  workloadName: string; // e.g., "default/my-deployment" or empty if standalone pod
+  podName: string;
+  namespace: string;
+  container: string;
+  shell: string; // e.g., '/bin/sh' or '/bin/bash'
 }
 
 export type Action =
@@ -433,6 +446,10 @@ export type Action =
   | { type: 'REMOVE_LOGS_TAB'; payload: string }
   | { type: 'SET_ACTIVE_LOGS_TAB'; payload: string }
   | { type: 'RESET_LOGS_TABS' }
+  | { type: 'ADD_TERMINAL_TAB'; payload: TerminalTabState }
+  | { type: 'REMOVE_TERMINAL_TAB'; payload: string }
+  | { type: 'SET_ACTIVE_TERMINAL_TAB'; payload: string }
+  | { type: 'RESET_TERMINAL_TABS' }
   | { type: 'SET_AWS_SSO_LOGIN_REQUIRED'; payload: boolean }
   | { type: 'SET_EXTERNAL_CONTEXT_MISMATCH'; payload: boolean }
   | { type: 'UPDATE_RESOURCE'; payload: { id: string; type: string; data: any } };

@@ -1,16 +1,14 @@
 # Release Notes
 
-## Version 2.7.0
+## Version 2.8.0
 
 ### Features
-- Show container tags in workloads - deployments, daemonsets, statefulsets and replicasets
-- Add storage navigation group and views for PV, PVC and storage classes
-- Enhance the volume display in pods to include PVCs with link to resource
+- Move terminal to bottom panel, keeping context when moving around in the app and allowing multiple open contexts
+- Add a file explorer feature for pods and PVs
 
 ### Improvements
-- Improve navigation to collapse and open groups + move events to cluster group
-- Improve AWS SSO error handling - writing error message to terminal and verifying connection whenever needed
-- Disable cluster name editing to avoid context breaking
+- UI optimization for deployment drawer and routines
+- Resolve vulnerabilities in used libs (all handled, now have 0 vulnerabilities)
 
 ### Bug Fixes
 - None

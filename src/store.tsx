@@ -2,7 +2,7 @@
 import React, { createContext, useContext, useReducer, useEffect, useRef } from 'react';
 import { AppState, Action, Cluster,
     Pod,
-    View, PortForwardRoutine, LogsTabState } from './types';
+    View, PortForwardRoutine, LogsTabState, TerminalTabState } from './types';
 import { kubectl } from './services/kubectl';
 import { MAX_CACHED_ITEMS_PER_TYPE, INACTIVITY_TIMEOUT } from './consts';
 
@@ -54,10 +54,32 @@ const getStoredLogsTabs = (): { tabs: LogsTabState[]; activeTabId: string } => {
   return { tabs: [defaultTab], activeTabId: defaultTab.id };
 };
 
+// Helper functions for terminal tabs persistence
+const saveTerminalTabs = (terminalTabs: TerminalTabState[], activeTerminalTabId: string) => {
+  try {
+    localStorage.setItem('kube_terminal_tabs', JSON.stringify({ tabs: terminalTabs, activeTabId: activeTerminalTabId }));
+  } catch (e) {}
+};
+
+const getStoredTerminalTabs = (): { tabs: TerminalTabState[]; activeTabId: string } => {
+  try {
+    const stored = localStorage.getItem('kube_terminal_tabs');
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (parsed.tabs && parsed.tabs.length > 0) {
+        return parsed;
+      }
+    }
+  } catch {}
+  // Default: empty terminal tabs
+  return { tabs: [], activeTabId: '' };
+};
+
 const storedClusters = getStoredClusters();
 const initialClusterId = getStoredCurrentClusterId(storedClusters);
 const initialClusterState = loadClusterState(initialClusterId);
 const storedLogsTabs = getStoredLogsTabs();
+const storedTerminalTabs = getStoredTerminalTabs();
 
 // Helper to load cache from localStorage
 const loadClusterCache = (): Map<string, { data: Partial<AppState>; timestamp: number }> => {
@@ -157,6 +179,8 @@ const initialState: AppState = {
   logsTarget: null,
   logsTabs: storedLogsTabs.tabs,
   activeLogsTabId: storedLogsTabs.activeTabId,
+  terminalTabs: storedTerminalTabs.tabs,
+  activeTerminalTabId: storedTerminalTabs.activeTabId,
   isStoreInitialized: false,
 };
 
@@ -435,6 +459,27 @@ function reducer(state: AppState, action: Action): AppState {
       saveLogsTabs([defaultTab], defaultTab.id);
       return { ...state, logsTabs: [defaultTab], activeLogsTabId: defaultTab.id };
     }
+    case 'ADD_TERMINAL_TAB': {
+      const newTabs = [...state.terminalTabs, action.payload];
+      saveTerminalTabs(newTabs, action.payload.id);
+      return { ...state, terminalTabs: newTabs, activeTerminalTabId: action.payload.id };
+    }
+    case 'REMOVE_TERMINAL_TAB': {
+      const newTabs = state.terminalTabs.filter(t => t.id !== action.payload);
+      const newActiveId = state.activeTerminalTabId === action.payload && newTabs.length > 0
+        ? newTabs[0].id
+        : state.activeTerminalTabId;
+      saveTerminalTabs(newTabs, newActiveId);
+      return { ...state, terminalTabs: newTabs, activeTerminalTabId: newActiveId };
+    }
+    case 'SET_ACTIVE_TERMINAL_TAB': {
+      saveTerminalTabs(state.terminalTabs, action.payload);
+      return { ...state, activeTerminalTabId: action.payload };
+    }
+    case 'RESET_TERMINAL_TABS': {
+      saveTerminalTabs([], '');
+      return { ...state, terminalTabs: [], activeTerminalTabId: '' };
+    }
     case 'SET_AWS_SSO_LOGIN_REQUIRED': return { ...state, awsSsoLoginRequired: action.payload, isVerifyingConnection: false };
     case 'SET_EXTERNAL_CONTEXT_MISMATCH': {
       // When external context mismatch is detected, unselect cluster and show overlay
@@ -692,10 +737,13 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           if (storedSessionId !== currentSessionId) {
             // New app session - reset logs tabs to single empty tab
             dispatch({ type: 'RESET_LOGS_TABS' });
+            // Reset terminal tabs to empty
+            dispatch({ type: 'RESET_TERMINAL_TABS' });
 
             // Clear logs state and active tab from localStorage
             localStorage.removeItem('kube_logs_tabs');
             localStorage.removeItem('terminalActiveTab');
+            localStorage.removeItem('kube_terminal_tabs');
             localStorage.setItem('app-session-id', currentSessionId);
 
             // Clear drawer state from all cluster states
