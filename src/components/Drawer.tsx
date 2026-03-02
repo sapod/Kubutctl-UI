@@ -179,6 +179,16 @@ export const ResourceDrawer: React.FC = () => {
   const [isResizing, setIsResizing] = useState(false);
   const resizingRef = React.useRef(false);
 
+  const [labelsOpen, setLabelsOpen] = useState(() => {
+    const saved = localStorage.getItem('drawer_deployment_labels_open');
+    return saved ? JSON.parse(saved) : false;
+  });
+
+  const [containerImagesOpen, setContainerImagesOpen] = useState(() => {
+    const saved = localStorage.getItem('drawer_deployment_container_images_open');
+    return saved ? JSON.parse(saved) : false;
+  });
+
   // Helper to find selected resource
   let resource: any = null;
   const rt = state.selectedResourceType;
@@ -1353,7 +1363,7 @@ export const ResourceDrawer: React.FC = () => {
                       { header: 'Status', accessor: (c) => <StatusBadge status={c.status} /> },
                       { header: 'Last Update', accessor: (c) => getAge(c.lastTransitionTime || '') },
                       { header: 'Reason', accessor: (c) => <span className="text-xs text-gray-400">{c.reason}</span> },
-                      { header: 'Message', accessor: (c) => <span className="text-xs text-gray-500">{c.message}</span> },
+                      { header: 'Message', accessor: (c) => <span className="text-xs text-gray-500">{c.message}</span>, className: 'min-w-[300px]' },
                   ]}
               />
           </div>
@@ -1952,21 +1962,33 @@ export const ResourceDrawer: React.FC = () => {
               state.selectedResourceType === 'replicaset') &&
               'imageTags' in resource && (resource as any).imageTags?.length > 0 && (
               <div className="space-y-3">
-                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Container Images</h3>
-                <div className="flex flex-col gap-2">
-                  {(() => {
-                    // Extract container details from raw manifest when drawer is opened
-                    const containers = (resource as any).raw?.spec?.template?.spec?.containers || [];
-                    return containers.map((c: any, i: number) => (
-                      <div key={i} className="bg-gray-800/50 border border-gray-700/50 rounded p-3">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-sm font-semibold text-gray-200">{c.name}</span>
+                <button
+                  className="flex items-center gap-2 w-full hover:bg-gray-800/50 p-1 -ml-1 rounded transition-colors"
+                  onClick={() => {
+                    const newState = !containerImagesOpen;
+                    setContainerImagesOpen(newState);
+                    localStorage.setItem('drawer_deployment_container_images_open', JSON.stringify(newState));
+                  }}
+                >
+                  <ChevronDown size={14} className={`text-gray-500 transition-transform ${containerImagesOpen ? '' : '-rotate-90'}`} />
+                  <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Container Images</h3>
+                </button>
+                {containerImagesOpen && (
+                  <div className="flex flex-col gap-2">
+                    {(() => {
+                      // Extract container details from raw manifest when drawer is opened
+                      const containers = (resource as any).raw?.spec?.template?.spec?.containers || [];
+                      return containers.map((c: any, i: number) => (
+                        <div key={i} className="bg-gray-800/50 border border-gray-700/50 rounded p-3">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-sm font-semibold text-gray-200">{c.name}</span>
+                          </div>
+                          <div className="text-xs font-mono text-blue-300 break-all">{c.image}</div>
                         </div>
-                        <div className="text-xs font-mono text-blue-300 break-all">{c.image}</div>
-                      </div>
-                    ));
-                  })()}
-                </div>
+                      ));
+                    })()}
+                  </div>
+                )}
               </div>
             )}
 
@@ -1980,15 +2002,27 @@ export const ResourceDrawer: React.FC = () => {
             )}
 
             <div className="space-y-3">
-              <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Labels</h3>
-              <div className="flex flex-wrap gap-2">
-                {Object.entries(resource.labels).map(([k, v]) => (
-                  <span key={k} className="px-2.5 py-1 bg-gray-800 rounded-md text-xs text-gray-300 border border-gray-700 font-mono">
-                    <span className="text-gray-500">{k}:</span> {v as string}
-                  </span>
-                ))}
-                {Object.keys(resource.labels).length === 0 && <span className="text-gray-600 text-sm italic">No labels</span>}
-              </div>
+              <button
+                className="flex items-center gap-2 w-full hover:bg-gray-800/50 p-1 -ml-1 rounded transition-colors"
+                onClick={() => {
+                  const newState = !labelsOpen;
+                  setLabelsOpen(newState);
+                  localStorage.setItem('drawer_deployment_labels_open', JSON.stringify(newState));
+                }}
+              >
+                <ChevronDown size={14} className={`text-gray-500 transition-transform ${labelsOpen ? '' : '-rotate-90'}`} />
+                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Labels</h3>
+              </button>
+              {labelsOpen && (
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(resource.labels).map(([k, v]) => (
+                    <span key={k} className="px-2.5 py-1 bg-gray-800 rounded-md text-xs text-gray-300 border border-gray-700 font-mono">
+                      <span className="text-gray-500">{k}:</span> {v as string}
+                    </span>
+                  ))}
+                  {Object.keys(resource.labels).length === 0 && <span className="text-gray-600 text-sm italic">No labels</span>}
+                </div>
+              )}
             </div>
 
             {renderPodContainers()}
