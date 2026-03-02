@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useStore } from '../store';
 import { Server, Box, Layers, Info, Trash2, ArrowUp, ArrowDown, Search, MoreVertical, StopCircle, AlertTriangle, Play,
-    Plus, Edit2 } from 'lucide-react';
+    Plus, Edit2, Loader2 } from 'lucide-react';
 import { ResourceStatus, Deployment, DaemonSet, StatefulSet, ReplicaSet } from '../types';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { kubectl } from '../services/kubectl';
@@ -429,6 +429,7 @@ export const PortForwardingPage: React.FC = () => {
     const resizingRef = useRef(false);
     const startYRef = useRef(0);
     const startHeightRef = useRef(0);
+    const [loadingRoutine, setLoadingRoutine] = useState<string | null>(null);
 
     const handleMouseDown = (e: React.MouseEvent) => {
         e.preventDefault();
@@ -495,18 +496,27 @@ export const PortForwardingPage: React.FC = () => {
                                 </div>
                                 <div className="flex gap-1">
                                     <button onClick={async () => {
-                                            for (const item of routine.items) {
-                                                const id = `pf-routine-${Date.now()}-${Math.random()}`;
-                                                try {
-                                                    const result = await kubectl.startPortForward(id, item.resourceType, item.resourceName, item.namespace, item.localPort, item.remotePort);
-                                                    const actualLocalPort = result.localPort || item.localPort;
-                                                    dispatch({ type: 'ADD_PORT_FORWARD', payload: { id, pid: result.pid, resourceName: item.resourceName, resourceType: item.resourceType as any, namespace: item.namespace, localPort: actualLocalPort, remotePort: item.remotePort, status: 'Active' }});
-                                                } catch (e: any) {
-                                                    dispatch({ type: 'ADD_LOG', payload: `Port Forward Failed (${item.resourceType}/${item.resourceName}): ${e.message || e}` });
+                                            setLoadingRoutine(routine.id);
+                                            try {
+                                                for (const item of routine.items) {
+                                                    const id = `pf-routine-${Date.now()}-${Math.random()}`;
+                                                    try {
+                                                        const result = await kubectl.startPortForward(id, item.resourceType, item.resourceName, item.namespace, item.localPort, item.remotePort);
+                                                        const actualLocalPort = result.localPort || item.localPort;
+                                                        dispatch({ type: 'ADD_PORT_FORWARD', payload: { id, pid: result.pid, resourceName: item.resourceName, resourceType: item.resourceType as any, namespace: item.namespace, localPort: actualLocalPort, remotePort: item.remotePort, status: 'Active' }});
+                                                    } catch (e: any) {
+                                                        dispatch({ type: 'ADD_LOG', payload: `Port Forward Failed (${item.resourceType}/${item.resourceName}): ${e.message || e}` });
+                                                    }
                                                 }
+                                            } finally {
+                                                setLoadingRoutine(null);
                                             }
-                                        }} className="p-1.5 bg-green-900/30 text-green-400 rounded hover:bg-green-900/50 hover:text-white transition-colors" title="Start all port forwards in this routine">
-                                        <Play size={16} fill="currentColor" />
+                                        }} disabled={loadingRoutine !== null} className="p-1.5 bg-green-900/30 text-green-400 rounded hover:bg-green-900/50 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed" title="Start all port forwards in this routine">
+                                        {loadingRoutine === routine.id ? (
+                                            <Loader2 size={16} className="animate-spin" />
+                                        ) : (
+                                            <Play size={16} fill="currentColor" />
+                                        )}
                                     </button>
                                     <button onClick={() => dispatch({ type: 'OPEN_ROUTINE_MODAL', payload: routine })}
                                             className="p-1.5 text-gray-400 hover:text-blue-300 hover:bg-gray-700 rounded transition-colors" title="Edit routine"><Edit2 size={16} />
