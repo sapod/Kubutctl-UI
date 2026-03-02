@@ -503,7 +503,7 @@ app.post('/api/kubectl/shell', (req, res) => {
         return res.status(500).json({ error: `Unsupported platform: ${process.platform}` });
     }
 
-    console.log(`[Shell] Launching external terminal: ${spawnCmd} ${spawnArgs.join(' ')}`);
+    if (DEBUG) console.log(`[Shell] Launching external terminal: ${spawnCmd} ${spawnArgs.join(' ')}`);
 
     try {
         const child = spawn(spawnCmd, spawnArgs, { detached: true, stdio: 'ignore' });
@@ -641,14 +641,11 @@ wss.on('connection', async (ws, req) => {
 
 // Helper function to find a pod that mounts a specific PV
 const findPodForPV = (pvName, namespace, callback) => {
-    console.log(`[findPodForPV] Looking for PV: ${pvName}`);
-
     // Step 1: Get the PV to find which PVC is bound to it
     const getPvCommand = `${kubectlPath} get pv ${pvName} -o json`;
 
     exec(getPvCommand, { maxBuffer: 1024 * 1024 * 10 }, (error, pvStdout) => {
         if (error) {
-            console.error(`[findPodForPV] Failed to get PV:`, error.message);
             return callback(new Error(`Failed to get PV: ${error.message}`), null);
         }
 
@@ -656,7 +653,6 @@ const findPodForPV = (pvName, namespace, callback) => {
         try {
             pv = JSON.parse(pvStdout);
         } catch (e) {
-            console.error(`[findPodForPV] Failed to parse PV JSON:`, e.message);
             return callback(new Error('Failed to parse PV data'), null);
         }
 
@@ -664,10 +660,7 @@ const findPodForPV = (pvName, namespace, callback) => {
         const pvcName = pv.spec?.claimRef?.name;
         const pvcNamespace = pv.spec?.claimRef?.namespace || namespace;
 
-        console.log(`[findPodForPV] PVC: ${pvcName}, namespace: ${pvcNamespace}`);
-
         if (!pvcName) {
-            console.error(`[findPodForPV] PV is not bound to any PVC`);
             return callback(new Error('PV is not bound to any PVC'), null);
         }
 
@@ -681,11 +674,8 @@ const findPodForPV = (pvName, namespace, callback) => {
                 try {
                     const pvc = JSON.parse(pvcStdout);
                     appLabel = pvc.metadata?.labels?.app;
-                    if (appLabel) {
-                        console.log(`[findPodForPV] Found app label on PVC: ${appLabel}`);
-                    }
                 } catch (e) {
-                    console.log(`[findPodForPV] Could not parse PVC, will search all pods`);
+                    // Will search all pods
                 }
             }
 
@@ -696,7 +686,6 @@ const findPodForPV = (pvName, namespace, callback) => {
 
                 exec(findPodCommand, { maxBuffer: 1024 * 1024 * 50 }, (error, stdout) => {
                     if (error) {
-                        console.error(`[findPodForPV] Failed to get pods:`, error.message);
                         return callback(new Error(`Failed to find pods: ${error.message}`), null);
                     }
 
@@ -704,9 +693,7 @@ const findPodForPV = (pvName, namespace, callback) => {
                     try {
                         const result = JSON.parse(stdout);
                         pods = result.items || [];
-                        console.log(`[findPodForPV] Found ${pods.length} running pods`);
                     } catch (e) {
-                        console.error(`[findPodForPV] Failed to parse pods JSON:`, e.message);
                         return callback(new Error('Failed to parse pod list'), null);
                     }
 
@@ -719,7 +706,6 @@ const findPodForPV = (pvName, namespace, callback) => {
                         const volumes = pod.spec?.volumes || [];
                         for (const volume of volumes) {
                             if (volume.persistentVolumeClaim?.claimName === pvcName) {
-                                console.log(`[findPodForPV] Pod ${pod.metadata.name} uses PVC ${pvcName}`);
                                 const containers = pod.spec?.containers || [];
                                 for (const container of containers) {
                                     const volumeMounts = container.volumeMounts || [];
@@ -728,7 +714,6 @@ const findPodForPV = (pvName, namespace, callback) => {
                                             targetPod = pod.metadata.name;
                                             targetContainer = container.name;
                                             mountPath = mount.mountPath;
-                                            console.log(`[findPodForPV] Using pod: ${targetPod}, container: ${targetContainer}, mount: ${mountPath}`);
                                             break;
                                         }
                                     }
@@ -742,19 +727,16 @@ const findPodForPV = (pvName, namespace, callback) => {
 
                     // If no pod found and we were using label selector, try without label selector
                     if (!targetPod && labelSelector && fallbackToAll) {
-                        console.log(`[findPodForPV] No pod found with label selector, trying all pods`);
                         return searchPods(null, false);
                     }
 
                     if (!targetPod || !mountPath) {
-                        console.error(`[findPodForPV] No running pod found using PVC ${pvcName}`);
                         return callback(
                             new Error(`No running pod found using PVC "${pvcName}". Deploy a pod that mounts this PVC to browse its files.`),
                             null
                         );
                     }
 
-                    console.log(`[findPodForPV] Success - pod: ${targetPod}, container: ${targetContainer}, mountPath: ${mountPath}`);
                     callback(null, { podName: targetPod, containerName: targetContainer, mountPath, namespace: pvcNamespace });
                 });
             };
@@ -936,7 +918,7 @@ app.get('/api/download-file', async (req, res) => {
             }
 
             const { podName, containerName, mountPath, namespace: podNamespace } = podInfo;
-            const fullPath = targetPath === '/' ? mountPath : path.join(mountPath, targetPath);
+            const fullPath = targetPath === '__MOUNTDIR__' ? mountPath : targetPath;
 
             downloadFileFromPod(podName, podNamespace, fullPath, fileName, containerName, res);
         });
@@ -997,7 +979,7 @@ app.get('/api/download-folder', async (req, res) => {
             }
 
             const { podName, containerName, mountPath, namespace: podNamespace } = podInfo;
-            const fullPath = targetPath === '/' ? mountPath : path.join(mountPath, targetPath);
+            const fullPath = targetPath === '__MOUNTDIR__' ? mountPath : targetPath;
 
             downloadFolderFromPod(podName, podNamespace, fullPath, folderName, containerName, res);
         });
