@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../store';
+import { useTheme } from '../contexts/ThemeContext';
 import { AppState, Pod, Ingress, Service, ResourceStatus, Deployment, Job } from '../types';
 import { kubectl } from '../services/kubectl';
 import { Box, X, Globe, ArrowRightCircle, Container as ContainerIcon, Network,
@@ -143,10 +144,16 @@ const formatCreationTime = (timestamp: string) => {
 
 // --- Drawer (Resource Details) ---
 export const ResourceDrawer: React.FC = () => {
+  const { theme } = useTheme();
   const { state, dispatch } = useStore();
   const [activeTab, setActiveTab] = useState<'details' | 'yaml' | 'events' | 'terminal' | 'files'>('details');
   const [expandedCmKey, setExpandedCmKey] = useState<string | null>(null);
   const [expandedContainers, setExpandedContainers] = useState<Set<number>>(new Set());
+
+  const yamlEditorTheme = theme === 'dark'
+    ? { background: '#030712', color: '#d1d5db', caretColor: '#d1d5db' }
+    : { background: '#f9fafb', color: '#1f2937', caretColor: '#1f2937' };
+  const yamlHighlightTheme = theme === 'dark' ? '#030712' : '#f9fafb';
   const [copiedId, setCopiedId] = useState<string | null>(null); // Track which copy button was clicked
   const [revealedSecrets, setRevealedSecrets] = useState<Set<string>>(new Set()); // Track which secret keys are revealed
 
@@ -217,6 +224,10 @@ export const ResourceDrawer: React.FC = () => {
     setIsEditingYaml(false);
     setExpandedContainers(new Set()); // Reset expanded containers when resource changes
     setRevealedSecrets(new Set()); // Reset revealed secrets when resource changes
+    setYamlSearchQuery(''); // Reset YAML search when resource changes
+    setShowYamlSearch(false);
+    setCurrentMatchIndex(0);
+    setTotalMatches(0);
   }, [state.selectedResourceId, state.selectedResourceType]);
 
 
@@ -2116,7 +2127,7 @@ export const ResourceDrawer: React.FC = () => {
                                     ref={yamlHighlightLayerRef}
                                     className="absolute inset-0 p-6 overflow-auto font-mono text-xs custom-scrollbar pointer-events-none"
                                     style={{
-                                        background: '#030712',
+                                        background: yamlHighlightTheme,
                                         whiteSpace: 'pre-wrap',
                                         wordWrap: 'break-word',
                                         lineHeight: '1.5',
@@ -2137,9 +2148,9 @@ export const ResourceDrawer: React.FC = () => {
                                 ref={yamlContainerRef as React.RefObject<HTMLTextAreaElement>}
                                 className="absolute inset-0 w-full h-full p-6 font-mono text-xs focus:outline-none resize-none custom-scrollbar"
                                 style={{
-                                    background: yamlSearchQuery ? 'transparent' : '#030712',
-                                    color: yamlSearchQuery ? 'transparent' : '#d1d5db',
-                                    caretColor: '#d1d5db',
+                                    background: yamlSearchQuery ? 'transparent' : yamlEditorTheme.background,
+                                    color: yamlSearchQuery ? 'transparent' : yamlEditorTheme.color,
+                                    caretColor: yamlEditorTheme.caretColor,
                                     lineHeight: '1.5',
                                     whiteSpace: 'pre-wrap',
                                     wordWrap: 'break-word',
@@ -2160,7 +2171,7 @@ export const ResourceDrawer: React.FC = () => {
                             />
                         </>
                     ) : (
-                        <div ref={yamlContainerRef as React.RefObject<HTMLDivElement>} className="absolute inset-0 p-6 overflow-auto font-mono text-xs text-gray-300 bg-gray-950 custom-scrollbar">
+                        <div ref={yamlContainerRef as React.RefObject<HTMLDivElement>} className={`absolute inset-0 p-6 overflow-auto font-mono text-xs custom-scrollbar ${theme === 'dark' ? 'text-gray-300 bg-gray-950' : 'text-gray-800 bg-gray-50'}`}>
                             <pre className="whitespace-pre">{yamlSearchQuery ? highlightYamlMatches(editedYaml, yamlSearchQuery) : editedYaml}</pre>
                         </div>
                     )}
@@ -2177,7 +2188,7 @@ export const ResourceDrawer: React.FC = () => {
                     return (
                     <div key={e.id} className="bg-gray-800/50 border border-gray-700/50 rounded p-3">
                         <div className="flex justify-between items-start mb-1">
-                            <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${e.type === 'Warning' ? 'bg-red-900/30 text-red-400' : 'bg-gray-700 text-gray-300'}`}>{e.type}</span>
+                            <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${e.type === 'Warning' ? 'bg-yellow-900/30 text-yellow-400' : 'bg-gray-700 text-gray-300'}`}>{e.type}</span>
                             <span className="text-xs text-gray-500">{ageText}</span>
                         </div>
                         <div className="text-sm text-gray-200 font-medium mb-1">{e.reason}</div>

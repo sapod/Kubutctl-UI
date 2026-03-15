@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useStore } from '../store';
+import { useTheme } from '../contexts/ThemeContext';
 import { Server, Box, Layers, Info, Trash2, ArrowUp, ArrowDown, Search, MoreVertical, StopCircle, AlertTriangle, Play,
     Plus, Edit2, Loader2 } from 'lucide-react';
 import { ResourceStatus, Deployment, DaemonSet, StatefulSet, ReplicaSet } from '../types';
@@ -8,6 +9,7 @@ import { kubectl } from '../services/kubectl';
 import { StatusBadge, getAge, parseCpu, parseMemory } from './Shared';
 
 export const OverviewPage: React.FC = () => {
+  const { theme } = useTheme();
   const { state, dispatch } = useStore();
   const stats = [
     { label: 'Nodes', value: state.nodes.length, icon: Server, color: 'text-blue-400', view: 'nodes' as const },
@@ -19,6 +21,12 @@ export const OverviewPage: React.FC = () => {
     { name: 'Pending', value: state.pods.filter(p => p.status === ResourceStatus.Pending).length, color: '#facc15' },
     { name: 'Failed', value: state.pods.filter(p => p.status === ResourceStatus.Failed || p.status === ResourceStatus.CrashLoopBackOff).length, color: '#f87171' },
   ];
+
+  const chartAxisColor = theme === 'dark' ? '#9ca3af' : '#6b7280';
+  const chartTooltipStyle = theme === 'dark' 
+    ? { backgroundColor: '#1f2937', borderColor: '#374151', color: '#f3f4f6' }
+    : { backgroundColor: '#ffffff', borderColor: '#e5e7eb', color: '#1f2937' };
+  const chartCursorFill = theme === 'dark' ? '#374151' : '#e5e7eb';
 
   const handleNavigate = (view: 'nodes' | 'pods' | 'deployments') => {
     dispatch({ type: 'SET_VIEW', payload: view });
@@ -51,11 +59,11 @@ export const OverviewPage: React.FC = () => {
           <div className="bg-gray-800 p-6 rounded-lg border border-gray-700 h-80">
             <h3 className="text-lg font-semibold text-gray-200 mb-4">Pod Status Distribution</h3>
             <ResponsiveContainer width="100%" height="100%">
-               <BarChart data={podStatusData}>
-                  <XAxis dataKey="name" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
-                  <Tooltip cursor={{fill: '#374151'}} contentStyle={{ backgroundColor: '#1f2937', borderColor: '#374151', color: '#f3f4f6' }} />
-                  <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                <BarChart data={podStatusData}>
+                   <XAxis dataKey="name" stroke={chartAxisColor} fontSize={12} tickLine={false} axisLine={false} />
+                   <YAxis stroke={chartAxisColor} fontSize={12} tickLine={false} axisLine={false} />
+                   <Tooltip cursor={{fill: chartCursorFill}} contentStyle={chartTooltipStyle} />
+                   <Bar dataKey="value" radius={[4, 4, 0, 0]}>
                     {podStatusData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
                   </Bar>
                </BarChart>

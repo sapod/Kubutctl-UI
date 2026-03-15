@@ -122,9 +122,12 @@ export const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
       case 'NotReady':
       case 'Disconnected':
       case 'Terminating':
-      case 'Warning':
         colorClass = 'bg-red-900/40 text-red-400 border border-red-800';
         Icon = ShieldAlert;
+        break;
+      case 'Warning':
+        colorClass = 'bg-yellow-900/40 text-yellow-400 border border-yellow-800';
+        Icon = AlertTriangle;
         break;
       case 'Completed':
       case 'Stopped':

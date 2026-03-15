@@ -10,6 +10,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 CLUSTER_NAME="kubectl-ui-test"
+CLUSTER_2_NAME="kubectl-ui-test-2"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo -e "${BLUE}========================================${NC}"
@@ -258,4 +259,75 @@ echo ""
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}  Setup Complete!${NC}"
 echo -e "${GREEN}========================================${NC}"
+
+# ======= Optional: Create second small cluster for multi-cluster testing =======
+if [ "$1" = "--with-second-cluster" ] || [ "$1" = "-2" ]; then
+  echo ""
+  echo -e "${BLUE}========================================${NC}"
+  echo -e "${BLUE}  Creating Second Cluster (Small)${NC}"
+  echo -e "${BLUE}========================================${NC}"
+  echo ""
+
+  # Check if cluster 2 already exists
+  if kind get clusters 2>/dev/null | grep -q "^${CLUSTER_2_NAME}$"; then
+      echo -e "${YELLOW}⚠️  Cluster '${CLUSTER_2_NAME}' already exists${NC}"
+      read -p "Do you want to delete and recreate it? (y/n) " -n 1 -r
+      echo
+      if [[ $REPLY =~ ^[Yy]$ ]]; then
+          echo -e "${YELLOW}Deleting existing cluster...${NC}"
+          kind delete cluster --name "${CLUSTER_2_NAME}"
+      else
+          echo -e "${YELLOW}Using existing cluster${NC}"
+          SKIP_CLUSTER_2_CREATION=true
+      fi
+  fi
+
+  if [ "${SKIP_CLUSTER_2_CREATION}" != "true" ]; then
+      echo -e "${BLUE}Creating second kind cluster...${NC}"
+      kind create cluster --config "${SCRIPT_DIR}/kind-config-2.yaml"
+      echo -e "${GREEN}✓ Second cluster created${NC}"
+  else
+      kubectl config use-context "kind-${CLUSTER_2_NAME}"
+  fi
+
+  echo -e "${BLUE}Waiting for second cluster to be ready...${NC}"
+  kubectl wait --for=condition=Ready nodes --all --timeout=120s
+  echo -e "${GREEN}✓ Second cluster is ready${NC}"
+  echo ""
+
+  # Apply resources to second cluster
+  echo -e "${BLUE}Applying resources to second cluster...${NC}"
+  kubectl --context="kind-${CLUSTER_2_NAME}" apply -f "${SCRIPT_DIR}/01-namespaces-2.yaml"
+  kubectl --context="kind-${CLUSTER_2_NAME}" apply -f "${SCRIPT_DIR}/03-deployments-2.yaml"
+  echo -e "${GREEN}✓ Resources applied to second cluster${NC}"
+
+  # Wait for deployments to be ready
+  echo -e "${BLUE}Waiting for deployments to be ready...${NC}"
+  kubectl --context="kind-${CLUSTER_2_NAME}" wait --for=condition=available --timeout=60s deployment --all -n small-apps || true
+  echo -e "${GREEN}✓ Deployments ready${NC}"
+
+  echo ""
+  echo -e "${GREEN}========================================${NC}"
+  echo -e "${GREEN}  Second Cluster Setup Complete!${NC}"
+  echo -e "${GREEN}========================================${NC}"
+  echo ""
+  echo -e "${BLUE}Second Cluster Information:${NC}"
+  echo -e "  Name: ${CLUSTER_2_NAME}"
+  echo -e "  Context: kind-${CLUSTER_2_NAME}"
+  echo ""
+  echo -e "${BLUE}Resources in second cluster:${NC}"
+  echo "  ✓ 1 Namespace (small-apps)"
+  echo "  ✓ 2 Deployments (hello-app, whoami-app)"
+  echo "  ✓ 2 Services"
+  echo ""
+  echo -e "${YELLOW}To use second cluster with Kubectl-UI:${NC}"
+  echo "  Context: kind-${CLUSTER_2_NAME}"
+  echo "  Just refresh Kubectl-UI to see both clusters!"
+  echo ""
+else
+  echo ""
+  echo -e "${YELLOW}Tip: To also create a second smaller cluster for multi-cluster testing, run:${NC}"
+  echo "  ./start-cluster.sh --with-second-cluster"
+  echo ""
+fi
 echo ""

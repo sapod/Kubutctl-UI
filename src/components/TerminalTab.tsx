@@ -3,6 +3,7 @@ import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
 import { TerminalTabState } from '../types';
+import { useTheme } from '../contexts/ThemeContext';
 
 type Props = {
   tab: TerminalTabState;
@@ -10,11 +11,16 @@ type Props = {
 };
 
 export default function TerminalTab({ tab, backendWsBaseUrl }: Props) {
+  const { theme } = useTheme();
   const termRef = useRef<HTMLDivElement | null>(null);
   const term = useRef<Terminal>();
   const fitAddon = useRef<FitAddon>();
   const socket = useRef<WebSocket>();
   const containerRef = useRef<HTMLDivElement | null>(null);
+
+  const terminalTheme = theme === 'dark'
+    ? { background: '#0a0e14', foreground: '#d1d5db' }
+    : { background: '#ffffff', foreground: '#1f2937' };
 
   // Create terminal only once when component mounts
   useEffect(() => {
@@ -22,10 +28,7 @@ export default function TerminalTab({ tab, backendWsBaseUrl }: Props) {
     term.current = new Terminal({
       cursorBlink: true,
       fontSize: 14,
-      theme: {
-        background: '#0a0e14',
-        foreground: '#d1d5db',
-      }
+      theme: terminalTheme
     });
     fitAddon.current = new FitAddon();
     term.current.loadAddon(fitAddon.current);
@@ -116,6 +119,13 @@ export default function TerminalTab({ tab, backendWsBaseUrl }: Props) {
 
     return () => observer.disconnect();
   }, []);
+
+  // Update terminal theme when theme changes
+  useEffect(() => {
+    if (term.current) {
+      term.current.options.theme = terminalTheme;
+    }
+  }, [theme, terminalTheme]);
 
   return (
     <div ref={containerRef} className="flex flex-col h-full w-full overflow-hidden">
