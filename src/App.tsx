@@ -4,6 +4,7 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import { ThemeToggle } from './components/ThemeToggle';
 import { LogsPanel } from './components/LogsPanel';
 import { ConnectionVerificationOverlay } from './components/ConnectionVerificationOverlay';
+import StarPopup from './components/StarPopup';
 import { INACTIVITY_THRESHOLD_MS } from './consts';
 import {
     Sidebar, ConsolePanel, ResourceDrawer, ClusterHotbar, AddClusterModal,
@@ -42,6 +43,64 @@ const extractErrorMessage = (err: any): string => {
 const MainLayout = () => {
   const { state, dispatch } = useStore();
   const verificationInProgressRef = useRef(false);
+  const lastActiveTimeRef = useRef(Date.now());
+
+  const getStarPopupData = (): { firstSessionEpoch: number; activeSessionTime: number; showCount: number; lastShowTime: number; didStar: boolean } => {
+    const stored = localStorage.getItem("star-popup-data");
+    if (stored) {
+      return JSON.parse(stored);
+    }
+    return { firstSessionEpoch: Date.now(), activeSessionTime: 0, showCount: 0, lastShowTime: 0, didStar: false };
+  };
+
+  const saveStarPopupData = (data: { firstSessionEpoch: number; activeSessionTime: number; showCount: number; lastShowTime: number; didStar: boolean }) => {
+    localStorage.setItem("star-popup-data", JSON.stringify(data));
+  };
+
+  useEffect(() => { // save active session time every minute for star showing
+    const interval = setInterval(() => {
+      const data = getStarPopupData();
+      const now = Date.now();
+      data.activeSessionTime += now - lastActiveTimeRef.current;
+      lastActiveTimeRef.current = now;
+      saveStarPopupData(data);
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const showStarPopup = () => {
+    const data = getStarPopupData();
+
+    if (data.didStar) return false;
+
+    const oneDay = 24 * 60 * 60 * 1000;
+    const oneWeek = 7 * oneDay;
+    const twoWeeks = 2 * oneWeek;
+    const oneMonth = 30 * oneDay;
+
+    const timeSinceFirstSession = Date.now() - data.firstSessionEpoch;
+    if (timeSinceFirstSession < oneWeek) return false;
+
+    if (data.activeSessionTime < oneDay) return false;
+
+    const timeSinceLastShow = Date.now() - data.lastShowTime;
+    if (data.showCount === 0) return true; // one week delay handled before
+    if (data.showCount === 1 && timeSinceLastShow < twoWeeks) return false;
+    return !(data.showCount === 2 && timeSinceLastShow < oneMonth);
+  };
+
+  const dismissStarPopup = () => {
+    const data = getStarPopupData();
+    data.showCount += 1;
+    data.lastShowTime = Date.now();
+    saveStarPopupData(data);
+  };
+
+  const markStarred = () => {
+    const data = getStarPopupData();
+    data.didStar = true;
+    saveStarPopupData(data);
+  };
 
   const verifyConnection = async (isRecoveringFromAwsSso = false) => {
       if (verificationInProgressRef.current) return;
@@ -399,6 +458,8 @@ const MainLayout = () => {
           isVisible={state.isVerifyingConnection}
           message="Verifying cluster connection..."
         />
+
+        {showStarPopup() && <StarPopup repoUrl="https://github.com/sapod/Kubutctl-UI" onDismiss={dismissStarPopup} onStar={markStarred} />}
     </div>
   );
 };
