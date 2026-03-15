@@ -1,17 +1,17 @@
 # Release Notes
 
-## Version 2.8.0
+## Version 2.8.1
 
 ### Features
-- Move terminal to bottom panel, keeping context when moving around in the app and allowing multiple open contexts
-- Add a file explorer feature for pods and PVs
+- Console header now hidden when add cluster dialog is open
+- Full light theme support
 
 ### Improvements
-- UI optimization for deployment drawer and routines
-- Resolve vulnerabilities in used libs (all handled, now have 0 vulnerabilities)
+- Warning color changed to yellow (was red in some places)
+- YAML search cleanup when switching resource
 
 ### Bug Fixes
-- None
+- Fixed false "Cluster Context Changed Externally" error
 
 ### Breaking Changes
 - None
