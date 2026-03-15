@@ -1,0 +1,7 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: small-apps
+  labels:
+    purpose: multi-cluster-test

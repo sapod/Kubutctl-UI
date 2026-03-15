@@ -98,6 +98,43 @@ This will delete the entire cluster and clean up resources.
 
 See the [Useful Commands](#useful-commands) section below for common kubectl commands.
 
+## Multi-Cluster Testing
+
+For testing multi-cluster functionality in Kubectl-UI, you can create a second smaller cluster:
+
+### Start Both Clusters
+
+```bash
+./start-cluster.sh --with-second-cluster
+```
+
+This creates:
+- **Main Cluster** (`kubectl-ui-test`): 3-node cluster with full resources (ports 80/443)
+- **Second Cluster** (`kubectl-ui-test-2`): Single-node cluster with minimal resources (ports 8080/8443)
+
+### Second Cluster Resources
+
+- **Nodes**: 1 (control-plane)
+- **Namespace**: `small-apps`
+- **Deployments**: 2 (`hello-app`, `whoami-app`)
+- **Services**: 2
+- **Total Pods**: ~2
+
+### Stop Clusters
+
+```bash
+./stop-cluster.sh           # Stop main cluster only
+./stop-cluster.sh -2         # Stop second cluster only
+./stop-cluster.sh --all     # Stop both clusters
+```
+
+### Testing Multi-Cluster
+
+Once both clusters are running:
+1. Open Kubectl-UI
+2. Both clusters appear in your contexts: `kind-kubectl-ui-test` and `kind-kubectl-ui-test-2`
+3. You can switch between clusters to test multi-cluster handling
+
 ## Resources Created
 
 ### Namespaces (3)
@@ -250,6 +287,7 @@ Once the cluster is running:
 - ✅ **Logs** - Stream logs from various pods
 - ✅ **Shell access** - Execute into pods
 - ✅ **Resource metrics** - CPU and memory usage
+- ✅ **Multi-cluster** - Test switching between clusters (run with `--with-second-cluster`)
 
 ## Useful Commands
 
@@ -335,6 +373,10 @@ kubectl logs -n ingress-nginx deployment/ingress-nginx-controller
 # Delete and recreate cluster
 ./stop-cluster.sh
 ./start-cluster.sh
+
+# Or for both clusters
+./stop-cluster.sh --all
+./start-cluster.sh --with-second-cluster
 ```
 
 ## File Structure
@@ -342,17 +384,20 @@ kubectl logs -n ingress-nginx deployment/ingress-nginx-controller
 ```
 test-cluster/
 ├── README.md                          # This file
-├── kind-config.yaml                   # Kind cluster configuration
-├── start-cluster.sh                   # Script to start cluster
-├── stop-cluster.sh                    # Script to stop cluster
-├── 01-namespaces.yaml                 # Namespace definitions
+├── kind-config.yaml                   # Main cluster configuration (3 nodes)
+├── kind-config-2.yaml                  # Second cluster configuration (1 node)
+├── start-cluster.sh                   # Script to start cluster(s)
+├── stop-cluster.sh                    # Script to stop cluster(s)
+├── 01-namespaces.yaml                 # Main cluster namespaces
+├── 01-namespaces-2.yaml                # Second cluster namespace
 ├── 02-configmaps-secrets.yaml         # ConfigMaps and Secrets
-├── 03-deployments-apps.yaml           # Application deployments
+├── 03-deployments-apps.yaml           # Main cluster deployments
+├── 03-deployments-2.yaml              # Second cluster deployments
 ├── 04-statefulsets-databases.yaml     # Database StatefulSets
 ├── 05-daemonsets.yaml                 # DaemonSets for monitoring
 ├── 06-ingresses.yaml                  # Ingress resources
 ├── 07-jobs-cronjobs.yaml              # Jobs and CronJobs
-└── 08-misc-resources.yaml             # HPA, NetworkPolicies, etc.
+└── 08-misc-resources.yaml              # HPA, NetworkPolicies, etc.
 ```
 
 ## Modifying Resources
@@ -469,16 +514,18 @@ The cluster includes realistic multi-container deployments with sidecar patterns
 
 ## Cleaning Up
 
-To completely remove the cluster:
+To completely remove the cluster(s):
 
 ```bash
-./stop-cluster.sh
+./stop-cluster.sh           # Remove main cluster
+./stop-cluster.sh -2        # Remove second cluster only
+./stop-cluster.sh --all     # Remove both clusters
 ```
 
 This will:
-- Delete the kind cluster
+- Delete the kind cluster(s)
 - Remove all containers
-- Automatically clean up the kubeconfig entry
+- Automatically clean up the kubeconfig entries
 - Free up all resources
 
 ## Tips
