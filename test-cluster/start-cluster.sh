@@ -88,6 +88,13 @@ if [ "${SKIP_CLUSTER_CREATION}" != "true" ]; then
     echo ""
 fi
 
+# Install metrics-server for kubectl top and HPA
+echo -e "${BLUE}Installing metrics-server...${NC}"
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+kubectl patch deployment metrics-server -n kube-system --type=json -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+echo -e "${GREEN}✓ metrics-server installed${NC}"
+echo ""
+
 # Apply resources in order
 echo -e "${BLUE}Applying Kubernetes resources...${NC}"
 echo ""
@@ -182,6 +189,7 @@ echo ""
 
 echo -e "${BLUE}Resources Created:${NC}"
 echo "  ✓ 3 Namespaces (test-apps, monitoring, databases)"
+echo "  ✓ metrics-server (for kubectl top and HPA)"
 echo "  ✓ 4 Deployments (nginx: 3 replicas, multi-container: 2, backend-api: 5, worker: 4)"
 echo "  ✓ 2 StatefulSets (postgres: 3 replicas, redis: 3 replicas)"
 echo "  ✓ 2 DaemonSets (log-collector, node-monitor)"
@@ -293,6 +301,13 @@ if [ "$1" = "--with-second-cluster" ] || [ "$1" = "-2" ]; then
   echo -e "${BLUE}Waiting for second cluster to be ready...${NC}"
   kubectl wait --for=condition=Ready nodes --all --timeout=120s
   echo -e "${GREEN}✓ Second cluster is ready${NC}"
+  echo ""
+
+  # Install metrics-server for second cluster
+  echo -e "${BLUE}Installing metrics-server on second cluster...${NC}"
+  kubectl --context="kind-${CLUSTER_2_NAME}" apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+  kubectl --context="kind-${CLUSTER_2_NAME}" patch deployment metrics-server -n kube-system --type=json -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+  echo -e "${GREEN}✓ metrics-server installed on second cluster${NC}"
   echo ""
 
   # Apply resources to second cluster
