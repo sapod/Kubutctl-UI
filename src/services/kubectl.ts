@@ -489,8 +489,8 @@ export const kubectl = {
           return null;
       }
   },
-  setContext: async (contextName: string): Promise<void> => {
-      try { await executeWithVerification(KUBECTL_COMMANDS.useContext, [contextName], true); } catch (e) {}
+  setContext: async (contextName: string): Promise<void> => { // throw error to upper function
+      await executeWithVerification(KUBECTL_COMMANDS.useContext, [contextName], true);
   },
   deleteResource: async (type: string, name: string, namespace: string, resourceId?: string): Promise<void> => {
       try {

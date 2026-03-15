@@ -80,6 +80,7 @@ const initialClusterId = getStoredCurrentClusterId(storedClusters);
 const initialClusterState = loadClusterState(initialClusterId);
 const storedLogsTabs = getStoredLogsTabs();
 const storedTerminalTabs = getStoredTerminalTabs();
+let hadSwitchError = false;
 
 // Helper to load cache from localStorage
 const loadClusterCache = (): Map<string, { data: Partial<AppState>; timestamp: number }> => {
@@ -215,7 +216,13 @@ function reducer(state: AppState, action: Action): AppState {
         hasCachedData = cache.has(cluster.name);
       }
 
-      return {
+      let errorObj: { error?: string | null } = { error: null };
+      if (hadSwitchError) {
+        hadSwitchError = false;
+        errorObj = {};
+      }
+
+      return Object.assign({
         ...state,
         currentClusterId: action.payload,
         selectedNamespace: nextNs,
@@ -226,12 +233,11 @@ function reducer(state: AppState, action: Action): AppState {
         selectedResourceType: null,
         resourceHistory: [],
         terminalOutput: [...state.terminalOutput, `Context switch: ${cluster?.name || action.payload}`],
-        error: null,
         // Clear external context mismatch when user selects a cluster
         externalContextMismatch: false,
         // Only set isContextSwitching if switching to non-cached cluster
         isContextSwitching: isActualSwitch && !hasCachedData
-      };
+      }, errorObj);
     }
     case 'DISCONNECT_CLUSTER': { const updated = state.clusters.map(c => c.id === action.payload ? { ...c, status: 'Disconnected' } : c); localStorage.setItem('kube_clusters', JSON.stringify(updated)); return { ...state, clusters: updated as Cluster[] }; }
     case 'SELECT_NAMESPACE': { localStorage.setItem(`kube_selected_namespace_${state.currentClusterId}`, action.payload); return { ...state, selectedNamespace: action.payload }; }
@@ -1526,7 +1532,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         isFetchingRef.current = true;
         const isClusterSwitch = previousClusterRef.current !== state.currentClusterId;
         const wasContextSwitching = state.isContextSwitching;
-        previousClusterRef.current = state.currentClusterId;
 
         if (!isBackground) dispatch({ type: 'SET_LOADING', payload: true });
 
@@ -1548,9 +1553,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             if (cur) {
               try {
                 await kubectl.setContext(cur.name);
-              } catch (e) {}
+              } catch (e) {
+                // Context switch failed (e.g., context doesn't exist), revert to previous cluster
+                if (previousClusterRef.current && previousClusterRef.current !== state.currentClusterId) {
+                  hadSwitchError = true;
+                  dispatch({ type: 'SELECT_CLUSTER', payload: previousClusterRef.current });
+                }
+              }
             }
         }
+
+        previousClusterRef.current = state.currentClusterId;
 
         try {
             const ns = state.selectedNamespace;
