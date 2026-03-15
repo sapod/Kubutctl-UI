@@ -224,6 +224,10 @@ export const ResourceDrawer: React.FC = () => {
     setIsEditingYaml(false);
     setExpandedContainers(new Set()); // Reset expanded containers when resource changes
     setRevealedSecrets(new Set()); // Reset revealed secrets when resource changes
+    setYamlSearchQuery(''); // Reset YAML search when resource changes
+    setShowYamlSearch(false);
+    setCurrentMatchIndex(0);
+    setTotalMatches(0);
   }, [state.selectedResourceId, state.selectedResourceType]);
 
 

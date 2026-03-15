@@ -1405,6 +1405,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const viewsNeedingDeps = ['deployments', 'services', 'overview'];
       const viewsNeedingRs = ['replicasets', 'deployments'];
       const viewsNeedingPods = ['pods', 'deployments', 'replicasets', 'jobs', 'services', 'overview'];
+      const viewsNeedingPF = ['pods', 'services'];
 
       // Always fetch deployments, replicaSets, pods for logs functionality
       if (!viewsNeedingDeps.includes(view)) {
@@ -1426,6 +1427,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       // Fetch services if not already loaded
       if (view !== 'services') {
         backgroundPromises.push(kubectl.getServices(ns, false));
+      }
+
+      if (viewsNeedingPF.includes(view)) {
+        backgroundPromises.push(kubectl.getPortForwards(false));
       }
 
       // Always fetch DaemonSets and StatefulSets for logs panel (to match pods to workloads)
@@ -1458,7 +1463,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (view !== 'nodes' && results[idx]?.status === 'fulfilled') {
           bgData.nodes = (results[idx] as any).value;
         }
-        idx++;
+        if (view !== 'nodes') idx++;
 
         if (results[idx]?.status === 'fulfilled') {
           bgData.events = (results[idx] as any).value;
@@ -1468,7 +1473,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (view !== 'services' && results[idx]?.status === 'fulfilled') {
           bgData.services = (results[idx] as any).value;
         }
-        idx++;
+        if (view !== 'services') idx++;
+
+        if (viewsNeedingPF.includes(view) && results[idx]?.status === 'fulfilled') {
+          bgData.portForwards = (results[idx] as any).value;
+        }
+        if (viewsNeedingPF.includes(view)) idx++;
 
         // Extract DaemonSets
         if (results[idx]?.status === 'fulfilled') {
